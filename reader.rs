@@ -21,6 +21,8 @@ use collections::TreeMap;
 #[deriving(Eq, Show)]
 pub enum Error {
     InvalidDatabaseError(~str),
+    IoError(std::io::IoError),
+    MapError(~str),
 }
 
 pub type DecodeResult<T> = (Result<T, Error>, uint);
@@ -87,7 +89,6 @@ struct BinaryDecoder {
     map      : os::MemoryMap,
     pointer_base: uint
 }
-
 
 impl BinaryDecoder {
     fn decode_array(&self, size: uint, offset: uint) -> DecodeResult<DataRecord> {
@@ -171,7 +172,7 @@ impl BinaryDecoder {
 
             let str_key = match key {
                 String(s) => s,
-                v => fail!("unexpected map key type {}", v)
+                v => return (Err(InvalidDatabaseError(format!("unexpected map key type {}", v))), 0)
             };
             values.insert(str_key, val);
         }
@@ -204,7 +205,7 @@ impl BinaryDecoder {
         let bytes = self.read_from_file(size, offset);
         match str::from_utf8(bytes) {
             Some(v) => (Ok(String(v.to_str())), new_offset),
-            None => fail!("error decoding string")//(Err(error!("error decoding string")), new_offset)
+            None => (Err(InvalidDatabaseError(~"error decoding string")), new_offset)
         }
     }
 
@@ -263,11 +264,11 @@ impl BinaryDecoder {
             7 => self.decode_map(size, offset),
             8 => self.decode_int(size, offset),
             9 => self.decode_uint(size, offset),
-            10 => fail!("128 bit uint support is not implemented"),
+            10 => (Err(InvalidDatabaseError(~"128 bit uint support is not implemented")), offset),
             11 => self.decode_array(size, offset),
             14 => self.decode_bool(size, offset),
             15 => self.decode_float(size, offset),
-            u  => fail!("Unknown data type: {}", u)
+            u  => (Err(InvalidDatabaseError(format!("Unknown data type: {}", u))), offset),
         }
     }
 
@@ -305,52 +306,55 @@ struct Reader {
 
 impl Reader {
 
-    fn open(database: &str) -> Reader {
+    fn open(database: &str) -> Result<Reader, Error> {
         let data_section_separator_size = 16;
 
         let f = match native::io::file::open(&database.to_c_str(),
                                              Open, Read) {
             Ok(f)  => f,
-            Err(e) => fail!("Failed to open file: {}", e)
+            Err(e) => return Err(IoError(e))
         };
         let fd = f.fd();
 
         let stats = match native::io::file::stat(&database.to_c_str()) {
             Ok(s) => s,
-            Err(e) => fail!("Failed to stat file: {}", e)
+            Err(e) => return Err(IoError(e))
         };
 
         let database_size = stats.size as uint;
-        let m = match os::MemoryMap::new(database_size, [os::MapReadable, os::MapFd(fd), os::MapOffset(0)])
+        let map = match os::MemoryMap::new(database_size, [os::MapReadable, os::MapFd(fd), os::MapOffset(0)])
         {
             Ok(mem)  => mem,
-            Err(msg) => fail!(msg.to_str())
+            Err(msg) => return Err(MapError(msg.to_str()))
         };
 
-        let metadata_start = find_metadata_start(&m);
-        let metadata_decoder = BinaryDecoder { map: m, pointer_base: metadata_start};
+        let metadata_start = match find_metadata_start(&map) {
+            Ok(i) => i,
+            Err(e) => return Err(e)
+        };
+        let metadata_decoder = BinaryDecoder { map: map, pointer_base: metadata_start};
 
         // XXX -  eventually decode to struct
         let metadata = match metadata_decoder.decode(metadata_start) {
             (Ok(Map(m)), _) => m,
-            m      => fail!("metadata of wrong type: {}", m),
+            m      => return Err(InvalidDatabaseError(format!("metadata of wrong type: {}", m))),
         };
 
         let node_count = match metadata.find(&~"node_count").unwrap() {
             &Uint64(i) => i,
-            _ => fail!("unexpected type")
+            _ => return Err(InvalidDatabaseError(~"unexpected type"))
         };
 
         let record_size = match metadata.find(&~"record_size").unwrap() {
             &Uint64(i) => i,
-            _ => fail!("unexpected type")
+            _ => return Err(InvalidDatabaseError(~"unexpected type"))
         };
 
         let search_tree_size = node_count * record_size / 4;
         let decoder = BinaryDecoder{map: metadata_decoder.map, pointer_base: search_tree_size as uint + data_section_separator_size};
 
         // XXX - This should really be a Result given that it can fail
-        Reader { decoder: decoder, metadata: metadata, ipv4_start: 0, }
+        Ok(Reader { decoder: decoder, metadata: metadata, ipv4_start: 0, })
     }
 
 
@@ -372,7 +376,7 @@ impl Reader {
 
         let node_count = match self.metadata.find(&~"node_count").unwrap() {
             &Uint64(i) => i as uint,
-            _ => fail!("unexpected type")
+            _ => return Err(InvalidDatabaseError(~"unexpected type"))
         };
 
         for i in range(0, bit_count) {
@@ -391,14 +395,14 @@ impl Reader {
         } else if node > node_count {
             Ok(node)
         } else {
-           fail!("invalid node in search tree")
+           Err(InvalidDatabaseError(~"invalid node in search tree"))
         }
     }
 
     fn start_node(&mut self, length: uint) -> Result<uint, Error> {
         let ip_version = match self.metadata.find(&~"ip_version").unwrap() {
             &Uint64(i) => i,
-            _ => fail!("unexpected type")
+            _ => return Err(InvalidDatabaseError(~"unexpected type"))
         };
         if ip_version != 6 || length == 128 {
             return Ok(0);
@@ -412,7 +416,7 @@ impl Reader {
 
         let node_count = match self.metadata.find(&~"node_count").unwrap() {
             &Uint64(i) => i as uint,
-            _ => fail!("unexpected type")
+            _ => return Err(InvalidDatabaseError(~"unexpected type"))
         };
 
         let mut node: uint = 0u;
@@ -433,7 +437,7 @@ impl Reader {
     fn read_node(&self, node_number: uint, index: uint) -> Result<uint, Error> {
         let record_size = match self.metadata.find(&~"record_size").unwrap() {
             &Uint64(i) => i as uint,
-            _ => fail!("unexpected type")
+            _ => return Err(InvalidDatabaseError(~"unexpected type"))
         };
 
         let base_offset = node_number * record_size / 4;
@@ -466,18 +470,17 @@ impl Reader {
     fn resolve_data_pointer(&self, pointer: uint) -> Result<DataRecord, Error> {
         let node_count = match self.metadata.find(&~"node_count").unwrap() {
             &Uint64(i) => i as uint,
-            _ => fail!("unexpected type")
+            _ => return Err(InvalidDatabaseError(~"unexpected type"))
         };
 
         let record_size = match self.metadata.find(&~"record_size").unwrap() {
             &Uint64(i) => i as uint,
-            _ => fail!("unexpected type")
+            _ => return Err(InvalidDatabaseError(~"unexpected type"))
         };
 
         let search_tree_size = record_size * node_count / 4;
 
         let resolved = pointer - node_count + search_tree_size;
-        print!("resolved: {} {}\n", resolved, self.decoder.map.len);
 
         if resolved > self.decoder.map.len  {
             return Err(InvalidDatabaseError(~"the MaxMind DB file's search tree is corrupt"));
@@ -514,7 +517,7 @@ fn ip_to_bytes(ip_address: IpAddr) -> ~[u8] {
     }
 }
 
-fn find_metadata_start(map: &os::MemoryMap) -> uint {
+fn find_metadata_start(map: &os::MemoryMap) -> Result<uint, Error> {
     // This is reversed to make the loop below a bit simpler
     let metadata_start_marker : [u8, ..14] = [ 0x6d, 0x6f, 0x63, 0x2e, 0x64,
                                                0x6e, 0x69, 0x4d, 0x78, 0x61,
@@ -537,14 +540,14 @@ fn find_metadata_start(map: &os::MemoryMap) -> uint {
             }
         }
         if !not_found {
-            return map.len - start_position;
+            return Ok(map.len - start_position);
         }
     }
-    fail!("Could not find MaxMind DB metadata in file.");
+    Err(InvalidDatabaseError(~"Could not find MaxMind DB metadata in file."))
 }
 
 fn main() {
-    let mut r = Reader::open("GeoLite2-City.mmdb");
+    let mut r = Reader::open("GeoLite2-City.mmdb").unwrap();
     let ip: IpAddr = FromStr::from_str("1.1.1.1").unwrap();
     print!("{}", r.lookup(ip))
 }
