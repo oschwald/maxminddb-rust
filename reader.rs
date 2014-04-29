@@ -112,14 +112,14 @@ impl BinaryDecoder {
 
     fn decode_bytes(&self, size: uint, offset: uint) -> DecodeResult<DataRecord> {
         let new_offset = offset + size;
-        let bytes = self.read_from_file(size, offset);
+        let bytes = read_from_map(&self.map, size, offset);
         (Ok(Bytes(bytes)), new_offset)
     }
 
     fn decode_float(&self, size: uint, offset: uint) -> DecodeResult<DataRecord> {
         let new_offset = offset + size;
 
-        let buf = self.read_from_file(size, offset);
+        let buf = read_from_map(&self.map, size, offset);
         let mut reader = BufReader::new(buf);
         (Ok(Float(reader.read_be_f32().unwrap())), new_offset)
     }
@@ -127,7 +127,7 @@ impl BinaryDecoder {
     fn decode_double(&self, size: uint, offset: uint) -> DecodeResult<DataRecord> {
         let new_offset = offset + size;
 
-        let buf = self.read_from_file(size, offset);
+        let buf = read_from_map(&self.map, size, offset);
         let mut reader = BufReader::new(buf);
         (Ok(Double(reader.read_be_f64().unwrap())), new_offset)
     }
@@ -139,7 +139,7 @@ impl BinaryDecoder {
         let value = if size == 0 {
                 0
             } else {
-                let buf = self.read_from_file(size, offset);
+                let buf = read_from_map(&self.map, size, offset);
                 let mut reader = BufReader::new(buf);
                 reader.read_be_uint_n(size).unwrap()
             };
@@ -150,7 +150,7 @@ impl BinaryDecoder {
     fn decode_int(&self, size: uint, offset: uint) -> DecodeResult<DataRecord> {
         let new_offset = offset + size;
 
-        let buf = self.read_from_file(size, offset);
+        let buf = read_from_map(&self.map, size, offset);
         let mut reader = BufReader::new(buf);
         (Ok(Int32(reader.read_be_int_n(size).unwrap() as i32)), new_offset)
     }
@@ -184,7 +184,7 @@ impl BinaryDecoder {
         let pointer_value_offset = [0, 0, 2048, 526336, 0];
         let pointer_size = ((size >> 3) & 0x3) + 1;
         let new_offset = offset + pointer_size;
-        let pointer_bytes = self.read_from_file(pointer_size, offset);
+        let pointer_bytes = read_from_map(&self.map, pointer_size, offset);
 
         let packed = if pointer_size == 4 {
                 pointer_bytes
@@ -202,7 +202,7 @@ impl BinaryDecoder {
 
     fn decode_string(&self, size: uint, offset: uint) -> DecodeResult<DataRecord> {
         let new_offset : uint = offset + size;
-        let bytes = self.read_from_file(size, offset);
+        let bytes = read_from_map(&self.map, size, offset);
         match str::from_utf8(bytes) {
             Some(v) => (Ok(String(v.to_str())), new_offset),
             None => (Err(InvalidDatabaseError(~"error decoding string")), new_offset)
@@ -211,13 +211,13 @@ impl BinaryDecoder {
 
     fn decode(&self, offset: uint) -> DecodeResult<DataRecord> {
         let mut new_offset = offset + 1;
-        let ctrl_byte = (self.read_from_file(1, offset))[0];
+        let ctrl_byte = (read_from_map(&self.map, 1, offset))[0];
 
         let mut type_num = ctrl_byte >> 5;
 
         // Extended type
         if type_num == 0 {
-            type_num = self.read_from_file(1, new_offset)[0] + 7;
+            type_num = read_from_map(&self.map, 1, new_offset)[0] + 7;
             new_offset += 1;
         }
 
@@ -236,7 +236,7 @@ impl BinaryDecoder {
         let bytes_to_read = if size > 28 { size - 28 } else { 0 };
 
         let new_offset = offset + bytes_to_read;
-        let size_bytes = self.read_from_file(bytes_to_read, offset);
+        let size_bytes = read_from_map(&self.map, bytes_to_read, offset);
 
         size = match size {
                 s if s < 29 => s,
@@ -270,10 +270,6 @@ impl BinaryDecoder {
             15 => self.decode_float(size, offset),
             u  => (Err(InvalidDatabaseError(format!("Unknown data type: {}", u))), offset),
         }
-    }
-
-    fn read_from_file(&self, size: uint, offset: uint) -> ~[u8] {
-        unsafe { std::slice::from_buf(self.map.data.offset(offset as int) as *u8, size)}
     }
 }
 
@@ -548,7 +544,7 @@ fn find_metadata_start(map: &os::MemoryMap) -> Result<uint, Error> {
 
 fn main() {
     let mut r = Reader::open("GeoLite2-City.mmdb").unwrap();
-    let ip: IpAddr = FromStr::from_str("1.1.1.1").unwrap();
+    let ip: IpAddr = FromStr::from_str("128.101.101.101").unwrap();
     print!("{}", r.lookup(ip))
 }
 
