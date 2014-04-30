@@ -349,12 +349,17 @@ impl Reader {
         let search_tree_size = node_count * record_size / 4;
         let decoder = BinaryDecoder{map: metadata_decoder.map, pointer_base: search_tree_size as uint + data_section_separator_size};
 
-        // XXX - This should really be a Result given that it can fail
-        Ok(Reader { decoder: decoder, metadata: metadata, ipv4_start: 0, })
+        let mut reader = Reader { decoder: decoder, metadata: metadata, ipv4_start: 0, };
+        match reader.find_ipv4_start() {
+            Ok(i) => reader.ipv4_start = i,
+            Err(e) => return Err(e)
+        };
+
+        Ok(reader)
     }
 
 
-    fn lookup(&mut self, ip_address: IpAddr) -> Result<DataRecord, Error> {
+    fn lookup(&self, ip_address: IpAddr) -> Result<DataRecord, Error> {
     //  if len(ipAddress) == 16 && r.Metadata.IPVersion == 4 {
     //      return nil, fmt.Errorf("error looking up '%s': you attempted to look up an IPv6 address in an IPv4-only database", ipAddress.String())
     //  }
@@ -366,7 +371,7 @@ impl Reader {
         self.resolve_data_pointer(pointer)
     }
 
-    fn find_address_in_tree(&mut self, ip_address: ~[u8]) -> Result<uint, Error> {
+    fn find_address_in_tree(&self, ip_address: ~[u8]) -> Result<uint, Error> {
         let bit_count = ip_address.len()*8;
         let mut node = self.start_node(bit_count).unwrap();
 
@@ -395,24 +400,28 @@ impl Reader {
         }
     }
 
-    fn start_node(&mut self, length: uint) -> Result<uint, Error> {
+    fn start_node(&self, length: uint) -> Result<uint, Error> {
+        if length == 128 {
+            Ok(0)
+        } else {
+            Ok(self.ipv4_start)
+        }
+    }
+
+    fn find_ipv4_start(&self)  -> Result<uint, Error> {
         let ip_version = match self.metadata.find(&~"ip_version").unwrap() {
             &Uint64(i) => i,
-            _ => return Err(InvalidDatabaseError(~"unexpected type"))
+            _ => return Err(InvalidDatabaseError(~"invalid metadata"))
         };
-        if ip_version != 6 || length == 128 {
+        if ip_version != 6 {
             return Ok(0);
         }
 
         // We are looking up an IPv4 address in an IPv6 tree. Skip over the
         // first 96 nodes.
-        if self.ipv4_start != 0 {
-            return Ok(self.ipv4_start);
-        }
-
         let node_count = match self.metadata.find(&~"node_count").unwrap() {
             &Uint64(i) => i as uint,
-            _ => return Err(InvalidDatabaseError(~"unexpected type"))
+            _ => return Err(InvalidDatabaseError(~"invalid metadata"))
         };
 
         let mut node: uint = 0u;
@@ -425,7 +434,6 @@ impl Reader {
                 e => return e
             };
         }
-        self.ipv4_start = node;
         Ok(node)
     }
 
@@ -543,7 +551,7 @@ fn find_metadata_start(map: &os::MemoryMap) -> Result<uint, Error> {
 }
 
 fn main() {
-    let mut r = Reader::open("GeoLite2-City.mmdb").unwrap();
+    let r = Reader::open("GeoLite2-City.mmdb").unwrap();
     let ip: IpAddr = FromStr::from_str("128.101.101.101").unwrap();
     print!("{}", r.lookup(ip))
 }
