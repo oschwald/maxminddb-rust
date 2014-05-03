@@ -234,7 +234,7 @@ impl BinaryDecoder {
         let bytes = read_from_map(&self.map, size, offset);
         match str::from_utf8(bytes) {
             Some(v) => (Ok(String(v.to_str())), new_offset),
-            None => (Err(InvalidDatabaseError(~"error decoding string")), new_offset)
+            None => (Err(InvalidDatabaseError("error decoding string".to_owned())), new_offset)
         }
     }
 
@@ -293,7 +293,7 @@ impl BinaryDecoder {
             7 => self.decode_map(size, offset),
             8 => self.decode_int(size, offset),
             9 => self.decode_uint64(size, offset),
-            10 => (Err(InvalidDatabaseError(~"128 bit uint support is not implemented")), offset),
+            10 => (Err(InvalidDatabaseError("128 bit uint support is not implemented".to_owned())), offset),
             11 => self.decode_array(size, offset),
             14 => self.decode_bool(size, offset),
             15 => self.decode_float(size, offset),
@@ -336,7 +336,7 @@ pub type DecodeResult<T> = Result<T, Error>;
 impl serialize::Decoder<Error> for Decoder {
     fn read_nil(&mut self) -> DecodeResult<()> {
         debug!("read_nil");
-        Err(DecodingError(~"nil data not supported by MaxMind DB format"))
+        Err(DecodingError("nil data not supported by MaxMind DB format".to_owned()))
     }
 
     fn read_u64(&mut self)  -> DecodeResult<u64 > {
@@ -356,7 +356,7 @@ impl serialize::Decoder<Error> for Decoder {
 
     fn read_u8 (&mut self)  -> DecodeResult<u8  > {
         debug!("read_u8");
-        Err(DecodingError(~"u8 data not supported by MaxMind DB format"))
+        Err(DecodingError("u8 data not supported by MaxMind DB format".to_owned()))
     }
 
     fn read_uint(&mut self) -> DecodeResult<uint> {
@@ -376,12 +376,12 @@ impl serialize::Decoder<Error> for Decoder {
 
     fn read_i16(&mut self) -> DecodeResult<i16> {
         debug!("read_i16");
-        Err(DecodingError(~"i16 data not supported by MaxMind DB format"))
+        Err(DecodingError("i16 data not supported by MaxMind DB format".to_owned()))
     }
 
     fn read_i8 (&mut self) -> DecodeResult<i8 > {
         debug!("read_i8");
-        Err(DecodingError(~"i8 data not supported by MaxMind DB format"))
+        Err(DecodingError("i8 data not supported by MaxMind DB format".to_owned()))
     }
 
     fn read_int(&mut self) -> DecodeResult<int> {
@@ -444,7 +444,7 @@ impl serialize::Decoder<Error> for Decoder {
                 };
                 match o.pop(&"fields".to_owned()) {
                     Some(Array(l)) => {
-                        for field in l.move_rev_iter() {
+                        for field in l.move_iter().rev() {
                             self.stack.push(field.clone());
                         }
                     },
@@ -554,7 +554,7 @@ impl serialize::Decoder<Error> for Decoder {
         debug!("read_seq()");
         let list = try!(expect!(self.pop(), Array));
         let len = list.len();
-        for v in list.move_rev_iter() {
+        for v in list.move_iter().rev() {
             self.stack.push(v);
         }
         f(self, len)
@@ -683,7 +683,7 @@ impl Reader {
         } else if node > self.metadata.node_count {
             Ok(node)
         } else {
-           Err(InvalidDatabaseError(~"invalid node in search tree"))
+           Err(InvalidDatabaseError("invalid node in search tree".to_owned()))
         }
     }
 
@@ -752,7 +752,7 @@ impl Reader {
         let resolved = pointer - self.metadata.node_count + search_tree_size;
 
         if resolved > self.decoder.map.len  {
-            return Err(InvalidDatabaseError(~"the MaxMind DB file's search tree is corrupt"));
+            return Err(InvalidDatabaseError("the MaxMind DB file's search tree is corrupt".to_owned()));
         }
 
         let (record, _) = self.decoder.decode(resolved);
@@ -812,7 +812,7 @@ fn find_metadata_start(map: &os::MemoryMap) -> Result<uint, Error> {
             return Ok(map.len - start_position);
         }
     }
-    Err(InvalidDatabaseError(~"Could not find MaxMind DB metadata in file."))
+    Err(InvalidDatabaseError("Could not find MaxMind DB metadata in file.".to_owned()))
 }
 
 #[deriving(Decodable, Show)]
