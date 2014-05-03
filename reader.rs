@@ -6,6 +6,7 @@
 
 extern crate collections;
 extern crate native;
+extern crate serialize;
 
 use std::fmt;
 use std::io::BufReader;
@@ -16,16 +17,17 @@ use std::os;
 use std::str;
 
 use collections::TreeMap;
-
+use serialize::{Decoder, Decodable};
 
 #[deriving(Eq, Show)]
 pub enum Error {
     InvalidDatabaseError(~str),
     IoError(std::io::IoError),
     MapError(~str),
+    DecodingError(~str),
 }
 
-pub type DecodeResult<T> = (Result<T, Error>, uint);
+pub type BinaryDecodeResult<T> = (Result<T, Error>, uint);
 
 #[deriving(Clone, Eq)]
 pub enum DataRecord {
@@ -85,13 +87,27 @@ impl fmt::Show for TreeMap<~str, DataRecord> {
     }
 }
 
+#[deriving(Decodable)]
+struct Metadata {
+    binary_format_major_version : u16,
+    binary_format_minor_version : u16,
+    build_epoch                 : u64,
+    database_type               : ~str,
+    description                 : TreeMap<~str, ~str>,
+    ip_version                  : u16,
+    languages                   : ~[~str],
+    node_count                  : uint,
+    // XXX - why is record size coming out as a u32? It should be u16
+    record_size                 : u32,
+}
+
 struct BinaryDecoder {
     map      : os::MemoryMap,
     pointer_base: uint
 }
 
 impl BinaryDecoder {
-    fn decode_array(&self, size: uint, offset: uint) -> DecodeResult<DataRecord> {
+    fn decode_array(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
         let mut array = Vec::new();
         let mut new_offset = offset;
 
@@ -106,17 +122,17 @@ impl BinaryDecoder {
         (Ok(Array(array.move_iter().collect())), new_offset)
     }
 
-    fn decode_bool(&self, size: uint, offset: uint) -> DecodeResult<DataRecord> {
+    fn decode_bool(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
         (Ok(Boolean(size != 0)), offset)
     }
 
-    fn decode_bytes(&self, size: uint, offset: uint) -> DecodeResult<DataRecord> {
+    fn decode_bytes(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
         let new_offset = offset + size;
         let bytes = read_from_map(&self.map, size, offset);
         (Ok(Bytes(bytes)), new_offset)
     }
 
-    fn decode_float(&self, size: uint, offset: uint) -> DecodeResult<DataRecord> {
+    fn decode_float(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
         let new_offset = offset + size;
 
         let buf = read_from_map(&self.map, size, offset);
@@ -124,7 +140,7 @@ impl BinaryDecoder {
         (Ok(Float(reader.read_be_f32().unwrap())), new_offset)
     }
 
-    fn decode_double(&self, size: uint, offset: uint) -> DecodeResult<DataRecord> {
+    fn decode_double(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
         let new_offset = offset + size;
 
         let buf = read_from_map(&self.map, size, offset);
@@ -132,8 +148,7 @@ impl BinaryDecoder {
         (Ok(Double(reader.read_be_f64().unwrap())), new_offset)
     }
 
-
-    fn decode_uint(&self, size: uint, offset: uint) -> DecodeResult<DataRecord> {
+    fn decode_uint64(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
         let new_offset = offset + size;
 
         let value = if size == 0 {
@@ -147,7 +162,21 @@ impl BinaryDecoder {
         (Ok(Uint64(value)), new_offset)
     }
 
-    fn decode_int(&self, size: uint, offset: uint) -> DecodeResult<DataRecord> {
+    fn decode_uint32(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
+        match self.decode_uint64(size, offset) {
+            (Ok(Uint64(u)), o) => (Ok(Uint32(u as u32)), o),
+            e => e
+        }
+    }
+
+    fn decode_uint16(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
+        match self.decode_uint64(size, offset) {
+            (Ok(Uint64(u)), o) => (Ok(Uint16(u as u16)), o),
+            e => e
+        }
+    }
+
+    fn decode_int(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
         let new_offset = offset + size;
 
         let buf = read_from_map(&self.map, size, offset);
@@ -155,7 +184,7 @@ impl BinaryDecoder {
         (Ok(Int32(reader.read_be_int_n(size).unwrap() as i32)), new_offset)
     }
 
-    fn decode_map(&self, size: uint, offset: uint) -> DecodeResult<DataRecord> {
+    fn decode_map(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
         let mut values = ~TreeMap::new();
         let mut new_offset = offset;
 
@@ -180,7 +209,7 @@ impl BinaryDecoder {
     }
 
 
-    fn decode_pointer(&self, size: uint, offset: uint) -> DecodeResult<DataRecord> {
+    fn decode_pointer(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
         let pointer_value_offset = [0, 0, 2048, 526336, 0];
         let pointer_size = ((size >> 3) & 0x3) + 1;
         let new_offset = offset + pointer_size;
@@ -200,7 +229,7 @@ impl BinaryDecoder {
         (result, new_offset)
     }
 
-    fn decode_string(&self, size: uint, offset: uint) -> DecodeResult<DataRecord> {
+    fn decode_string(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
         let new_offset : uint = offset + size;
         let bytes = read_from_map(&self.map, size, offset);
         match str::from_utf8(bytes) {
@@ -209,7 +238,7 @@ impl BinaryDecoder {
         }
     }
 
-    fn decode(&self, offset: uint) -> DecodeResult<DataRecord> {
+    fn decode(&self, offset: uint) -> BinaryDecodeResult<DataRecord> {
         let mut new_offset = offset + 1;
         let ctrl_byte = (read_from_map(&self.map, 1, offset))[0];
 
@@ -253,17 +282,17 @@ impl BinaryDecoder {
         (size, new_offset)
     }
 
-    fn decode_from_type(&self, data_type: u8, size: uint, offset: uint) -> DecodeResult<DataRecord> {
+    fn decode_from_type(&self, data_type: u8, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
         match data_type {
             1 => self.decode_pointer(size, offset),
             2 => self.decode_string(size, offset),
             3 => self.decode_double(size, offset),
             4 => self.decode_bytes(size, offset),
-            5 => self.decode_uint(size, offset),
-            6 => self.decode_uint(size, offset),
+            5 => self.decode_uint16(size, offset),
+            6 => self.decode_uint32(size, offset),
             7 => self.decode_map(size, offset),
             8 => self.decode_int(size, offset),
-            9 => self.decode_uint(size, offset),
+            9 => self.decode_uint64(size, offset),
             10 => (Err(InvalidDatabaseError(~"128 bit uint support is not implemented")), offset),
             11 => self.decode_array(size, offset),
             14 => self.decode_bool(size, offset),
@@ -274,29 +303,297 @@ impl BinaryDecoder {
 }
 
 macro_rules! expect(
-    ($e:expr, Null) => ({
-        match $e {
-            Null => Ok(()),
-            other => Err(ExpectedError("Null".to_owned(), format!("{}", other)))
-        }
-    });
     ($e:expr, $t:ident) => ({
         match $e {
             $t(v) => Ok(v),
-            other => Err(ExpectedError(stringify!($t).to_owned(), format!("{}", other)))
+            other => Err(DecodingError(format!("Error deocoding {:?} as {}", other, stringify!($t))))
         }
     })
 )
 
-// pub struct Decoder {
-//     stack: Vec<DataRecord>,
-// }
+pub struct Decoder {
+    stack: Vec<DataRecord>,
+}
 
-// ... decoder similar to the Json decoder
+impl Decoder {
+    /// Creates a new decoder instance for decoding the specified JSON value.
+    pub fn new(record: DataRecord) -> Decoder {
+        Decoder {
+            stack: vec!(record),
+        }
+    }
+}
+
+impl Decoder {
+    fn pop(&mut self) -> DataRecord {
+        self.stack.pop().unwrap()
+    }
+}
+
+pub type DecodeResult<T> = Result<T, Error>;
+
+// Much of this code was borrowed from the Rust JSON library
+impl serialize::Decoder<Error> for Decoder {
+    fn read_nil(&mut self) -> DecodeResult<()> {
+        debug!("read_nil");
+        Err(DecodingError(~"nil data not supported by MaxMind DB format"))
+    }
+
+    fn read_u64(&mut self)  -> DecodeResult<u64 > {
+        debug!("read_u64");
+        Ok(try!(expect!(self.pop(), Uint64)))
+    }
+
+    fn read_u32(&mut self)  -> DecodeResult<u32 > {
+        debug!("read_u32");
+        Ok(try!(expect!(self.pop(), Uint32)))
+    }
+
+    fn read_u16(&mut self)  -> DecodeResult<u16 > {
+        debug!("read_u16");
+        Ok(try!(expect!(self.pop(), Uint16)))
+    }
+
+    fn read_u8 (&mut self)  -> DecodeResult<u8  > {
+        debug!("read_u8");
+        Err(DecodingError(~"u8 data not supported by MaxMind DB format"))
+    }
+
+    fn read_uint(&mut self) -> DecodeResult<uint> {
+        debug!("read_uint");
+        Ok(try!(expect!(self.pop(), Uint32)) as uint)
+    }
+
+    fn read_i64(&mut self) -> DecodeResult<i64> {
+        debug!("read_i64");
+        Ok(try!(self.read_i32()) as i64)
+    }
+
+    fn read_i32(&mut self) -> DecodeResult<i32> {
+        debug!("read_i32");
+        Ok(try!(expect!(self.pop(), Int32)))
+    }
+
+    fn read_i16(&mut self) -> DecodeResult<i16> {
+        debug!("read_i16");
+        Err(DecodingError(~"i16 data not supported by MaxMind DB format"))
+    }
+
+    fn read_i8 (&mut self) -> DecodeResult<i8 > {
+        debug!("read_i8");
+        Err(DecodingError(~"i8 data not supported by MaxMind DB format"))
+    }
+
+    fn read_int(&mut self) -> DecodeResult<int> {
+        debug!("read_int");
+        Ok(try!(self.read_i32()) as int)
+    }
+
+    fn read_bool(&mut self) -> DecodeResult<bool> {
+        debug!("read_bool");
+        Ok(try!(expect!(self.pop(), Boolean)))
+    }
+
+    fn read_f64(&mut self) -> DecodeResult<f64> {
+        debug!("read_f64");
+        Ok(try!(expect!(self.pop(), Double)))
+    }
+
+    fn read_f32(&mut self) -> DecodeResult<f32> {
+        debug!("read_f32");
+        Ok(try!(expect!(self.pop(), Float)))
+    }
+
+    fn read_char(&mut self) -> DecodeResult<char> {
+        let s = try!(self.read_str());
+        {
+            let mut it = s.chars();
+            match (it.next(), it.next()) {
+                // exactly one character
+                (Some(c), None) => return Ok(c),
+                _ => ()
+            }
+        }
+        Err(DecodingError(format!("char {}", s)))
+    }
+
+    fn read_str(&mut self) -> DecodeResult<~str> {
+        debug!("read_str");
+        Ok(try!(expect!(self.pop(), String)))
+    }
+
+    fn read_enum<T>(&mut self,
+                    name: &str,
+                    f: |&mut Decoder| -> DecodeResult<T>) -> DecodeResult<T> {
+        debug!("read_enum({})", name);
+        f(self)
+    }
+
+    fn read_enum_variant<T>(&mut self,
+                            names: &[&str],
+                            f: |&mut Decoder, uint| -> DecodeResult<T>)
+                            -> DecodeResult<T> {
+        debug!("read_enum_variant(names={:?})", names);
+        let name = match self.pop() {
+            String(s) => s,
+            Map(mut o) => {
+                let n = match o.pop(&"variant".to_owned()) {
+                    Some(String(s)) => s,
+                    Some(val) => return Err(DecodingError( format!("enum {}", val))),
+                    None => return Err(DecodingError("variant".to_owned()))
+                };
+                match o.pop(&"fields".to_owned()) {
+                    Some(Array(l)) => {
+                        for field in l.move_rev_iter() {
+                            self.stack.push(field.clone());
+                        }
+                    },
+                    Some(val) => return Err(DecodingError(format!("enum {}", val))),
+                    None => return Err(DecodingError("fields".to_owned()))
+                }
+                n
+            }
+            json => return Err(DecodingError( format!("enum {}", json)))
+        };
+        let idx = match names.iter().position(|n| str::eq_slice(*n, name)) {
+            Some(idx) => idx,
+            None => return Err(DecodingError(name))
+        };
+        f(self, idx)
+    }
+
+    fn read_enum_variant_arg<T>(&mut self, idx: uint, f: |&mut Decoder| -> DecodeResult<T>)
+                                -> DecodeResult<T> {
+        debug!("read_enum_variant_arg(idx={})", idx);
+        f(self)
+    }
+
+    fn read_enum_struct_variant<T>(&mut self,
+                                   names: &[&str],
+                                   f: |&mut Decoder, uint| -> DecodeResult<T>)
+                                   -> DecodeResult<T> {
+        debug!("read_enum_struct_variant(names={:?})", names);
+        self.read_enum_variant(names, f)
+    }
+
+
+    fn read_enum_struct_variant_field<T>(&mut self,
+                                         name: &str,
+                                         idx: uint,
+                                         f: |&mut Decoder| -> DecodeResult<T>)
+                                         -> DecodeResult<T> {
+        debug!("read_enum_struct_variant_field(name={}, idx={})", name, idx);
+        self.read_enum_variant_arg(idx, f)
+    }
+
+    fn read_struct<T>(&mut self,
+                      name: &str,
+                      len: uint,
+                      f: |&mut Decoder| -> DecodeResult<T>)
+                      -> DecodeResult<T> {
+        debug!("read_struct(name={}, len={})", name, len);
+        let value = try!(f(self));
+        self.pop();
+        Ok(value)
+    }
+
+    fn read_struct_field<T>(&mut self,
+                            name: &str,
+                            idx: uint,
+                            f: |&mut Decoder| -> DecodeResult<T>)
+                            -> DecodeResult<T> {
+        debug!("read_struct_field(name={}, idx={})", name, idx);
+        let mut obj = try!(expect!(self.pop(), Map));
+
+        let value = match obj.pop(&name.to_owned()) {
+            None => return Err(DecodingError(format!("struct {}", name.to_owned()))),
+            Some(record) => {
+                self.stack.push(record);
+                try!(f(self))
+            }
+        };
+        self.stack.push(Map(obj));
+        Ok(value)
+    }
+
+    fn read_tuple<T>(&mut self, f: |&mut Decoder, uint| -> DecodeResult<T>) -> DecodeResult<T> {
+        debug!("read_tuple()");
+        self.read_seq(f)
+    }
+
+    fn read_tuple_arg<T>(&mut self,
+                         idx: uint,
+                         f: |&mut Decoder| -> DecodeResult<T>) -> DecodeResult<T> {
+        debug!("read_tuple_arg(idx={})", idx);
+        self.read_seq_elt(idx, f)
+    }
+
+    fn read_tuple_struct<T>(&mut self,
+                            name: &str,
+                            f: |&mut Decoder, uint| -> DecodeResult<T>)
+                            -> DecodeResult<T> {
+        debug!("read_tuple_struct(name={})", name);
+        self.read_tuple(f)
+    }
+
+    fn read_tuple_struct_arg<T>(&mut self,
+                                idx: uint,
+                                f: |&mut Decoder| -> DecodeResult<T>)
+                                -> DecodeResult<T> {
+        debug!("read_tuple_struct_arg(idx={})", idx);
+        self.read_tuple_arg(idx, f)
+    }
+
+    fn read_option<T>(&mut self, f: |&mut Decoder, bool| -> DecodeResult<T>) -> DecodeResult<T> {
+        let value = self.pop();
+        self.stack.push(value);
+        f(self, true)
+    }
+
+    fn read_seq<T>(&mut self, f: |&mut Decoder, uint| -> DecodeResult<T>) -> DecodeResult<T> {
+        debug!("read_seq()");
+        let list = try!(expect!(self.pop(), Array));
+        let len = list.len();
+        for v in list.move_rev_iter() {
+            self.stack.push(v);
+        }
+        f(self, len)
+    }
+
+    fn read_seq_elt<T>(&mut self,
+                       idx: uint,
+                       f: |&mut Decoder| -> DecodeResult<T>) -> DecodeResult<T> {
+        debug!("read_seq_elt(idx={})", idx);
+        f(self)
+    }
+
+    fn read_map<T>(&mut self, f: |&mut Decoder, uint| -> DecodeResult<T>) -> DecodeResult<T> {
+        debug!("read_map()");
+        let obj = try!(expect!(self.pop(), Map));
+        let len = obj.len();
+        for (key, value) in obj.move_iter() {
+            self.stack.push(value);
+            self.stack.push(String(key));
+        }
+        f(self, len)
+    }
+
+    fn read_map_elt_key<T>(&mut self, idx: uint, f: |&mut Decoder| -> DecodeResult<T>)
+                           -> DecodeResult<T> {
+        debug!("read_map_elt_key(idx={})", idx);
+        f(self)
+    }
+
+    fn read_map_elt_val<T>(&mut self, idx: uint, f: |&mut Decoder| -> DecodeResult<T>)
+                           -> DecodeResult<T> {
+        debug!("read_map_elt_val(idx={})", idx);
+        f(self)
+    }
+}
 
 struct Reader {
     decoder: BinaryDecoder,
-    metadata: ~TreeMap<~str, DataRecord>,
+    metadata: Metadata,
     ipv4_start: uint,
 }
 
@@ -330,23 +627,18 @@ impl Reader {
         };
         let metadata_decoder = BinaryDecoder { map: map, pointer_base: metadata_start};
 
-        // XXX -  eventually decode to struct
-        let metadata = match metadata_decoder.decode(metadata_start) {
-            (Ok(Map(m)), _) => m,
+        let raw_metadata = match metadata_decoder.decode(metadata_start) {
+            (Ok(m), _) => m,
             m      => return Err(InvalidDatabaseError(format!("metadata of wrong type: {}", m))),
         };
 
-        let node_count = match metadata.find(&~"node_count").unwrap() {
-            &Uint64(i) => i,
-            _ => return Err(InvalidDatabaseError(~"unexpected type"))
+        let mut typeDecoder = ::Decoder::new(raw_metadata);
+        let metadata: Metadata = match Decodable::decode(&mut typeDecoder) {
+            Ok(v) => v,
+            Err(e) => fail!("Decoding error: {}", e)
         };
 
-        let record_size = match metadata.find(&~"record_size").unwrap() {
-            &Uint64(i) => i,
-            _ => return Err(InvalidDatabaseError(~"unexpected type"))
-        };
-
-        let search_tree_size = node_count * record_size / 4;
+        let search_tree_size = metadata.node_count * (metadata.record_size as uint) / 4;
         let decoder = BinaryDecoder{map: metadata_decoder.map, pointer_base: search_tree_size as uint + data_section_separator_size};
 
         let mut reader = Reader { decoder: decoder, metadata: metadata, ipv4_start: 0, };
@@ -375,13 +667,8 @@ impl Reader {
         let bit_count = ip_address.len()*8;
         let mut node = self.start_node(bit_count).unwrap();
 
-        let node_count = match self.metadata.find(&~"node_count").unwrap() {
-            &Uint64(i) => i as uint,
-            _ => return Err(InvalidDatabaseError(~"unexpected type"))
-        };
-
         for i in range(0, bit_count) {
-            if node >= node_count {
+            if node >= self.metadata.node_count {
                 break;
             }
             let bit = 1 & (ip_address[i>>3] >> (7-(i % 8)));
@@ -391,9 +678,9 @@ impl Reader {
                 e => return e
             };
         }
-        if node == node_count {
+        if node == self.metadata.node_count {
             Ok(0)
-        } else if node > node_count {
+        } else if node > self.metadata.node_count {
             Ok(node)
         } else {
            Err(InvalidDatabaseError(~"invalid node in search tree"))
@@ -409,24 +696,16 @@ impl Reader {
     }
 
     fn find_ipv4_start(&self)  -> Result<uint, Error> {
-        let ip_version = match self.metadata.find(&~"ip_version").unwrap() {
-            &Uint64(i) => i,
-            _ => return Err(InvalidDatabaseError(~"invalid metadata"))
-        };
-        if ip_version != 6 {
+
+        if self.metadata.ip_version != 6 {
             return Ok(0);
         }
 
         // We are looking up an IPv4 address in an IPv6 tree. Skip over the
         // first 96 nodes.
-        let node_count = match self.metadata.find(&~"node_count").unwrap() {
-            &Uint64(i) => i as uint,
-            _ => return Err(InvalidDatabaseError(~"invalid metadata"))
-        };
-
         let mut node: uint = 0u;
         for _ in range(0, 96) {
-            if node >= node_count {
+            if node >= self.metadata.node_count {
                 break;
             }
             node = match self.read_node(node, 0) {
@@ -439,14 +718,10 @@ impl Reader {
 
 
     fn read_node(&self, node_number: uint, index: uint) -> Result<uint, Error> {
-        let record_size = match self.metadata.find(&~"record_size").unwrap() {
-            &Uint64(i) => i as uint,
-            _ => return Err(InvalidDatabaseError(~"unexpected type"))
-        };
 
-        let base_offset = node_number * record_size / 4;
+        let base_offset = node_number * (self.metadata.record_size as uint)/ 4;
 
-        let bytes = match record_size {
+        let bytes = match self.metadata.record_size {
             24 => {
                 let offset = base_offset + index * 3;
                 read_from_map(&self.decoder.map, 3, offset)
@@ -472,19 +747,9 @@ impl Reader {
     }
 
     fn resolve_data_pointer(&self, pointer: uint) -> Result<DataRecord, Error> {
-        let node_count = match self.metadata.find(&~"node_count").unwrap() {
-            &Uint64(i) => i as uint,
-            _ => return Err(InvalidDatabaseError(~"unexpected type"))
-        };
+        let search_tree_size = (self.metadata.record_size as uint) * self.metadata.node_count / 4;
 
-        let record_size = match self.metadata.find(&~"record_size").unwrap() {
-            &Uint64(i) => i as uint,
-            _ => return Err(InvalidDatabaseError(~"unexpected type"))
-        };
-
-        let search_tree_size = record_size * node_count / 4;
-
-        let resolved = pointer - node_count + search_tree_size;
+        let resolved = pointer - self.metadata.node_count + search_tree_size;
 
         if resolved > self.decoder.map.len  {
             return Err(InvalidDatabaseError(~"the MaxMind DB file's search tree is corrupt"));
@@ -550,9 +815,31 @@ fn find_metadata_start(map: &os::MemoryMap) -> Result<uint, Error> {
     Err(InvalidDatabaseError(~"Could not find MaxMind DB metadata in file."))
 }
 
+#[deriving(Decodable, Show)]
+pub struct Continent {
+    code: ~str,
+    geoname_id: u32,
+}
+
+#[deriving(Decodable, Show)]
+pub struct GeoIP2City  {
+     continent: Continent,
+//     location: ~str,
+}
+
+
 fn main() {
     let r = Reader::open("GeoLite2-City.mmdb").unwrap();
     let ip: IpAddr = FromStr::from_str("128.101.101.101").unwrap();
-    print!("{}", r.lookup(ip))
+    let dr = r.lookup(ip);
+    //print!("{}", dr)
+
+    let mut decoder = ::Decoder::new(dr.unwrap());
+    let decoded_object: GeoIP2City = match Decodable::decode(&mut decoder) {
+        Ok(v) => v,
+        Err(e) => fail!("Decoding error: {}", e)
+    }; // create the final object
+    print!("{}", decoded_object);
+
 }
 
