@@ -1,3 +1,9 @@
+#![crate_id = "maxminddb#0.1.0-pre"]
+
+#![comment = "MaxMind DB Reader"]
+#![license = "Apache 2"]
+#![crate_type = "dylib"]
+#![crate_type = "rlib"]
 
 #![feature(macro_rules)]
 
@@ -12,7 +18,6 @@ use std::fmt;
 use std::io::BufReader;
 use std::io::{Open, Read};
 use std::io::net::ip::{IpAddr,Ipv6Addr,Ipv4Addr};
-use std::from_str::FromStr;
 use std::os;
 use std::str;
 
@@ -591,7 +596,7 @@ impl serialize::Decoder<Error> for Decoder {
     }
 }
 
-struct Reader {
+pub struct Reader {
     decoder: BinaryDecoder,
     metadata: Metadata,
     ipv4_start: uint,
@@ -599,7 +604,7 @@ struct Reader {
 
 impl Reader {
 
-    fn open(database: &str) -> Result<Reader, Error> {
+    pub fn open(database: &str) -> Result<Reader, Error> {
         let data_section_separator_size = 16;
 
         let f = match native::io::file::open(&database.to_c_str(),
@@ -651,7 +656,7 @@ impl Reader {
     }
 
 
-    fn lookup(&self, ip_address: IpAddr) -> Result<DataRecord, Error> {
+    pub fn lookup(&self, ip_address: IpAddr) -> Result<DataRecord, Error> {
     //  if len(ipAddress) == 16 && r.Metadata.IPVersion == 4 {
     //      return nil, fmt.Errorf("error looking up '%s': you attempted to look up an IPv6 address in an IPv4-only database", ipAddress.String())
     //  }
@@ -813,33 +818,5 @@ fn find_metadata_start(map: &os::MemoryMap) -> Result<uint, Error> {
         }
     }
     Err(InvalidDatabaseError("Could not find MaxMind DB metadata in file.".to_owned()))
-}
-
-#[deriving(Decodable, Show)]
-pub struct Continent {
-    code: ~str,
-    geoname_id: u32,
-}
-
-#[deriving(Decodable, Show)]
-pub struct GeoIP2City  {
-     continent: Continent,
-//     location: ~str,
-}
-
-
-fn main() {
-    let r = Reader::open("GeoLite2-City.mmdb").unwrap();
-    let ip: IpAddr = FromStr::from_str("128.101.101.101").unwrap();
-    let dr = r.lookup(ip);
-    //print!("{}", dr)
-
-    let mut decoder = ::Decoder::new(dr.unwrap());
-    let decoded_object: GeoIP2City = match Decodable::decode(&mut decoder) {
-        Ok(v) => v,
-        Err(e) => fail!("Decoding error: {}", e)
-    }; // create the final object
-    print!("{}", decoded_object);
-
 }
 
