@@ -1,0 +1,3 @@
+*.rlib
+*.so
+GeoLite2-City.mmdb

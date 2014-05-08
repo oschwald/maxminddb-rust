@@ -102,8 +102,7 @@ struct Metadata {
     ip_version                  : u16,
     languages                   : ~[~str],
     node_count                  : uint,
-    // XXX - why is record size coming out as a u32? It should be u16
-    record_size                 : u32,
+    record_size                 : u16,
 }
 
 struct BinaryDecoder {
