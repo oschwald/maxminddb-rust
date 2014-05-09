@@ -297,7 +297,7 @@ impl BinaryDecoder {
             7 => self.decode_map(size, offset),
             8 => self.decode_int(size, offset),
             9 => self.decode_uint64(size, offset),
-            10 => (Err(InvalidDatabaseError("128 bit uint support is not implemented".to_owned())), offset),
+            10 => self.decode_bytes(size, offset), // XXX - return a big int or something
             11 => self.decode_array(size, offset),
             14 => self.decode_bool(size, offset),
             15 => self.decode_float(size, offset),
@@ -819,3 +819,62 @@ fn find_metadata_start(map: &os::MemoryMap) -> Result<uint, Error> {
     Err(InvalidDatabaseError("Could not find MaxMind DB metadata in file.".to_owned()))
 }
 
+
+#[cfg(test)]
+mod test {
+    use super::{Reader, Decoder};
+    use std::io::net::ip::IpAddr;
+    use std::from_str::FromStr;
+    use serialize::Decodable;
+
+    #[test]
+    fn test_decoder() {
+        #[deriving(Decodable, Show)]
+        struct TestType {
+            array:       ~[uint],
+            boolean:     bool,
+            //bytes:       ~[u8],
+            double:      f64,
+            float:       f32,
+            int32:       i32,
+            //map        XXX
+            uint16:      u16,
+            uint32:      u32,
+            uint64:      u64,
+            //uint128    XXX
+            utf8_string: ~str
+        }
+
+        let r = Reader::open("test-data/test-data/MaxMind-DB-test-decoder.mmdb").unwrap();
+        let ip: IpAddr = FromStr::from_str("::1.1.1.0").unwrap();
+        let raw_data = r.lookup(ip);
+
+        let mut decoder = Decoder::new(raw_data.unwrap());
+        let result: TestType = match Decodable::decode(&mut decoder) {
+            Ok(v) => v,
+            Err(e) => fail!("Decoding error: {}", e)
+        };
+
+        assert_eq!(result.array, ~[ 1u, 2u, 3u ]);
+        assert_eq!(result.boolean, true);
+        //assert_eq!(result.bytes, ~[0x00, 0x00, 0x00, 0x2a])
+        assert_eq!(result.double, 42.123456);
+        assert_eq!(result.float, 1.1);
+        assert_eq!(result.int32, -268435456);
+
+        // c.Assert(result.Map, DeepEquals,
+        //     map[string]interface{}{
+        //         "mapX": map[string]interface{}{
+        //             "arrayX":       []interface{}{uint64(7), uint64(8), uint64(9)},
+        //             "utf8_stringX": "hello",
+        //         }})
+
+        assert_eq!(result.uint16, 100);
+        assert_eq!(result.uint32, 268435456);
+        assert_eq!(result.uint64, 1152921504606846976);
+        assert_eq!(result.utf8_string,  "unicode! ☯ - ♫".to_owned());
+
+        // uint 128  ("1329227995784915872903807060280344576", 10)
+    }
+
+}
