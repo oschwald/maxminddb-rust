@@ -38,7 +38,7 @@ pub type BinaryDecodeResult<T> = (Result<T, Error>, uint);
 pub enum DataRecord {
     String(~str),
     Double(f64),
-    Bytes(~[u8]),
+    Byte(u8),
     Uint16(u16),
     Uint32(u32),
     Map(~Map),
@@ -59,7 +59,7 @@ impl fmt::Show for DataRecord {
       match self {
         &String(ref v) => v.fmt(f),
         &Double(v) => v.fmt(f),
-        &Bytes(ref v) => v.fmt(f),
+        &Byte(v) => v.fmt(f),
         &Uint16(v) => v.fmt(f),
         &Uint32(v) => v.fmt(f),
         &Uint64(v) => v.fmt(f),
@@ -132,8 +132,13 @@ impl BinaryDecoder {
 
     fn decode_bytes(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
         let new_offset = offset + size;
-        let bytes = read_from_map(&self.map, size, offset);
-        (Ok(Bytes(bytes)), new_offset)
+        let u8_slice = read_from_map(&self.map, size, offset);
+        // XXX - baby rust
+        let mut bytes = Vec::new();
+        for b in u8_slice.move_iter() {
+            bytes.push(Byte(b));
+        }
+        (Ok(Array(bytes.move_iter().collect())), new_offset)
     }
 
     fn decode_float(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
@@ -360,7 +365,7 @@ impl serialize::Decoder<Error> for Decoder {
 
     fn read_u8 (&mut self)  -> DecodeResult<u8  > {
         debug!("read_u8");
-        Err(DecodingError("u8 data not supported by MaxMind DB format".to_owned()))
+        Ok(try!(expect!(self.pop(), Byte)))
     }
 
     fn read_uint(&mut self) -> DecodeResult<uint> {
@@ -833,7 +838,7 @@ mod test {
         struct TestType {
             array:       ~[uint],
             boolean:     bool,
-            //bytes:       ~[u8],
+            bytes:       ~[u8],
             double:      f64,
             float:       f32,
             int32:       i32,
@@ -857,7 +862,7 @@ mod test {
 
         assert_eq!(result.array, ~[ 1u, 2u, 3u ]);
         assert_eq!(result.boolean, true);
-        //assert_eq!(result.bytes, ~[0x00, 0x00, 0x00, 0x2a])
+        assert_eq!(result.bytes, ~[0u8, 0u8, 0u8, 42u8])
         assert_eq!(result.double, 42.123456);
         assert_eq!(result.float, 1.1);
         assert_eq!(result.int32, -268435456);
