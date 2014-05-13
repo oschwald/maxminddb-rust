@@ -124,7 +124,10 @@ impl BinaryDecoder {
     }
 
     fn decode_bool(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
-        (Ok(Boolean(size != 0)), offset)
+        match size {
+            0|1 => (Ok(Boolean(size != 0)), offset),
+             s => (Err(InvalidDatabaseError(format!("float of size {}", s))), 0)
+         }
     }
 
     fn decode_bytes(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
@@ -139,55 +142,84 @@ impl BinaryDecoder {
     }
 
     fn decode_float(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
-        let new_offset = offset + size;
+        match size {
+            4 => {
+                let new_offset = offset + size;
 
-        let buf = read_from_map(&self.map, size, offset);
-        let mut reader = BufReader::new(buf);
-        (Ok(Float(reader.read_be_f32().unwrap())), new_offset)
+                let buf = read_from_map(&self.map, size, offset);
+                let mut reader = BufReader::new(buf);
+                (Ok(Float(reader.read_be_f32().unwrap())), new_offset)
+            },
+            s => (Err(InvalidDatabaseError(format!("float of size {}", s))), 0)
+        }
     }
 
     fn decode_double(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
-        let new_offset = offset + size;
+        match size {
+            8 => {
+                let new_offset = offset + size;
 
-        let buf = read_from_map(&self.map, size, offset);
-        let mut reader = BufReader::new(buf);
-        (Ok(Double(reader.read_be_f64().unwrap())), new_offset)
+                let buf = read_from_map(&self.map, size, offset);
+                let mut reader = BufReader::new(buf);
+                (Ok(Double(reader.read_be_f64().unwrap())), new_offset)
+            },
+            s => (Err(InvalidDatabaseError(format!("double of size {}", s))), 0)
+        }
     }
 
     fn decode_uint64(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
-        let new_offset = offset + size;
+        match size {
+            s if s <= 8 => {
+                let new_offset = offset + size;
 
-        let value = if size == 0 {
-                0
-            } else {
-                let buf = read_from_map(&self.map, size, offset);
-                let mut reader = BufReader::new(buf);
-                reader.read_be_uint_n(size).unwrap()
-            };
-
-        (Ok(Uint64(value)), new_offset)
+                let value = if size == 0 {
+                        0
+                    } else {
+                        let buf = read_from_map(&self.map, size, offset);
+                        let mut reader = BufReader::new(buf);
+                        reader.read_be_uint_n(size).unwrap()
+                    };
+                (Ok(Uint64(value)), new_offset)
+            },
+            s => (Err(InvalidDatabaseError(format!("uint64 of size {}", s))), 0)
+        }
     }
 
     fn decode_uint32(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
-        match self.decode_uint64(size, offset) {
-            (Ok(Uint64(u)), o) => (Ok(Uint32(u as u32)), o),
-            e => e
+        match size {
+            s if s <= 4 => {
+                match self.decode_uint64(size, offset) {
+                    (Ok(Uint64(u)), o) => (Ok(Uint32(u as u32)), o),
+                    e => e
+                }
+            },
+            s => (Err(InvalidDatabaseError(format!("uint32 of size {}", s))), 0)
         }
     }
 
     fn decode_uint16(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
-        match self.decode_uint64(size, offset) {
-            (Ok(Uint64(u)), o) => (Ok(Uint16(u as u16)), o),
-            e => e
+        match size {
+            s if s <= 4 => {
+                match self.decode_uint64(size, offset) {
+                    (Ok(Uint64(u)), o) => (Ok(Uint16(u as u16)), o),
+                    e => e
+                }
+            },
+            s => (Err(InvalidDatabaseError(format!("uint16 of size {}", s))), 0)
         }
     }
 
     fn decode_int(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
-        let new_offset = offset + size;
+        match size {
+            s if s <= 4 => {
+                let new_offset = offset + size;
 
-        let buf = read_from_map(&self.map, size, offset);
-        let mut reader = BufReader::new(buf);
-        (Ok(Int32(reader.read_be_int_n(size).unwrap() as i32)), new_offset)
+                let buf = read_from_map(&self.map, size, offset);
+                let mut reader = BufReader::new(buf);
+                (Ok(Int32(reader.read_be_int_n(size).unwrap() as i32)), new_offset)
+            },
+            s => (Err(InvalidDatabaseError(format!("int32 of size {}", s))), 0)
+        }
     }
 
     fn decode_map(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
@@ -598,6 +630,7 @@ impl serialize::Decoder<Error> for Decoder {
     }
 }
 
+
 pub struct Reader {
     decoder: BinaryDecoder,
     metadata: Metadata,
@@ -824,67 +857,5 @@ fn find_metadata_start(map: &os::MemoryMap) -> Result<uint, Error> {
 
 
 #[cfg(test)]
-mod test {
-    use super::{Reader, Decoder};
-    use std::io::net::ip::IpAddr;
-    use std::from_str::FromStr;
-    use serialize::Decodable;
+mod reader_test;
 
-    #[test]
-    fn test_decoder() {
-
-        #[deriving(Decodable, Show, Eq)]
-        struct MapXType {
-            arrayX: ~[uint],
-            utf8_stringX: ~str
-        };
-
-        #[deriving(Decodable, Show, Eq)]
-        struct MapType {
-            mapX: MapXType
-        };
-
-        #[deriving(Decodable, Show)]
-        struct TestType {
-            array:       ~[uint],
-            boolean:     bool,
-            bytes:       ~[u8],
-            double:      f64,
-            float:       f32,
-            int32:       i32,
-            map:         MapType,
-            uint16:      u16,
-            uint32:      u32,
-            uint64:      u64,
-            uint128:     ~[u8],
-            utf8_string: ~str
-        }
-
-        let r = Reader::open("test-data/test-data/MaxMind-DB-test-decoder.mmdb").unwrap();
-        let ip: IpAddr = FromStr::from_str("::1.1.1.0").unwrap();
-        let raw_data = r.lookup(ip);
-
-        let mut decoder = Decoder::new(raw_data.unwrap());
-        let result: TestType = match Decodable::decode(&mut decoder) {
-            Ok(v) => v,
-            Err(e) => fail!("Decoding error: {}", e)
-        };
-
-        assert_eq!(result.array, ~[ 1u, 2u, 3u ]);
-        assert_eq!(result.boolean, true);
-        assert_eq!(result.bytes, ~[0u8, 0u8, 0u8, 42u8])
-        assert_eq!(result.double, 42.123456);
-        assert_eq!(result.float, 1.1);
-        assert_eq!(result.int32, -268435456);
-
-        assert_eq!(result.map, MapType{ mapX: MapXType{ arrayX: ~[7,8,9], utf8_stringX: "hello".to_owned()}});
-
-        assert_eq!(result.uint16, 100);
-        assert_eq!(result.uint32, 268435456);
-        assert_eq!(result.uint64, 1152921504606846976);
-        assert_eq!(result.uint128, ~[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-
-        assert_eq!(result.utf8_string,  "unicode! ☯ - ♫".to_owned());
-    }
-
-}
