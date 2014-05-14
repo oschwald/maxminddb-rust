@@ -79,3 +79,13 @@ fn test_missing_database() {
 }
 
 
+#[test]
+fn test_non_database() {
+    let r = Reader::open("README.md");
+    match r {
+        Ok(_) => fail!("Received Reader when opening a non-MMDB file"),
+        Err(IoError(_)) => assert!(true),
+        Err(_) => assert!(false)
+    }
+}
+
