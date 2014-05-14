@@ -20,6 +20,7 @@ use std::io::{Open, Read};
 use std::io::net::ip::{IpAddr,Ipv6Addr,Ipv4Addr};
 use std::os;
 use std::str;
+use std::vec;
 
 use collections::TreeMap;
 use serialize::{Decoder, Decodable};
@@ -41,7 +42,7 @@ pub enum DataRecord {
     Byte(u8),
     Uint16(u16),
     Uint32(u32),
-    Map(~Map),
+    Map(Box<Map>),
     Int32(i32),
     Uint64(u64),
     Boolean(bool),
@@ -120,7 +121,7 @@ impl BinaryDecoder {
             new_offset = tmp_offset;
             array.push(val);
         }
-        (Ok(Array(array.move_iter().collect())), new_offset)
+        (Ok(Array(array.as_slice().to_owned())), new_offset)
     }
 
     fn decode_bool(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
@@ -138,7 +139,7 @@ impl BinaryDecoder {
         for b in u8_slice.move_iter() {
             bytes.push(Byte(b));
         }
-        (Ok(Array(bytes.move_iter().collect())), new_offset)
+        (Ok(Array(bytes.as_slice().to_owned())), new_offset)
     }
 
     fn decode_float(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
@@ -223,7 +224,7 @@ impl BinaryDecoder {
     }
 
     fn decode_map(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
-        let mut values = ~TreeMap::new();
+        let mut values = box TreeMap::new();
         let mut new_offset = offset;
 
         for _ in range(0, size) {
@@ -256,7 +257,8 @@ impl BinaryDecoder {
         let packed = if pointer_size == 4 {
                 pointer_bytes
             } else {
-                [ (size & 0x7) as u8 ] + pointer_bytes
+                // XXX - make this sane.
+                [~[ (size & 0x7) as u8 ], pointer_bytes].concat_vec().as_slice().to_owned()
             };
         let mut r = BufReader::new(packed);
         let unpacked = r.read_be_uint_n(packed.len()).unwrap() as uint;
@@ -774,7 +776,7 @@ impl Reader {
                     middle = (0xF0 & middle) >> 4
                 }
                 let offset = base_offset + index * 4;
-                [middle] + read_from_map(&self.decoder.map, 3, offset)
+                [~[middle], read_from_map(&self.decoder.map, 3, offset)].concat_vec().as_slice().to_owned()
             },
             32 => {
                 let offset = base_offset + index * 4;
@@ -801,7 +803,7 @@ impl Reader {
 }
 
 fn read_from_map(map: &os::MemoryMap, size: uint, offset: uint) -> ~[u8] {
-    unsafe { std::slice::from_buf(map.data.offset(offset as int) as *u8, size)}
+    unsafe { vec::raw::from_buf(map.data.offset(offset as int) as *u8, size).as_slice().to_owned()}
 }
 
 fn ip_to_bytes(ip_address: IpAddr) -> ~[u8] {

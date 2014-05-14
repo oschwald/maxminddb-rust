@@ -1,4 +1,4 @@
-use super::{InvalidDatabaseError, Reader, Decoder};
+use super::{InvalidDatabaseError, Reader, Decoder, IoError};
 use std::io::net::ip::IpAddr;
 use std::from_str::FromStr;
 use serialize::Decodable;
@@ -73,7 +73,8 @@ fn test_missing_database() {
     let r = Reader::open("file-does-not-exist.mmdb");
     match r {
         Ok(_) => fail!("Received Reader when opening non-existent file"),
-        Err(e) => assert_eq!(e, InvalidDatabaseError("no such file or directory (No such file or directory)".to_owned()))
+        Err(IoError(_)) => assert!(true),
+        Err(_) => assert!(false)
     }
 }
 
