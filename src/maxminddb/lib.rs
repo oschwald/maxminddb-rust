@@ -806,7 +806,6 @@ fn read_from_map(map: &os::MemoryMap, size: uint, offset: uint) -> ~[u8] {
     if offset >= map.len - size {
         use std::intrinsics;
         error!("attempt to read beyond end of memory map: {}\n", offset);
-
         unsafe { intrinsics::abort() }
     }
     unsafe { vec::raw::from_buf(map.data.offset(offset as int) as *u8, size).as_slice().to_owned()}
