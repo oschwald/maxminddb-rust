@@ -78,7 +78,6 @@ fn test_missing_database() {
     }
 }
 
-
 #[test]
 fn test_non_database() {
     let r = Reader::open("README.md");
@@ -89,3 +88,49 @@ fn test_non_database() {
     }
 }
 
+#[test]
+fn test_reader() {
+    let sizes = [24u, 28, 32];
+    for record_size in sizes.iter() {
+        let versions = [4u, 6];
+        for ip_version in versions.iter() {
+            let filename = format!("test-data/test-data/MaxMind-DB-test-ipv{}-{}.mmdb",
+             ip_version, record_size);
+            let reader = Reader::open(filename).unwrap();
+
+            check_metadata(reader, *ip_version, *record_size);
+
+            // if ip_version == 4 {
+            //     check_ip_v4(reader)
+            // } else {
+            //     check_ip_v6(reader)
+            // }
+        }
+    }
+}
+
+fn check_metadata(reader: Reader, ip_version: uint, record_size: uint) {
+    let metadata = reader.metadata;
+
+    assert_eq!(metadata.binary_format_major_version,  2u16)
+
+    assert_eq!(metadata.binary_format_minor_version,  0u16)
+    assert!(metadata.build_epoch >= 1397457605)
+    assert_eq!(metadata.database_type, "Test".to_owned())
+
+    assert_eq!(*metadata.description.find(&"en".to_owned()).unwrap(),
+                   "Test Database".to_owned());
+    assert_eq!(*metadata.description.find(&"zh".to_owned()).unwrap(),
+                   "Test Database Chinese".to_owned());
+
+    assert_eq!(metadata.ip_version,  ip_version as u16)
+    assert_eq!(metadata.languages, ~["en".to_owned(), "zh".to_owned()])
+
+    if ip_version == 4 {
+        assert_eq!(metadata.node_count,  37)
+    } else {
+        assert_eq!(metadata.node_count,  160)
+    }
+
+    assert_eq!(metadata.record_size,  record_size as u16)
+}
