@@ -98,19 +98,19 @@ fn test_reader() {
              ip_version, record_size);
             let reader = Reader::open(filename).unwrap();
 
-            check_metadata(reader, *ip_version, *record_size);
+            check_metadata(&reader, *ip_version, *record_size);
 
-            // if ip_version == 4 {
+             if *ip_version == 6u {
             //     check_ip_v4(reader)
             // } else {
-            //     check_ip_v6(reader)
-            // }
+                check_ipv6(&reader);
+            }
         }
     }
 }
 
-fn check_metadata(reader: Reader, ip_version: uint, record_size: uint) {
-    let metadata = reader.metadata;
+fn check_metadata(reader: &Reader, ip_version: uint, record_size: uint) {
+    let metadata = &reader.metadata;
 
     assert_eq!(metadata.binary_format_major_version,  2u16)
 
@@ -133,4 +133,29 @@ fn check_metadata(reader: Reader, ip_version: uint, record_size: uint) {
     }
 
     assert_eq!(metadata.record_size,  record_size as u16)
+}
+
+fn check_ipv6(reader: &Reader) {
+
+    let subnets = ["::1:ffff:ffff", "::2:0:0",
+                   "::2:0:40", "::2:0:50", "::2:0:58"];
+
+    #[deriving(Decodable, Show)]
+    struct IpType  {
+         ip: ~str,
+    }
+
+    for address in subnets.iter() {
+        let ip: IpAddr = FromStr::from_str(*address).unwrap();
+        let res = reader.lookup(ip).unwrap();
+
+        let mut decoder = Decoder::new(res);
+        let value: IpType =  match Decodable::decode(&mut decoder) {
+            Ok(v) => v,
+            Err(e) => fail!("Decoding error: {}", e)
+        };
+        assert_eq!(value.ip, address.to_owned());
+    }
+
+    // ..
 }
