@@ -74,19 +74,19 @@ impl fmt::Show for DataRecord {
 // shamelessly taken from rust_js
 impl fmt::Show for TreeMap<~str, DataRecord> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(f.buf.write_str("{ "));
+        try!(write!(f, "\\{ "));
         match self.iter().last() {
             Some((last_key, _)) => {
                 for (k, v) in self.iter() {
-                    try!(write!(f.buf, "{}: {}", k, v));
+                    try!(write!(f, "{}: {}", k, v));
                     if k != last_key {
-                        try!(f.buf.write_str(", "));
+                        try!(write!(f, ", "));
                     }
                 }
             },
             None => ()
         }
-        f.buf.write_str("}")
+        write!(f, "\\}")
     }
 }
 
