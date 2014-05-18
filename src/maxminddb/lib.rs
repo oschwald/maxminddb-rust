@@ -27,6 +27,7 @@ use serialize::{Decoder, Decodable};
 
 #[deriving(Eq, Show)]
 pub enum Error {
+    AddressNotFoundError(~str),
     InvalidDatabaseError(~str),
     IoError(std::io::IoError),
     MapError(~str),
@@ -702,7 +703,11 @@ impl Reader {
             Ok(v) => v,
             Err(e) => return Err(e)
         };
-        self.resolve_data_pointer(pointer)
+        if pointer > 0 {
+            self.resolve_data_pointer(pointer)
+        } else {
+            Err(AddressNotFoundError("Address not found in database".to_owned()))
+        }
     }
 
     fn find_address_in_tree(&self, ip_address: ~[u8]) -> Result<uint, Error> {

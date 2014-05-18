@@ -1,4 +1,4 @@
-use super::{InvalidDatabaseError, Reader, Decoder, IoError};
+use super::{AddressNotFoundError, InvalidDatabaseError, Reader, Decoder, IoError};
 use std::io::net::ip::IpAddr;
 use std::from_str::FromStr;
 use serialize::Decodable;
@@ -95,7 +95,8 @@ fn test_reader() {
         let versions = [4u, 6];
         for ip_version in versions.iter() {
             let filename = format!("test-data/test-data/MaxMind-DB-test-ipv{}-{}.mmdb",
-             ip_version, record_size);
+                ip_version, record_size);
+            print!("{}\n", filename);
             let reader = Reader::open(filename).unwrap();
 
             check_metadata(&reader, *ip_version, *record_size);
@@ -137,16 +138,29 @@ fn check_metadata(reader: &Reader, ip_version: uint, record_size: uint) {
 
 fn check_ipv6(reader: &Reader) {
 
-    let subnets = ["::1:ffff:ffff", "::2:0:0",
-                   "::2:0:40", "::2:0:50", "::2:0:58"];
+    let subnets =
+        [["::1:ffff:ffff", "::1:ffff:ffff"],
+        ["::2:0:0",  "::2:0:0"],
+        ["::2:0:1",  "::2:0:0"],
+        ["::2:0:33", "::2:0:0"],
+        ["::2:0:39", "::2:0:0"],
+        ["::2:0:40", "::2:0:40"],
+        ["::2:0:41", "::2:0:40"],
+        ["::2:0:49", "::2:0:40"],
+        ["::2:0:50", "::2:0:50"],
+        ["::2:0:52", "::2:0:50"],
+        ["::2:0:57", "::2:0:50"],
+        ["::2:0:58", "::2:0:58"],
+        ["::2:0:59", "::2:0:58"]];
+
 
     #[deriving(Decodable, Show)]
     struct IpType  {
          ip: ~str,
     }
 
-    for address in subnets.iter() {
-        let ip: IpAddr = FromStr::from_str(*address).unwrap();
+    for values in subnets.iter() {
+        let ip: IpAddr = FromStr::from_str(values[0]).unwrap();
         let res = reader.lookup(ip).unwrap();
 
         let mut decoder = Decoder::new(res);
@@ -154,8 +168,16 @@ fn check_ipv6(reader: &Reader) {
             Ok(v) => v,
             Err(e) => fail!("Decoding error: {}", e)
         };
-        assert_eq!(value.ip, address.to_owned());
+        assert_eq!(value.ip, values[1].to_owned());
     }
 
-    // ..
+    let noRecord =  ["1.1.1.33", "255.254.253.123", "89fa::"];
+
+    for &address in noRecord.iter() {
+        let ip: IpAddr = FromStr::from_str(address).unwrap();
+        match reader.lookup(ip) {
+            Ok(v) => fail!("received an unexpected value: {}", v),
+            Err(e) => assert_eq!(e, AddressNotFoundError("Address not found in database".to_owned()))
+        }
+    }
 }
