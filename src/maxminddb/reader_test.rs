@@ -1,4 +1,6 @@
-use super::{AddressNotFoundError, InvalidDatabaseError, Reader, Decoder, IoError};
+use super::{AddressNotFoundError, Decoder, InvalidDatabaseError, IoError,
+            Reader};
+
 use std::io::net::ip::IpAddr;
 use std::from_str::FromStr;
 use serialize::Decodable;
@@ -96,16 +98,10 @@ fn test_reader() {
         for ip_version in versions.iter() {
             let filename = format!("test-data/test-data/MaxMind-DB-test-ipv{}-{}.mmdb",
                 ip_version, record_size);
-            print!("{}\n", filename);
             let reader = Reader::open(filename).unwrap();
 
             check_metadata(&reader, *ip_version, *record_size);
-
-             if *ip_version == 6u {
-            //     check_ip_v4(reader)
-            // } else {
-                check_ipv6(&reader);
-            }
+            check_ip(&reader, *ip_version);
         }
     }
 }
@@ -136,23 +132,36 @@ fn check_metadata(reader: &Reader, ip_version: uint, record_size: uint) {
     assert_eq!(metadata.record_size,  record_size as u16)
 }
 
-fn check_ipv6(reader: &Reader) {
+fn check_ip(reader: &Reader, ip_version: uint) {
 
-    let subnets =
-        [["::1:ffff:ffff", "::1:ffff:ffff"],
-        ["::2:0:0",  "::2:0:0"],
-        ["::2:0:1",  "::2:0:0"],
-        ["::2:0:33", "::2:0:0"],
-        ["::2:0:39", "::2:0:0"],
-        ["::2:0:40", "::2:0:40"],
-        ["::2:0:41", "::2:0:40"],
-        ["::2:0:49", "::2:0:40"],
-        ["::2:0:50", "::2:0:50"],
-        ["::2:0:52", "::2:0:50"],
-        ["::2:0:57", "::2:0:50"],
-        ["::2:0:58", "::2:0:58"],
-        ["::2:0:59", "::2:0:58"]];
-
+    let subnets = match ip_version {
+        6 =>   [["::1:ffff:ffff", "::1:ffff:ffff"],
+                ["::2:0:0",  "::2:0:0"],
+                ["::2:0:1",  "::2:0:0"],
+                ["::2:0:33", "::2:0:0"],
+                ["::2:0:39", "::2:0:0"],
+                ["::2:0:40", "::2:0:40"],
+                ["::2:0:41", "::2:0:40"],
+                ["::2:0:49", "::2:0:40"],
+                ["::2:0:50", "::2:0:50"],
+                ["::2:0:52", "::2:0:50"],
+                ["::2:0:57", "::2:0:50"],
+                ["::2:0:58", "::2:0:58"],
+                ["::2:0:59", "::2:0:58"]],
+        _ =>   [["1.1.1.1", "1.1.1.1"],
+                ["1.1.1.2", "1.1.1.2"],
+                ["1.1.1.3", "1.1.1.2"],
+                ["1.1.1.4", "1.1.1.4"],
+                ["1.1.1.5",  "1.1.1.4"],
+                ["1.1.1.6",  "1.1.1.4"],
+                ["1.1.1.7",  "1.1.1.4"],
+                ["1.1.1.8",  "1.1.1.8"],
+                ["1.1.1.9",  "1.1.1.8"],
+                ["1.1.1.15",  "1.1.1.8"],
+                ["1.1.1.16",  "1.1.1.16"],
+                ["1.1.1.17",  "1.1.1.16"],
+                ["1.1.1.31",  "1.1.1.16"]]
+    };
 
     #[deriving(Decodable, Show)]
     struct IpType  {
