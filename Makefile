@@ -11,11 +11,17 @@ $(libmaxminddb_so): src/maxminddb/lib.rs $(RUST_SRC)
 	touch $@
 
 .PHONY: all
-all:   $(libmaxminddb_so)
+all:   $(libmaxminddb_so) examples
 
 build/maxminddb-test: src/maxminddb/lib.rs $(RUST_SRC)
 	mkdir -p build/
 	$(RUSTC) $(RUSTFLAGS) $< -o $@ --test
+
+build/lookup: example/lookup.rs
+	mkdir -p build
+	$(RUSTC) $(RUSTFLAGS) $< -o $@ -L build/
+
+examples: build/lookup
 
 .PHONY: check
 check: build/maxminddb-test

@@ -9,14 +9,13 @@ use serialize::Decodable;
 
 #[deriving(Decodable, Show)]
 struct Continent {
-    code: ~str,
+    code: StrBuf,
     geoname_id: u32,
 }
 
 #[deriving(Decodable, Show)]
 struct GeoIP2City  {
      continent: Continent,
-//     location: ~str,
 }
 
 
