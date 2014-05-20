@@ -11,7 +11,7 @@ fn test_decoder() {
     #[deriving(Decodable, Show, Eq)]
     struct MapXType {
         arrayX: ~[uint],
-        utf8_stringX: ~str
+        utf8_stringX: StrBuf
     };
 
     #[deriving(Decodable, Show, Eq)]
@@ -32,7 +32,7 @@ fn test_decoder() {
         uint32:      u32,
         uint64:      u64,
         uint128:     ~[u8],
-        utf8_string: ~str
+        utf8_string: StrBuf
     }
 
     let r = Reader::open("test-data/test-data/MaxMind-DB-test-decoder.mmdb").unwrap();
@@ -52,14 +52,14 @@ fn test_decoder() {
     assert_eq!(result.float, 1.1);
     assert_eq!(result.int32, -268435456);
 
-    assert_eq!(result.map, MapType{ mapX: MapXType{ arrayX: ~[7,8,9], utf8_stringX: "hello".to_owned()}});
+    assert_eq!(result.map, MapType{ mapX: MapXType{ arrayX: ~[7,8,9], utf8_stringX: "hello".to_strbuf()}});
 
     assert_eq!(result.uint16, 100);
     assert_eq!(result.uint32, 268435456);
     assert_eq!(result.uint64, 1152921504606846976);
     assert_eq!(result.uint128, ~[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 
-    assert_eq!(result.utf8_string,  "unicode! ☯ - ♫".to_owned());
+    assert_eq!(result.utf8_string,  "unicode! ☯ - ♫".to_strbuf());
 }
 
 #[test]
@@ -67,7 +67,7 @@ fn test_broken_database() {
     let r = Reader::open("test-data/test-data/GeoIP2-City-Test-Broken-Double-Format.mmdb").unwrap();
     let ip: IpAddr = FromStr::from_str("2001:220::").unwrap();
     let result = r.lookup(ip);
-    assert_eq!(result, Err(InvalidDatabaseError("double of size 2".to_owned())));
+    assert_eq!(result, Err(InvalidDatabaseError("double of size 2".to_strbuf())));
 }
 
 #[test]
@@ -85,7 +85,7 @@ fn test_non_database() {
     let r = Reader::open("README.md");
     match r {
         Ok(_) => fail!("Received Reader when opening a non-MMDB file"),
-        Err(e) => assert_eq!(e, InvalidDatabaseError("Could not find MaxMind DB metadata in file.".to_owned()))
+        Err(e) => assert_eq!(e, InvalidDatabaseError("Could not find MaxMind DB metadata in file.".to_strbuf()))
 
     }
 }
@@ -113,15 +113,15 @@ fn check_metadata(reader: &Reader, ip_version: uint, record_size: uint) {
 
     assert_eq!(metadata.binary_format_minor_version,  0u16)
     assert!(metadata.build_epoch >= 1397457605)
-    assert_eq!(metadata.database_type, "Test".to_owned())
+    assert_eq!(metadata.database_type, "Test".to_strbuf())
 
-    assert_eq!(*metadata.description.find(&"en".to_owned()).unwrap(),
-                   "Test Database".to_owned());
-    assert_eq!(*metadata.description.find(&"zh".to_owned()).unwrap(),
-                   "Test Database Chinese".to_owned());
+    assert_eq!(*metadata.description.find(&"en".to_strbuf()).unwrap(),
+                   "Test Database".to_strbuf());
+    assert_eq!(*metadata.description.find(&"zh".to_strbuf()).unwrap(),
+                   "Test Database Chinese".to_strbuf());
 
     assert_eq!(metadata.ip_version,  ip_version as u16)
-    assert_eq!(metadata.languages, ~["en".to_owned(), "zh".to_owned()])
+    assert_eq!(metadata.languages, ~["en".to_strbuf(), "zh".to_strbuf()])
 
     if ip_version == 4 {
         assert_eq!(metadata.node_count,  37)
@@ -165,7 +165,7 @@ fn check_ip(reader: &Reader, ip_version: uint) {
 
     #[deriving(Decodable, Show)]
     struct IpType  {
-         ip: ~str,
+         ip: StrBuf,
     }
 
     for values in subnets.iter() {
@@ -177,7 +177,7 @@ fn check_ip(reader: &Reader, ip_version: uint) {
             Ok(v) => v,
             Err(e) => fail!("Decoding error: {}", e)
         };
-        assert_eq!(value.ip, values[1].to_owned());
+        assert_eq!(value.ip, values[1].to_strbuf());
     }
 
     let noRecord =  ["1.1.1.33", "255.254.253.123", "89fa::"];
@@ -186,7 +186,7 @@ fn check_ip(reader: &Reader, ip_version: uint) {
         let ip: IpAddr = FromStr::from_str(address).unwrap();
         match reader.lookup(ip) {
             Ok(v) => fail!("received an unexpected value: {}", v),
-            Err(e) => assert_eq!(e, AddressNotFoundError("Address not found in database".to_owned()))
+            Err(e) => assert_eq!(e, AddressNotFoundError("Address not found in database".to_strbuf()))
         }
     }
 }

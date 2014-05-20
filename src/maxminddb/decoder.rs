@@ -11,7 +11,7 @@ macro_rules! expect(
     ($e:expr, $t:ident) => ({
         match $e {
             $t(v) => Ok(v),
-            other => Err(DecodingError(format!("Error deocoding {:?} as {}", other, stringify!($t))))
+            other => Err(DecodingError(format_strbuf!("Error deocoding {:?} as {}", other, stringify!($t))))
         }
     })
 )
@@ -41,7 +41,7 @@ pub type DecodeResult<T> = Result<T, Error>;
 impl serialize::Decoder<Error> for Decoder {
     fn read_nil(&mut self) -> DecodeResult<()> {
         debug!("read_nil");
-        Err(DecodingError("nil data not supported by MaxMind DB format".to_owned()))
+        Err(DecodingError("nil data not supported by MaxMind DB format".to_strbuf()))
     }
 
     fn read_u64(&mut self)  -> DecodeResult<u64 > {
@@ -81,12 +81,12 @@ impl serialize::Decoder<Error> for Decoder {
 
     fn read_i16(&mut self) -> DecodeResult<i16> {
         debug!("read_i16");
-        Err(DecodingError("i16 data not supported by MaxMind DB format".to_owned()))
+        Err(DecodingError("i16 data not supported by MaxMind DB format".to_strbuf()))
     }
 
     fn read_i8 (&mut self) -> DecodeResult<i8 > {
         debug!("read_i8");
-        Err(DecodingError("i8 data not supported by MaxMind DB format".to_owned()))
+        Err(DecodingError("i8 data not supported by MaxMind DB format".to_strbuf()))
     }
 
     fn read_int(&mut self) -> DecodeResult<int> {
@@ -112,17 +112,17 @@ impl serialize::Decoder<Error> for Decoder {
     fn read_char(&mut self) -> DecodeResult<char> {
         let s = try!(self.read_str());
         {
-            let mut it = s.chars();
+            let mut it = s.as_slice().chars();
             match (it.next(), it.next()) {
                 // exactly one character
                 (Some(c), None) => return Ok(c),
                 _ => ()
             }
         }
-        Err(DecodingError(format!("char {}", s)))
+        Err(DecodingError(format_strbuf!("char {}", s)))
     }
 
-    fn read_str(&mut self) -> DecodeResult<~str> {
+    fn read_str(&mut self) -> DecodeResult<StrBuf> {
         debug!("read_str");
         Ok(try!(expect!(self.pop(), String)))
     }
@@ -142,25 +142,28 @@ impl serialize::Decoder<Error> for Decoder {
         let name = match self.pop() {
             String(s) => s,
             Map(mut o) => {
-                let n = match o.pop(&"variant".to_owned()) {
+                let n = match o.pop(&"variant".to_strbuf()) {
                     Some(String(s)) => s,
-                    Some(val) => return Err(DecodingError( format!("enum {}", val))),
-                    None => return Err(DecodingError("variant".to_owned()))
+                    Some(val) => return Err(DecodingError( format_strbuf!("enum {}", val))),
+                    None => return Err(DecodingError("variant".to_strbuf()))
                 };
-                match o.pop(&"fields".to_owned()) {
+                match o.pop(&"fields".to_strbuf()) {
                     Some(Array(l)) => {
                         for field in l.move_iter().rev() {
                             self.stack.push(field.clone());
                         }
                     },
-                    Some(val) => return Err(DecodingError(format!("enum {}", val))),
-                    None => return Err(DecodingError("fields".to_owned()))
+                    Some(val) => return Err(DecodingError(format_strbuf!("enum {}", val))),
+                    None => return Err(DecodingError("fields".to_strbuf()))
                 }
                 n
             }
-            json => return Err(DecodingError( format!("enum {}", json)))
+            json => return Err(DecodingError( format_strbuf!("enum {}", json)))
         };
-        let idx = match names.iter().position(|n| str::eq_slice(*n, name)) {
+        let idx = match names.iter()
+                             .position(|n| {
+                                 str::eq_slice(*n, name.as_slice())
+                             }) {
             Some(idx) => idx,
             None => return Err(DecodingError(name))
         };
@@ -210,8 +213,8 @@ impl serialize::Decoder<Error> for Decoder {
         debug!("read_struct_field(name={}, idx={})", name, idx);
         let mut obj = try!(expect!(self.pop(), Map));
 
-        let value = match obj.pop(&name.to_owned()) {
-            None => return Err(DecodingError(format!("Unknown struct field {}", name.to_owned()))),
+        let value = match obj.pop(&name.to_strbuf()) {
+            None => return Err(DecodingError(format_strbuf!("Unknown struct field {}", name.to_strbuf()))),
             Some(record) => {
                 self.stack.push(record);
                 try!(f(self))
