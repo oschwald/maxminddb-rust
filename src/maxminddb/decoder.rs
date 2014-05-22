@@ -11,7 +11,7 @@ macro_rules! expect(
     ($e:expr, $t:ident) => ({
         match $e {
             $t(v) => Ok(v),
-            other => Err(DecodingError(format_strbuf!("Error deocoding {:?} as {}", other, stringify!($t))))
+            other => Err(DecodingError(format_strbuf!("Error decoding {:?} as {}", other, stringify!($t))))
         }
     })
 )
