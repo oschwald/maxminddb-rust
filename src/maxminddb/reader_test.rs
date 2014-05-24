@@ -98,7 +98,7 @@ fn test_reader() {
         for ip_version in versions.iter() {
             let filename = format!("test-data/test-data/MaxMind-DB-test-ipv{}-{}.mmdb",
                 ip_version, record_size);
-            let reader = Reader::open(filename).unwrap();
+            let reader = Reader::open(filename.as_slice()).unwrap();
 
             check_metadata(&reader, *ip_version, *record_size);
             check_ip(&reader, *ip_version);
