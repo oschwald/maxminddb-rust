@@ -11,12 +11,12 @@ extern crate serialize;
 
 #[deriving(Decodable, Show)]
 pub struct Names {
-    en: StrBuf,
+    en: String,
 }
 
 #[deriving(Decodable, Show)]
 pub struct Continent {
-    code: StrBuf,
+    code: String,
     geoname_id: uint,
     names: Names,
 }
@@ -24,7 +24,7 @@ pub struct Continent {
 #[deriving(Decodable, Show)]
 pub struct Place {
     geoname_id: uint,
-    iso_code: StrBuf,
+    iso_code: String,
     names: Names,
 }
 

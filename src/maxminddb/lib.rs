@@ -30,18 +30,18 @@ pub use self::decoder::Decoder;
 
 #[deriving(Eq, Show)]
 pub enum Error {
-    AddressNotFoundError(StrBuf),
-    InvalidDatabaseError(StrBuf),
+    AddressNotFoundError(String),
+    InvalidDatabaseError(String),
     IoError(std::io::IoError),
-    MapError(StrBuf),
-    DecodingError(StrBuf),
+    MapError(String),
+    DecodingError(String),
 }
 
 pub type BinaryDecodeResult<T> = (Result<T, Error>, uint);
 
 #[deriving(Clone, Eq)]
 pub enum DataRecord {
-    String(StrBuf),
+    String(String),
     Double(f64),
     Byte(u8),
     Uint16(u16),
@@ -55,7 +55,7 @@ pub enum DataRecord {
 }
 
 pub type Array = ~[DataRecord];
-pub type Map = TreeMap<StrBuf, DataRecord>;
+pub type Map = TreeMap<String, DataRecord>;
 
 impl fmt::Show for DataRecord {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -76,7 +76,7 @@ impl fmt::Show for DataRecord {
 }
 
 // shamelessly taken from rust_js
-impl fmt::Show for TreeMap<StrBuf, DataRecord> {
+impl fmt::Show for TreeMap<String, DataRecord> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         try!(write!(f, "\\{ "));
         match self.iter().last() {
@@ -99,10 +99,10 @@ pub struct Metadata {
     pub binary_format_major_version : u16,
     pub binary_format_minor_version : u16,
     pub build_epoch                 : u64,
-    pub database_type               : StrBuf,
-    pub description                 : TreeMap<StrBuf, StrBuf>,
+    pub database_type               : String,
+    pub description                 : TreeMap<String, String>,
     pub ip_version                  : u16,
-    pub languages                   : ~[StrBuf],
+    pub languages                   : ~[String],
     pub node_count                  : uint,
     pub record_size                 : u16,
 }

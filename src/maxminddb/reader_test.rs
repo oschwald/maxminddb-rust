@@ -11,7 +11,7 @@ fn test_decoder() {
     #[deriving(Decodable, Show, Eq)]
     struct MapXType {
         arrayX: ~[uint],
-        utf8_stringX: StrBuf
+        utf8_stringX: String
     };
 
     #[deriving(Decodable, Show, Eq)]
@@ -32,7 +32,7 @@ fn test_decoder() {
         uint32:      u32,
         uint64:      u64,
         uint128:     ~[u8],
-        utf8_string: StrBuf
+        utf8_string: String
     }
 
     let r = Reader::open("test-data/test-data/MaxMind-DB-test-decoder.mmdb").unwrap();
@@ -165,7 +165,7 @@ fn check_ip(reader: &Reader, ip_version: uint) {
 
     #[deriving(Decodable, Show)]
     struct IpType  {
-         ip: StrBuf,
+         ip: String,
     }
 
     for values in subnets.iter() {

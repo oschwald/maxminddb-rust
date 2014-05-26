@@ -122,7 +122,7 @@ impl serialize::Decoder<Error> for Decoder {
         Err(DecodingError(format_strbuf!("char {}", s)))
     }
 
-    fn read_str(&mut self) -> DecodeResult<StrBuf> {
+    fn read_str(&mut self) -> DecodeResult<String> {
         debug!("read_str");
         Ok(try!(expect!(self.pop(), String)))
     }
