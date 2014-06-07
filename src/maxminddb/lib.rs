@@ -11,12 +11,14 @@
 #[phase(syntax, link)] extern crate log;
 
 extern crate collections;
+extern crate debug;
 extern crate native;
+extern crate rustrt;
 extern crate serialize;
 
 use std::fmt;
 use std::io::BufReader;
-use std::io::{Open, Read};
+use rustrt::rtio::{Open, Read};
 use std::io::net::ip::{IpAddr,Ipv6Addr,Ipv4Addr};
 use std::os;
 use std::str;
@@ -28,18 +30,18 @@ use collections::TreeMap;
 
 pub use self::decoder::Decoder;
 
-#[deriving(Eq, Show)]
+#[deriving(Show, Eq, PartialEq)]
 pub enum Error {
     AddressNotFoundError(String),
     InvalidDatabaseError(String),
-    IoError(std::io::IoError),
+    IoError(String),
     MapError(String),
     DecodingError(String),
 }
 
 pub type BinaryDecodeResult<T> = (Result<T, Error>, uint);
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub enum DataRecord {
     String(String),
     Double(f64),
@@ -72,25 +74,6 @@ impl fmt::Show for DataRecord {
         &Array(ref v) => v.fmt(f),
         &Float(v) => v.fmt(f),
       }
-    }
-}
-
-// shamelessly taken from rust_js
-impl fmt::Show for TreeMap<String, DataRecord> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(write!(f, "\\{ "));
-        match self.iter().last() {
-            Some((last_key, _)) => {
-                for (k, v) in self.iter() {
-                    try!(write!(f, "{}: {}", k, v));
-                    if k != last_key {
-                        try!(write!(f, ", "));
-                    }
-                }
-            },
-            None => ()
-        }
-        write!(f, "\\}")
     }
 }
 
@@ -131,7 +114,7 @@ impl BinaryDecoder {
     fn decode_bool(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
         match size {
             0|1 => (Ok(Boolean(size != 0)), offset),
-             s => (Err(InvalidDatabaseError(format_strbuf!("float of size {}", s))), 0)
+             s => (Err(InvalidDatabaseError(format!("float of size {}", s))), 0)
          }
     }
 
@@ -155,7 +138,7 @@ impl BinaryDecoder {
                 let mut reader = BufReader::new(buf);
                 (Ok(Float(reader.read_be_f32().unwrap())), new_offset)
             },
-            s => (Err(InvalidDatabaseError(format_strbuf!("float of size {}", s))), 0)
+            s => (Err(InvalidDatabaseError(format!("float of size {}", s))), 0)
         }
     }
 
@@ -168,7 +151,7 @@ impl BinaryDecoder {
                 let mut reader = BufReader::new(buf);
                 (Ok(Double(reader.read_be_f64().unwrap())), new_offset)
             },
-            s => (Err(InvalidDatabaseError(format_strbuf!("double of size {}", s))), 0)
+            s => (Err(InvalidDatabaseError(format!("double of size {}", s))), 0)
         }
     }
 
@@ -186,7 +169,7 @@ impl BinaryDecoder {
                     };
                 (Ok(Uint64(value)), new_offset)
             },
-            s => (Err(InvalidDatabaseError(format_strbuf!("uint64 of size {}", s))), 0)
+            s => (Err(InvalidDatabaseError(format!("uint64 of size {}", s))), 0)
         }
     }
 
@@ -198,7 +181,7 @@ impl BinaryDecoder {
                     e => e
                 }
             },
-            s => (Err(InvalidDatabaseError(format_strbuf!("uint32 of size {}", s))), 0)
+            s => (Err(InvalidDatabaseError(format!("uint32 of size {}", s))), 0)
         }
     }
 
@@ -210,7 +193,7 @@ impl BinaryDecoder {
                     e => e
                 }
             },
-            s => (Err(InvalidDatabaseError(format_strbuf!("uint16 of size {}", s))), 0)
+            s => (Err(InvalidDatabaseError(format!("uint16 of size {}", s))), 0)
         }
     }
 
@@ -223,7 +206,7 @@ impl BinaryDecoder {
                 let mut reader = BufReader::new(buf);
                 (Ok(Int32(reader.read_be_int_n(size).unwrap() as i32)), new_offset)
             },
-            s => (Err(InvalidDatabaseError(format_strbuf!("int32 of size {}", s))), 0)
+            s => (Err(InvalidDatabaseError(format!("int32 of size {}", s))), 0)
         }
     }
 
@@ -244,7 +227,7 @@ impl BinaryDecoder {
 
             let str_key = match key {
                 String(s) => s,
-                v => return (Err(InvalidDatabaseError(format_strbuf!("unexpected map key type {}", v))), 0)
+                v => return (Err(InvalidDatabaseError(format!("unexpected map key type {}", v))), 0)
             };
             values.insert(str_key, val);
         }
@@ -277,8 +260,8 @@ impl BinaryDecoder {
         let new_offset : uint = offset + size;
         let bytes = read_from_map(&self.map, size, offset);
         match str::from_utf8(bytes) {
-            Some(v) => (Ok(String(v.to_strbuf())), new_offset),
-            None => (Err(InvalidDatabaseError("error decoding string".to_strbuf())), new_offset)
+            Some(v) => (Ok(String(v.to_string())), new_offset),
+            None => (Err(InvalidDatabaseError("error decoding string".to_string())), new_offset)
         }
     }
 
@@ -342,7 +325,7 @@ impl BinaryDecoder {
             11 => self.decode_array(size, offset),
             14 => self.decode_bool(size, offset),
             15 => self.decode_float(size, offset),
-            u  => (Err(InvalidDatabaseError(format_strbuf!("Unknown data type: {}", u))), offset),
+            u  => (Err(InvalidDatabaseError(format!("Unknown data type: {}", u))), offset),
         }
     }
 }
@@ -361,20 +344,20 @@ impl Reader {
         let f = match native::io::file::open(&database.to_c_str(),
                                              Open, Read) {
             Ok(f)  => f,
-            Err(e) => return Err(IoError(e))
+            Err(_) => return Err(IoError("Error opening file".to_string()))
         };
         let fd = f.fd();
 
         let stats = match native::io::file::stat(&database.to_c_str()) {
             Ok(s) => s,
-            Err(e) => return Err(IoError(e))
+            Err(_) => return Err(IoError("Error calling stat on file".to_string()))
         };
 
         let database_size = stats.size as uint;
         let map = match os::MemoryMap::new(database_size, [os::MapReadable, os::MapFd(fd), os::MapOffset(0)])
         {
             Ok(mem)  => mem,
-            Err(msg) => return Err(MapError(msg.to_str().to_strbuf()))
+            Err(msg) => return Err(MapError(msg.to_str().to_string()))
         };
 
         let metadata_start = match find_metadata_start(&map) {
@@ -385,7 +368,7 @@ impl Reader {
 
         let raw_metadata = match metadata_decoder.decode(metadata_start) {
             (Ok(m), _) => m,
-            m      => return Err(InvalidDatabaseError(format_strbuf!("metadata of wrong type: {}", m))),
+            m      => return Err(InvalidDatabaseError(format!("metadata of wrong type: {}", m))),
         };
 
         let mut typeDecoder = ::Decoder::new(raw_metadata);
@@ -419,7 +402,7 @@ impl Reader {
         if pointer > 0 {
             self.resolve_data_pointer(pointer)
         } else {
-            Err(AddressNotFoundError("Address not found in database".to_strbuf()))
+            Err(AddressNotFoundError("Address not found in database".to_string()))
         }
     }
 
@@ -443,7 +426,7 @@ impl Reader {
         } else if node > self.metadata.node_count {
             Ok(node)
         } else {
-           Err(InvalidDatabaseError("invalid node in search tree".to_strbuf()))
+           Err(InvalidDatabaseError("invalid node in search tree".to_string()))
         }
     }
 
@@ -500,7 +483,7 @@ impl Reader {
                 let offset = base_offset + index * 4;
                 read_from_map(&self.decoder.map, 4, offset)
             },
-            s => return Err(InvalidDatabaseError(format_strbuf!("unknown record size: {}", s)))
+            s => return Err(InvalidDatabaseError(format!("unknown record size: {}", s)))
         };
         let mut reader = BufReader::new(bytes);
         Ok(reader.read_be_uint_n(bytes.len()).unwrap() as uint)
@@ -512,7 +495,7 @@ impl Reader {
         let resolved = pointer - self.metadata.node_count + search_tree_size;
 
         if resolved > self.decoder.map.len  {
-            return Err(InvalidDatabaseError("the MaxMind DB file's search tree is corrupt".to_strbuf()));
+            return Err(InvalidDatabaseError("the MaxMind DB file's search tree is corrupt".to_string()));
         }
 
         let (record, _) = self.decoder.decode(resolved);
@@ -575,7 +558,7 @@ fn find_metadata_start(map: &os::MemoryMap) -> Result<uint, Error> {
             return Ok(map.len - start_position);
         }
     }
-    Err(InvalidDatabaseError("Could not find MaxMind DB metadata in file.".to_strbuf()))
+    Err(InvalidDatabaseError("Could not find MaxMind DB metadata in file.".to_string()))
 }
 
 mod decoder;

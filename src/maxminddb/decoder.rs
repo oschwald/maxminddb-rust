@@ -1,3 +1,4 @@
+extern crate debug;
 extern crate serialize;
 
 use std::str;
@@ -11,7 +12,7 @@ macro_rules! expect(
     ($e:expr, $t:ident) => ({
         match $e {
             $t(v) => Ok(v),
-            other => Err(DecodingError(format_strbuf!("Error decoding {:?} as {}", other, stringify!($t))))
+            other => Err(DecodingError(format!("Error decoding {:?} as {}", other, stringify!($t))))
         }
     })
 )
@@ -41,7 +42,7 @@ pub type DecodeResult<T> = Result<T, Error>;
 impl serialize::Decoder<Error> for Decoder {
     fn read_nil(&mut self) -> DecodeResult<()> {
         debug!("read_nil");
-        Err(DecodingError("nil data not supported by MaxMind DB format".to_strbuf()))
+        Err(DecodingError("nil data not supported by MaxMind DB format".to_string()))
     }
 
     fn read_u64(&mut self)  -> DecodeResult<u64 > {
@@ -81,12 +82,12 @@ impl serialize::Decoder<Error> for Decoder {
 
     fn read_i16(&mut self) -> DecodeResult<i16> {
         debug!("read_i16");
-        Err(DecodingError("i16 data not supported by MaxMind DB format".to_strbuf()))
+        Err(DecodingError("i16 data not supported by MaxMind DB format".to_string()))
     }
 
     fn read_i8 (&mut self) -> DecodeResult<i8 > {
         debug!("read_i8");
-        Err(DecodingError("i8 data not supported by MaxMind DB format".to_strbuf()))
+        Err(DecodingError("i8 data not supported by MaxMind DB format".to_string()))
     }
 
     fn read_int(&mut self) -> DecodeResult<int> {
@@ -119,7 +120,7 @@ impl serialize::Decoder<Error> for Decoder {
                 _ => ()
             }
         }
-        Err(DecodingError(format_strbuf!("char {}", s)))
+        Err(DecodingError(format!("char {}", s)))
     }
 
     fn read_str(&mut self) -> DecodeResult<String> {
@@ -142,23 +143,23 @@ impl serialize::Decoder<Error> for Decoder {
         let name = match self.pop() {
             String(s) => s,
             Map(mut o) => {
-                let n = match o.pop(&"variant".to_strbuf()) {
+                let n = match o.pop(&"variant".to_string()) {
                     Some(String(s)) => s,
-                    Some(val) => return Err(DecodingError( format_strbuf!("enum {}", val))),
-                    None => return Err(DecodingError("variant".to_strbuf()))
+                    Some(val) => return Err(DecodingError( format!("enum {}", val))),
+                    None => return Err(DecodingError("variant".to_string()))
                 };
-                match o.pop(&"fields".to_strbuf()) {
+                match o.pop(&"fields".to_string()) {
                     Some(Array(l)) => {
                         for field in l.move_iter().rev() {
                             self.stack.push(field.clone());
                         }
                     },
-                    Some(val) => return Err(DecodingError(format_strbuf!("enum {}", val))),
-                    None => return Err(DecodingError("fields".to_strbuf()))
+                    Some(val) => return Err(DecodingError(format!("enum {}", val))),
+                    None => return Err(DecodingError("fields".to_string()))
                 }
                 n
             }
-            json => return Err(DecodingError( format_strbuf!("enum {}", json)))
+            json => return Err(DecodingError( format!("enum {}", json)))
         };
         let idx = match names.iter()
                              .position(|n| {
@@ -213,8 +214,8 @@ impl serialize::Decoder<Error> for Decoder {
         debug!("read_struct_field(name={}, idx={})", name, idx);
         let mut obj = try!(expect!(self.pop(), Map));
 
-        let value = match obj.pop(&name.to_strbuf()) {
-            None => return Err(DecodingError(format_strbuf!("Unknown struct field {}", name.to_strbuf()))),
+        let value = match obj.pop(&name.to_string()) {
+            None => return Err(DecodingError(format!("Unknown struct field {}", name.to_string()))),
             Some(record) => {
                 self.stack.push(record);
                 try!(f(self))
