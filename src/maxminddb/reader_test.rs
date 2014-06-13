@@ -10,7 +10,7 @@ fn test_decoder() {
 
     #[deriving(Decodable, Show, Eq, PartialEq)]
     struct MapXType {
-        arrayX: ~[uint],
+        arrayX: Vec<uint>,
         utf8_stringX: String
     };
 
@@ -21,9 +21,9 @@ fn test_decoder() {
 
     #[deriving(Decodable, Show)]
     struct TestType {
-        array:       ~[uint],
+        array:       Vec<uint>,
         boolean:     bool,
-        bytes:       ~[u8],
+        bytes:       Vec<u8>,
         double:      f64,
         float:       f32,
         int32:       i32,
@@ -31,7 +31,7 @@ fn test_decoder() {
         uint16:      u16,
         uint32:      u32,
         uint64:      u64,
-        uint128:     ~[u8],
+        uint128:     Vec<u8>,
         utf8_string: String
     }
 
@@ -45,19 +45,19 @@ fn test_decoder() {
         Err(e) => fail!("Decoding error: {}", e)
     };
 
-    assert_eq!(result.array, ~[ 1u, 2u, 3u ]);
+    assert_eq!(result.array, vec![ 1u, 2u, 3u ]);
     assert_eq!(result.boolean, true);
-    assert_eq!(result.bytes, ~[0u8, 0u8, 0u8, 42u8])
+    assert_eq!(result.bytes, vec![0u8, 0u8, 0u8, 42u8])
     assert_eq!(result.double, 42.123456);
     assert_eq!(result.float, 1.1);
     assert_eq!(result.int32, -268435456);
 
-    assert_eq!(result.map, MapType{ mapX: MapXType{ arrayX: ~[7,8,9], utf8_stringX: "hello".to_string()}});
+    assert_eq!(result.map, MapType{ mapX: MapXType{ arrayX: vec![7,8,9], utf8_stringX: "hello".to_string()}});
 
     assert_eq!(result.uint16, 100);
     assert_eq!(result.uint32, 268435456);
     assert_eq!(result.uint64, 1152921504606846976);
-    assert_eq!(result.uint128, ~[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(result.uint128, vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 
     assert_eq!(result.utf8_string,  "unicode! ☯ - ♫".to_string());
 }
@@ -121,7 +121,7 @@ fn check_metadata(reader: &Reader, ip_version: uint, record_size: uint) {
                    "Test Database Chinese".to_string());
 
     assert_eq!(metadata.ip_version,  ip_version as u16)
-    assert_eq!(metadata.languages, ~["en".to_string(), "zh".to_string()])
+    assert_eq!(metadata.languages, vec!["en".to_string(), "zh".to_string()])
 
     if ip_version == 4 {
         assert_eq!(metadata.node_count,  37)
