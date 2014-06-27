@@ -447,7 +447,7 @@ impl Reader {
         // We are looking up an IPv4 address in an IPv6 tree. Skip over the
         // first 96 nodes.
         let mut node: uint = 0u;
-        for _ in range(0, 96) {
+        for _ in range(0u8, 96) {
             if node >= self.metadata.node_count {
                 break;
             }
