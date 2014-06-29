@@ -509,7 +509,7 @@ fn read_from_map(map: &os::MemoryMap, size: uint, offset: uint) -> Vec<u8> {
         error!("attempt to read beyond end of memory map: {}\n", offset);
         unsafe { intrinsics::abort() }
     }
-    unsafe { vec::raw::from_buf(map.data.offset(offset as int) as *u8, size).as_slice().to_owned()}
+    unsafe { vec::raw::from_buf(map.data.offset(offset as int) as *const u8, size).as_slice().to_owned()}
 }
 
 fn ip_to_bytes(ip_address: IpAddr) -> Vec<u8> {
