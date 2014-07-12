@@ -6,6 +6,7 @@ before_install:
   - tar xf rust-nightly-x86_64-unknown-linux-gnu.tar.gz
 install:
   - sudo ./rust-nightly-x86_64-unknown-linux-gnu/install.sh
+  - ldconfig
 script:
   - make all check
 after_script:
