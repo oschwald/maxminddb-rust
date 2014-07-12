@@ -1,4 +1,4 @@
-#![crate_id = "geoip2#0.1.0-pre"]
+#![crate_name = "geoip2"]
 
 #![comment = "MaxMind GeoIP2"]
 #![license = "Apache 2"]

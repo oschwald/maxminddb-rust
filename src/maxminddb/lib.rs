@@ -1,4 +1,4 @@
-#![crate_id = "maxminddb#0.1.0-pre"]
+#![crate_name = "maxminddb"]
 
 #![comment = "MaxMind DB Reader"]
 #![license = "Apache 2"]
@@ -357,7 +357,7 @@ impl Reader {
         let map = match os::MemoryMap::new(database_size, [os::MapReadable, os::MapFd(fd), os::MapOffset(0)])
         {
             Ok(mem)  => mem,
-            Err(msg) => return Err(MapError(msg.to_str().to_string()))
+            Err(msg) => return Err(MapError(msg.to_string()))
         };
 
         let metadata_start = match find_metadata_start(&map) {
