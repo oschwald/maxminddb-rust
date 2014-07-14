@@ -494,7 +494,7 @@ impl Reader {
 
         let resolved = pointer - self.metadata.node_count + search_tree_size;
 
-        if resolved > self.decoder.map.len  {
+        if resolved > self.decoder.map.len()  {
             return Err(InvalidDatabaseError("the MaxMind DB file's search tree is corrupt".to_string()));
         }
 
@@ -504,12 +504,12 @@ impl Reader {
 }
 
 fn read_from_map(map: &os::MemoryMap, size: uint, offset: uint) -> Vec<u8> {
-    if offset >= map.len - size {
+    if offset >= map.len() - size {
         use std::intrinsics;
         error!("attempt to read beyond end of memory map: {}\n", offset);
         unsafe { intrinsics::abort() }
     }
-    unsafe { vec::raw::from_buf(map.data.offset(offset as int) as *const u8, size).as_slice().to_owned()}
+    unsafe { vec::raw::from_buf(map.data().offset(offset as int) as *const u8, size).as_slice().to_owned()}
 }
 
 fn ip_to_bytes(ip_address: IpAddr) -> Vec<u8> {
@@ -543,11 +543,11 @@ fn find_metadata_start(map: &os::MemoryMap) -> Result<uint, Error> {
     let marker_length = metadata_start_marker.len();
 
     // XXX - ugly code
-    for start_position in range(marker_length, map.len - 1) {
+    for start_position in range(marker_length, map.len() - 1) {
         let mut not_found = false;
         for (offset, marker_byte) in metadata_start_marker.iter().enumerate() {
             let file_byte = read_from_map(map, 1,
-                    (map.len - start_position - offset - 1 )
+                    (map.len() - start_position - offset - 1 )
                     );
             if *file_byte.get(0) != *marker_byte {
                 not_found = true;
@@ -555,7 +555,7 @@ fn find_metadata_start(map: &os::MemoryMap) -> Result<uint, Error> {
             }
         }
         if !not_found {
-            return Ok(map.len - start_position);
+            return Ok(map.len() - start_position);
         }
     }
     Err(InvalidDatabaseError("Could not find MaxMind DB metadata in file.".to_string()))
