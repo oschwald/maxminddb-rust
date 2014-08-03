@@ -108,7 +108,7 @@ impl BinaryDecoder {
             new_offset = tmp_offset;
             array.push(val);
         }
-        (Ok(Array(array.as_slice().to_owned())), new_offset)
+        (Ok(Array(array.to_vec())), new_offset)
     }
 
     fn decode_bool(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
@@ -126,7 +126,7 @@ impl BinaryDecoder {
         for b in u8_slice.move_iter() {
             bytes.push(Byte(b));
         }
-        (Ok(Array(bytes.as_slice().to_owned())), new_offset)
+        (Ok(Array(bytes.to_vec())), new_offset)
     }
 
     fn decode_float(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
@@ -245,7 +245,7 @@ impl BinaryDecoder {
                 pointer_bytes
             } else {
                 // XXX - make this sane.
-                [vec![ (size & 0x7) as u8 ], pointer_bytes].concat_vec().as_slice().to_owned()
+                [vec![ (size & 0x7) as u8 ], pointer_bytes].concat_vec()
             };
         let mut r = BufReader::new(packed.as_slice());
         let unpacked = r.read_be_uint_n(packed.len()).unwrap() as uint;
@@ -267,13 +267,13 @@ impl BinaryDecoder {
 
     fn decode(&self, offset: uint) -> BinaryDecodeResult<DataRecord> {
         let mut new_offset = offset + 1;
-        let ctrl_byte = *(read_from_map(&self.map, 1, offset)).get(0);
+        let ctrl_byte = read_u8_from_map(&self.map, offset);
 
         let mut type_num = ctrl_byte >> 5;
 
         // Extended type
         if type_num == 0 {
-            type_num = *read_from_map(&self.map, 1, new_offset).get(0) + 7;
+            type_num = read_u8_from_map(&self.map, new_offset) + 7;
             new_offset += 1;
         }
 
@@ -296,7 +296,7 @@ impl BinaryDecoder {
 
         size = match size {
                 s if s < 29 => s,
-                29 => 29u + *size_bytes.get(0) as uint,
+                29 => 29u + size_bytes[0] as uint,
                 30 => {
                     let mut r = BufReader::new(size_bytes.as_slice());
                     285u + r.read_be_uint_n(size_bytes.len()).unwrap() as uint
@@ -414,7 +414,7 @@ impl Reader {
             if node >= self.metadata.node_count {
                 break;
             }
-            let bit = 1 & (*ip_address.get(i>>3) >> (7-(i % 8)));
+            let bit = 1 & (ip_address[i>>3] >> (7-(i % 8)));
 
             node = match self.read_node(node, bit as uint) {
                 Ok(v) => v,
@@ -470,7 +470,7 @@ impl Reader {
                 read_from_map(&self.decoder.map, 3, offset)
             },
             28 => {
-                let mut middle = *read_from_map(&self.decoder.map, 1, base_offset + 3).get(0);
+                let mut middle = read_u8_from_map(&self.decoder.map, base_offset + 3);
                 if index != 0 {
                     middle &= 0x0F
                 } else {
@@ -503,13 +503,20 @@ impl Reader {
     }
 }
 
+fn read_u8_from_map(map: &os::MemoryMap, offset: uint) -> u8 {
+    match read_from_map(map, 1, offset).as_slice() {
+        [head] => head,
+        _ => unreachable!()
+    }
+}
+
 fn read_from_map(map: &os::MemoryMap, size: uint, offset: uint) -> Vec<u8> {
     if offset >= map.len() - size {
         use std::intrinsics;
         error!("attempt to read beyond end of memory map: {}\n", offset);
         unsafe { intrinsics::abort() }
     }
-    unsafe { vec::raw::from_buf(map.data().offset(offset as int) as *const u8, size).as_slice().to_owned()}
+    unsafe { vec::raw::from_buf(map.data().offset(offset as int) as *const u8, size)}
 }
 
 fn ip_to_bytes(ip_address: IpAddr) -> Vec<u8> {
@@ -549,7 +556,7 @@ fn find_metadata_start(map: &os::MemoryMap) -> Result<uint, Error> {
             let file_byte = read_from_map(map, 1,
                     (map.len() - start_position - offset - 1 )
                     );
-            if *file_byte.get(0) != *marker_byte {
+            if file_byte[0] != *marker_byte {
                 not_found = true;
                 break;
             }

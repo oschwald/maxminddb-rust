@@ -298,4 +298,8 @@ impl serialize::Decoder<Error> for Decoder {
         debug!("read_map_elt_val(idx={})", idx);
         f(self)
     }
+
+    fn error(&mut self, err: &str) -> Error {
+        DecodingError(err.to_string())
+    }
 }
