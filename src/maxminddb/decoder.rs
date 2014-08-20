@@ -3,8 +3,6 @@ extern crate serialize;
 
 use std::str;
 
-use serialize::Decoder;
-
 use super::{Array, Boolean, Byte, DataRecord, DecodingError, Double, Error,
             Float, Int32, Map, String, Uint16, Uint32, Uint64};
 
