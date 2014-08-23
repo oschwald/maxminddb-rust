@@ -11,34 +11,34 @@ extern crate serialize;
 
 #[deriving(Decodable, Show)]
 pub struct Names {
-    en: String,
+    en: Option<String>,
 }
 
 #[deriving(Decodable, Show)]
 pub struct Continent {
-    code: String,
-    geoname_id: uint,
-    names: Names,
+    code: Option<String>,
+    geoname_id: Option<uint>,
+    names: Option<Names>,
 }
 
 #[deriving(Decodable, Show)]
 pub struct Place {
-    geoname_id: uint,
-    iso_code: String,
-    names: Names,
+    geoname_id: Option<uint>,
+    iso_code: Option<String>,
+    names: Option<Names>,
 }
 
 #[deriving(Decodable, Show)]
 pub struct Traits {
-    is_anonymous_proxy: bool,
-    is_satellite_provider: bool,
+    is_anonymous_proxy: Option<bool>,
+    is_satellite_provider: Option<bool>,
 }
 
 #[deriving(Decodable, Show)]
 pub struct Country {
-    continent: Continent,
-    country: Place,
-    registered_country: Place,
-    represented_country: Place,
-    traits: Traits,
+    continent: Option<Continent>,
+    country: Option<Place>,
+    registered_country: Option<Place>,
+    represented_country: Option<Place>,
+    traits: Option<Traits>,
 }
