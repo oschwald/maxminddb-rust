@@ -54,6 +54,7 @@ pub enum DataRecord {
     Boolean(bool),
     Array(Array),
     Float(f32),
+    Null,
 }
 
 pub type Array = Vec<DataRecord>;
@@ -73,6 +74,7 @@ impl fmt::Show for DataRecord {
         &Boolean(v) => v.fmt(f),
         &Array(ref v) => v.fmt(f),
         &Float(v) => v.fmt(f),
+        &Null => "Null".fmt(f),
       }
     }
 }

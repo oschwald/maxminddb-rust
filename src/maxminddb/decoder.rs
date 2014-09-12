@@ -4,9 +4,15 @@ extern crate serialize;
 use std::str;
 
 use super::{Array, Boolean, Byte, DataRecord, DecodingError, Double, Error,
-            Float, Int32, Map, String, Uint16, Uint32, Uint64};
+            Float, Int32, Map, Null, String, Uint16, Uint32, Uint64};
 
 macro_rules! expect(
+    ($e:expr, Null) => ({
+        match $e {
+            Null => Ok(()),
+            other => Err(DecodingError(format!("Error decoding Null as {}", other)))
+        }
+    });
     ($e:expr, $t:ident) => ({
         match $e {
             $t(v) => Ok(v),
@@ -40,7 +46,7 @@ pub type DecodeResult<T> = Result<T, Error>;
 impl serialize::Decoder<Error> for Decoder {
     fn read_nil(&mut self) -> DecodeResult<()> {
         debug!("read_nil");
-        Err(DecodingError("nil data not supported by MaxMind DB format".to_string()))
+        expect!(self.pop(), Null)
     }
 
     fn read_u64(&mut self)  -> DecodeResult<u64 > {
@@ -213,7 +219,13 @@ impl serialize::Decoder<Error> for Decoder {
         let mut obj = try!(expect!(self.pop(), Map));
 
         let value = match obj.pop(&name.to_string()) {
-            None => return Err(DecodingError(format!("Unknown struct field {}", name.to_string()))),
+            None => {
+                self.stack.push(Null);
+                match f(self) {
+                    Ok(v) => v,
+                    Err(_) =>  return Err(DecodingError(format!("Unknown struct field {}", name.to_string()))),
+                }
+            },
             Some(record) => {
                 self.stack.push(record);
                 try!(f(self))
@@ -252,9 +264,11 @@ impl serialize::Decoder<Error> for Decoder {
     }
 
     fn read_option<T>(&mut self, f: |&mut Decoder, bool| -> DecodeResult<T>) -> DecodeResult<T> {
-        let value = self.pop();
-        self.stack.push(value);
-        f(self, true)
+        debug!("read_option()");
+        match self.pop() {
+            Null => f(self, false),
+            value => { self.stack.push(value); f(self, true) }
+        }
     }
 
     fn read_seq<T>(&mut self, f: |&mut Decoder, uint| -> DecodeResult<T>) -> DecodeResult<T> {
