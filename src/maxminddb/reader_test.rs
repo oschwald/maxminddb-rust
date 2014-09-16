@@ -8,12 +8,14 @@ use serialize::Decodable;
 #[test]
 fn test_decoder() {
 
+    #[allow(non_snake_case)]
     #[deriving(Decodable, Show, Eq, PartialEq)]
     struct MapXType {
         arrayX: Vec<uint>,
         utf8_stringX: String
     };
 
+    #[allow(non_snake_case)]
     #[deriving(Decodable, Show, Eq, PartialEq)]
     struct MapType {
         mapX: MapXType
@@ -180,9 +182,9 @@ fn check_ip(reader: &Reader, ip_version: uint) {
         assert_eq!(value.ip, values[1].to_string());
     }
 
-    let noRecord =  ["1.1.1.33", "255.254.253.123", "89fa::"];
+    let no_record =  ["1.1.1.33", "255.254.253.123", "89fa::"];
 
-    for &address in noRecord.iter() {
+    for &address in no_record.iter() {
         let ip: IpAddr = FromStr::from_str(address).unwrap();
         match reader.lookup(ip) {
             Ok(v) => fail!("received an unexpected value: {}", v),

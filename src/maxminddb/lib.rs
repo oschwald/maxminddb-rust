@@ -373,8 +373,8 @@ impl Reader {
             m      => return Err(InvalidDatabaseError(format!("metadata of wrong type: {}", m))),
         };
 
-        let mut typeDecoder = ::Decoder::new(raw_metadata);
-        let metadata: Metadata = match Decodable::decode(&mut typeDecoder) {
+        let mut type_decoder = ::Decoder::new(raw_metadata);
+        let metadata: Metadata = match Decodable::decode(&mut type_decoder) {
             Ok(v) => v,
             Err(e) => fail!("Decoding error: {}", e)
         };
