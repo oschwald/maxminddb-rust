@@ -21,7 +21,7 @@ use std::io::BufReader;
 use rustrt::rtio::{Open, Read};
 use std::io::net::ip::{IpAddr,Ipv6Addr,Ipv4Addr};
 use std::os;
-use std::str;
+use std::string;
 use std::vec;
 
 use serialize::Decodable;
@@ -32,33 +32,33 @@ pub use self::decoder::Decoder;
 
 #[deriving(Show, Eq, PartialEq)]
 pub enum Error {
-    AddressNotFoundError(String),
-    InvalidDatabaseError(String),
-    IoError(String),
-    MapError(String),
-    DecodingError(String),
+    AddressNotFoundError(string::String),
+    InvalidDatabaseError(string::String),
+    IoError(string::String),
+    MapError(string::String),
+    DecodingError(string::String),
 }
 
 pub type BinaryDecodeResult<T> = (Result<T, Error>, uint);
 
 #[deriving(Clone, PartialEq)]
 pub enum DataRecord {
-    String(String),
+    String(string::String),
     Double(f64),
     Byte(u8),
     Uint16(u16),
     Uint32(u32),
-    Map(Box<Map>),
+    Map(Box<DbMap>),
     Int32(i32),
     Uint64(u64),
     Boolean(bool),
-    Array(Array),
+    Array(DbArray),
     Float(f32),
     Null,
 }
 
-pub type Array = Vec<DataRecord>;
-pub type Map = TreeMap<String, DataRecord>;
+pub type DbArray = Vec<DataRecord>;
+pub type DbMap = TreeMap<string::String, DataRecord>;
 
 impl fmt::Show for DataRecord {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -84,10 +84,10 @@ pub struct Metadata {
     pub binary_format_major_version : u16,
     pub binary_format_minor_version : u16,
     pub build_epoch                 : u64,
-    pub database_type               : String,
-    pub description                 : TreeMap<String, String>,
+    pub database_type               : string::String,
+    pub description                 : TreeMap<string::String, string::String>,
     pub ip_version                  : u16,
-    pub languages                   : Vec<String>,
+    pub languages                   : Vec<string::String>,
     pub node_count                  : uint,
     pub record_size                 : u16,
 }
@@ -125,7 +125,7 @@ impl BinaryDecoder {
         let u8_slice = read_from_map(&self.map, size, offset);
         // XXX - baby rust
         let mut bytes = Vec::new();
-        for b in u8_slice.move_iter() {
+        for b in u8_slice.into_iter() {
             bytes.push(Byte(b));
         }
         (Ok(Array(bytes.to_vec())), new_offset)
@@ -259,9 +259,11 @@ impl BinaryDecoder {
     }
 
     fn decode_string(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
+        use std::str::from_utf8;
+
         let new_offset : uint = offset + size;
         let bytes = read_from_map(&self.map, size, offset);
-        match str::from_utf8(bytes.as_slice()) {
+        match from_utf8(bytes.as_slice()) {
             Some(v) => (Ok(String(v.to_string())), new_offset),
             None => (Err(InvalidDatabaseError("error decoding string".to_string())), new_offset)
         }

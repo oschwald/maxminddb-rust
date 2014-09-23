@@ -1,7 +1,7 @@
 extern crate debug;
 extern crate serialize;
 
-use std::str;
+use std::string;
 
 use super::{Array, Boolean, Byte, DataRecord, DecodingError, Double, Error,
             Float, Int32, Map, Null, String, Uint16, Uint32, Uint64};
@@ -127,7 +127,7 @@ impl serialize::Decoder<Error> for Decoder {
         Err(DecodingError(format!("char {}", s)))
     }
 
-    fn read_str(&mut self) -> DecodeResult<String> {
+    fn read_str(&mut self) -> DecodeResult<string::String> {
         debug!("read_str");
         Ok(try!(expect!(self.pop(), String)))
     }
@@ -143,6 +143,8 @@ impl serialize::Decoder<Error> for Decoder {
                             names: &[&str],
                             f: |&mut Decoder, uint| -> DecodeResult<T>)
                             -> DecodeResult<T> {
+        use std::str;
+
         debug!("read_enum_variant(names={:?})", names);
         let name = match self.pop() {
             String(s) => s,
@@ -154,7 +156,7 @@ impl serialize::Decoder<Error> for Decoder {
                 };
                 match o.pop(&"fields".to_string()) {
                     Some(Array(l)) => {
-                        for field in l.move_iter().rev() {
+                        for field in l.into_iter().rev() {
                             self.stack.push(field.clone());
                         }
                     },
@@ -275,7 +277,7 @@ impl serialize::Decoder<Error> for Decoder {
         debug!("read_seq()");
         let list = try!(expect!(self.pop(), Array));
         let len = list.len();
-        for v in list.move_iter().rev() {
+        for v in list.into_iter().rev() {
             self.stack.push(v);
         }
         f(self, len)
@@ -292,7 +294,7 @@ impl serialize::Decoder<Error> for Decoder {
         debug!("read_map()");
         let obj = try!(expect!(self.pop(), Map));
         let len = obj.len();
-        for (key, value) in obj.move_iter() {
+        for (key, value) in obj.into_iter() {
             self.stack.push(value);
             self.stack.push(String(key));
         }
