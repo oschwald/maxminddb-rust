@@ -1,4 +1,3 @@
-extern crate debug;
 extern crate serialize;
 
 use std::string;
@@ -16,7 +15,7 @@ macro_rules! expect(
     ($e:expr, $t:ident) => ({
         match $e {
             $t(v) => Ok(v),
-            other => Err(DecodingError(format!("Error decoding {:?} as {}", other, stringify!($t))))
+            other => Err(DecodingError(format!("Error decoding {} as {}", other, stringify!($t))))
         }
     })
 )
@@ -145,7 +144,7 @@ impl serialize::Decoder<Error> for Decoder {
                             -> DecodeResult<T> {
         use std::str;
 
-        debug!("read_enum_variant(names={:?})", names);
+        debug!("read_enum_variant(names={})", names);
         let name = match self.pop() {
             String(s) => s,
             Map(mut o) => {
@@ -187,7 +186,7 @@ impl serialize::Decoder<Error> for Decoder {
                                    names: &[&str],
                                    f: |&mut Decoder, uint| -> DecodeResult<T>)
                                    -> DecodeResult<T> {
-        debug!("read_enum_struct_variant(names={:?})", names);
+        debug!("read_enum_struct_variant(names={})", names);
         self.read_enum_variant(names, f)
     }
 

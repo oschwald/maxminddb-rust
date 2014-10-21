@@ -4,7 +4,7 @@ name = "maxminddb"
 version = "0.1.0-pre"
 authors = [ "oschwald@gmail.com" ]
 
-[[lib]]
+[lib]
 
 name ="maxminddb"
 crate_type = ["dylib", "staticlib"]

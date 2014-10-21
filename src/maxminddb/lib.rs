@@ -11,7 +11,6 @@
 #[phase(plugin, link)] extern crate log;
 
 extern crate collections;
-extern crate debug;
 extern crate native;
 extern crate rustrt;
 extern crate serialize;
@@ -110,7 +109,7 @@ impl BinaryDecoder {
             new_offset = tmp_offset;
             array.push(val);
         }
-        (Ok(Array(array.to_vec())), new_offset)
+        (Ok(Array(array)), new_offset)
     }
 
     fn decode_bool(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
@@ -128,7 +127,7 @@ impl BinaryDecoder {
         for b in u8_slice.into_iter() {
             bytes.push(Byte(b));
         }
-        (Ok(Array(bytes.to_vec())), new_offset)
+        (Ok(Array(bytes)), new_offset)
     }
 
     fn decode_float(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
