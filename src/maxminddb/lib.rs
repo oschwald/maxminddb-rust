@@ -377,7 +377,7 @@ impl Reader {
         let mut type_decoder = ::Decoder::new(raw_metadata);
         let metadata: Metadata = match Decodable::decode(&mut type_decoder) {
             Ok(v) => v,
-            Err(e) => fail!("Decoding error: {}", e)
+            Err(e) => return Err(InvalidDatabaseError(format!("Decoding error: {}", e)))
         };
 
         let search_tree_size = metadata.node_count * (metadata.record_size as uint) / 4;

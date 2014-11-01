@@ -44,7 +44,7 @@ fn test_decoder() {
     let mut decoder = Decoder::new(raw_data.unwrap());
     let result: TestType = match Decodable::decode(&mut decoder) {
         Ok(v) => v,
-        Err(e) => fail!("Decoding error: {}", e)
+        Err(e) => panic!("Decoding error: {}", e)
     };
 
     assert_eq!(result.array, vec![ 1u, 2u, 3u ]);
@@ -76,7 +76,7 @@ fn test_broken_database() {
 fn test_missing_database() {
     let r = Reader::open("file-does-not-exist.mmdb");
     match r {
-        Ok(_) => fail!("Received Reader when opening non-existent file"),
+        Ok(_) => panic!("Received Reader when opening non-existent file"),
         Err(IoError(_)) => assert!(true),
         Err(_) => assert!(false)
     }
@@ -86,7 +86,7 @@ fn test_missing_database() {
 fn test_non_database() {
     let r = Reader::open("README.md");
     match r {
-        Ok(_) => fail!("Received Reader when opening a non-MMDB file"),
+        Ok(_) => panic!("Received Reader when opening a non-MMDB file"),
         Err(e) => assert_eq!(e, InvalidDatabaseError("Could not find MaxMind DB metadata in file.".to_string()))
 
     }
@@ -177,7 +177,7 @@ fn check_ip(reader: &Reader, ip_version: uint) {
         let mut decoder = Decoder::new(res);
         let value: IpType =  match Decodable::decode(&mut decoder) {
             Ok(v) => v,
-            Err(e) => fail!("Decoding error: {}", e)
+            Err(e) => panic!("Decoding error: {}", e)
         };
         assert_eq!(value.ip, values[1].to_string());
     }
@@ -187,7 +187,7 @@ fn check_ip(reader: &Reader, ip_version: uint) {
     for &address in no_record.iter() {
         let ip: IpAddr = FromStr::from_str(address).unwrap();
         match reader.lookup(ip) {
-            Ok(v) => fail!("received an unexpected value: {}", v),
+            Ok(v) => panic!("received an unexpected value: {}", v),
             Err(e) => assert_eq!(e, AddressNotFoundError("Address not found in database".to_string()))
         }
     }

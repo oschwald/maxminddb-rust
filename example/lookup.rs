@@ -18,7 +18,7 @@ fn main() {
     let mut decoder = maxminddb::Decoder::new(dr.unwrap());
     let decoded_object: Country = match Decodable::decode(&mut decoder) {
         Ok(v) => v,
-        Err(e) => fail!("Decoding error: {}", e)
+        Err(e) => panic!("Decoding error: {}", e)
     }; // create the final object
     print!("{}\n", decoded_object);
 
