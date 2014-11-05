@@ -236,10 +236,20 @@ impl serialize::Decoder<Error> for Decoder {
         Ok(value)
     }
 
-    fn read_tuple<T>(&mut self, f: |&mut Decoder, uint| -> DecodeResult<T>) -> DecodeResult<T> {
+    fn read_tuple<T>(&mut self,
+                     tuple_len: uint,
+                     f: |&mut Decoder| -> DecodeResult<T>)
+                     -> DecodeResult<T> {
         debug!("read_tuple()");
-        self.read_seq(f)
+        self.read_seq(|d, len| {
+            if len == tuple_len {
+                f(d)
+            } else {
+                Err(DecodingError(format!("Tuple{}", tuple_len)))
+            }
+        })
     }
+
 
     fn read_tuple_arg<T>(&mut self,
                          idx: uint,
@@ -250,10 +260,11 @@ impl serialize::Decoder<Error> for Decoder {
 
     fn read_tuple_struct<T>(&mut self,
                             name: &str,
-                            f: |&mut Decoder, uint| -> DecodeResult<T>)
+                            len: uint,
+                            f: |&mut Decoder| -> DecodeResult<T>)
                             -> DecodeResult<T> {
         debug!("read_tuple_struct(name={})", name);
-        self.read_tuple(f)
+        self.read_tuple(len, f)
     }
 
     fn read_tuple_struct_arg<T>(&mut self,
