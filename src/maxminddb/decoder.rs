@@ -148,12 +148,12 @@ impl serialize::Decoder<Error> for Decoder {
         let name = match self.pop() {
             String(s) => s,
             Map(mut o) => {
-                let n = match o.pop(&"variant".to_string()) {
+                let n = match o.remove(&"variant".to_string()) {
                     Some(String(s)) => s,
                     Some(val) => return Err(DecodingError( format!("enum {}", val))),
                     None => return Err(DecodingError("variant".to_string()))
                 };
-                match o.pop(&"fields".to_string()) {
+                match o.remove(&"fields".to_string()) {
                     Some(Array(l)) => {
                         for field in l.into_iter().rev() {
                             self.stack.push(field.clone());
@@ -219,7 +219,7 @@ impl serialize::Decoder<Error> for Decoder {
         debug!("read_struct_field(name={}, idx={})", name, idx);
         let mut obj = try!(expect!(self.pop(), Map));
 
-        let value = match obj.pop(&name.to_string()) {
+        let value = match obj.remove(&name.to_string()) {
             None => {
                 self.stack.push(Null);
                 match f(self) {

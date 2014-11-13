@@ -117,9 +117,9 @@ fn check_metadata(reader: &Reader, ip_version: uint, record_size: uint) {
     assert!(metadata.build_epoch >= 1397457605)
     assert_eq!(metadata.database_type, "Test".to_string())
 
-    assert_eq!(*metadata.description.find(&"en".to_string()).unwrap(),
+    assert_eq!(*metadata.description.get(&"en".to_string()).unwrap(),
                    "Test Database".to_string());
-    assert_eq!(*metadata.description.find(&"zh".to_string()).unwrap(),
+    assert_eq!(*metadata.description.get(&"zh".to_string()).unwrap(),
                    "Test Database Chinese".to_string());
 
     assert_eq!(metadata.ip_version,  ip_version as u16)

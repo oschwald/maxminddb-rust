@@ -11,14 +11,16 @@
 #[phase(plugin, link)] extern crate log;
 
 extern crate collections;
+extern crate libc;
 extern crate native;
 extern crate rustrt;
 extern crate serialize;
 
 use std::fmt;
 use std::io::BufReader;
-use rustrt::rtio::{Open, Read};
+use std::io::File;
 use std::io::net::ip::{IpAddr,Ipv6Addr,Ipv4Addr};
+use std::io::{Open, Read};
 use std::os;
 use std::string;
 use std::vec;
@@ -333,6 +335,28 @@ impl BinaryDecoder {
     }
 }
 
+// Borrowed from https://github.com/uutils/coreutils/pull/448/files
+// BEGIN CODE TO DELETE AFTER https://github.com/rust-lang/rust/issues/18897 is fixed
+struct HackyFile {
+    pub fd: FileDesc,
+}
+
+struct FileDesc {
+    fd: libc::c_int,
+}
+
+trait AsFileDesc {
+    fn as_fd(&self) -> FileDesc;
+}
+
+impl AsFileDesc for File {
+    fn as_fd(&self) -> FileDesc {
+        let hack: HackyFile = unsafe { std::mem::transmute_copy(self) };
+        hack.fd
+    }
+}
+// END CODE TO DELETE
+
 pub struct Reader {
     decoder: BinaryDecoder,
     pub metadata: Metadata,
@@ -344,14 +368,15 @@ impl Reader {
     pub fn open(database: &str) -> Result<Reader, Error> {
         let data_section_separator_size = 16;
 
-        let f = match native::io::file::open(&database.to_c_str(),
-                                             Open, Read) {
+        let path = Path::new(&database.to_c_str());
+
+        let mut f = match File::open_mode(&path, Open, Read) {
             Ok(f)  => f,
             Err(_) => return Err(IoError("Error opening file".to_string()))
         };
-        let fd = f.fd();
+        let fd = f.as_fd().fd;
 
-        let stats = match native::io::file::stat(&database.to_c_str()) {
+        let stats = match f.stat() {
             Ok(s) => s,
             Err(_) => return Err(IoError("Error calling stat on file".to_string()))
         };
