@@ -4,7 +4,7 @@ extern crate maxminddb;
 extern crate serialize;
 
 use std::io::net::ip::IpAddr;
-use str::FromStr;
+use std::str::FromStr;
 use serialize::Decodable;
 
 use geoip2::Country;
