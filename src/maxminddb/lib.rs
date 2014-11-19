@@ -64,18 +64,18 @@ pub type DbMap = TreeMap<string::String, DataRecord>;
 impl fmt::Show for DataRecord {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
       match self {
-        &String(ref v) => v.fmt(f),
-        &Double(v) => v.fmt(f),
-        &Byte(v) => v.fmt(f),
-        &Uint16(v) => v.fmt(f),
-        &Uint32(v) => v.fmt(f),
-        &Uint64(v) => v.fmt(f),
-        &Map(ref v) => v.fmt(f),
-        &Int32(v) => v.fmt(f),
-        &Boolean(v) => v.fmt(f),
-        &Array(ref v) => v.fmt(f),
-        &Float(v) => v.fmt(f),
-        &Null => "Null".fmt(f),
+        &DataRecord::String(ref v) => v.fmt(f),
+        &DataRecord::Double(v) => v.fmt(f),
+        &DataRecord::Byte(v) => v.fmt(f),
+        &DataRecord::Uint16(v) => v.fmt(f),
+        &DataRecord::Uint32(v) => v.fmt(f),
+        &DataRecord::Uint64(v) => v.fmt(f),
+        &DataRecord::Map(ref v) => v.fmt(f),
+        &DataRecord::Int32(v) => v.fmt(f),
+        &DataRecord::Boolean(v) => v.fmt(f),
+        &DataRecord::Array(ref v) => v.fmt(f),
+        &DataRecord::Float(v) => v.fmt(f),
+        &DataRecord::Null => "Null".fmt(f),
       }
     }
 }
@@ -111,13 +111,13 @@ impl BinaryDecoder {
             new_offset = tmp_offset;
             array.push(val);
         }
-        (Ok(Array(array)), new_offset)
+        (Ok(DataRecord::Array(array)), new_offset)
     }
 
     fn decode_bool(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
         match size {
-            0|1 => (Ok(Boolean(size != 0)), offset),
-             s => (Err(InvalidDatabaseError(format!("float of size {}", s))), 0)
+            0|1 => (Ok(DataRecord::Boolean(size != 0)), offset),
+             s => (Err(Error::InvalidDatabaseError(format!("float of size {}", s))), 0)
          }
     }
 
@@ -127,9 +127,9 @@ impl BinaryDecoder {
         // XXX - baby rust
         let mut bytes = Vec::new();
         for b in u8_slice.into_iter() {
-            bytes.push(Byte(b));
+            bytes.push(DataRecord::Byte(b));
         }
-        (Ok(Array(bytes)), new_offset)
+        (Ok(DataRecord::Array(bytes)), new_offset)
     }
 
     fn decode_float(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
@@ -139,9 +139,9 @@ impl BinaryDecoder {
 
                 let buf = read_from_map(&self.map, size, offset);
                 let mut reader = BufReader::new(buf.as_slice());
-                (Ok(Float(reader.read_be_f32().unwrap())), new_offset)
+                (Ok(DataRecord::Float(reader.read_be_f32().unwrap())), new_offset)
             },
-            s => (Err(InvalidDatabaseError(format!("float of size {}", s))), 0)
+            s => (Err(Error::InvalidDatabaseError(format!("float of size {}", s))), 0)
         }
     }
 
@@ -152,9 +152,9 @@ impl BinaryDecoder {
 
                 let buf = read_from_map(&self.map, size, offset);
                 let mut reader = BufReader::new(buf.as_slice());
-                (Ok(Double(reader.read_be_f64().unwrap())), new_offset)
+                (Ok(DataRecord::Double(reader.read_be_f64().unwrap())), new_offset)
             },
-            s => (Err(InvalidDatabaseError(format!("double of size {}", s))), 0)
+            s => (Err(Error::InvalidDatabaseError(format!("double of size {}", s))), 0)
         }
     }
 
@@ -170,9 +170,9 @@ impl BinaryDecoder {
                         let mut reader = BufReader::new(buf.as_slice());
                         reader.read_be_uint_n(size).unwrap()
                     };
-                (Ok(Uint64(value)), new_offset)
+                (Ok(DataRecord::Uint64(value)), new_offset)
             },
-            s => (Err(InvalidDatabaseError(format!("uint64 of size {}", s))), 0)
+            s => (Err(Error::InvalidDatabaseError(format!("uint64 of size {}", s))), 0)
         }
     }
 
@@ -180,11 +180,11 @@ impl BinaryDecoder {
         match size {
             s if s <= 4 => {
                 match self.decode_uint64(size, offset) {
-                    (Ok(Uint64(u)), o) => (Ok(Uint32(u as u32)), o),
+                    (Ok(DataRecord::Uint64(u)), o) => (Ok(DataRecord::Uint32(u as u32)), o),
                     e => e
                 }
             },
-            s => (Err(InvalidDatabaseError(format!("uint32 of size {}", s))), 0)
+            s => (Err(Error::InvalidDatabaseError(format!("uint32 of size {}", s))), 0)
         }
     }
 
@@ -192,11 +192,11 @@ impl BinaryDecoder {
         match size {
             s if s <= 4 => {
                 match self.decode_uint64(size, offset) {
-                    (Ok(Uint64(u)), o) => (Ok(Uint16(u as u16)), o),
+                    (Ok(DataRecord::Uint64(u)), o) => (Ok(DataRecord::Uint16(u as u16)), o),
                     e => e
                 }
             },
-            s => (Err(InvalidDatabaseError(format!("uint16 of size {}", s))), 0)
+            s => (Err(Error::InvalidDatabaseError(format!("uint16 of size {}", s))), 0)
         }
     }
 
@@ -207,9 +207,9 @@ impl BinaryDecoder {
 
                 let buf = read_from_map(&self.map, size, offset);
                 let mut reader = BufReader::new(buf.as_slice());
-                (Ok(Int32(reader.read_be_int_n(size).unwrap() as i32)), new_offset)
+                (Ok(DataRecord::Int32(reader.read_be_int_n(size).unwrap() as i32)), new_offset)
             },
-            s => (Err(InvalidDatabaseError(format!("int32 of size {}", s))), 0)
+            s => (Err(Error::InvalidDatabaseError(format!("int32 of size {}", s))), 0)
         }
     }
 
@@ -229,12 +229,12 @@ impl BinaryDecoder {
             new_offset = tmp_offset;
 
             let str_key = match key {
-                String(s) => s,
-                v => return (Err(InvalidDatabaseError(format!("unexpected map key type {}", v))), 0)
+                DataRecord::String(s) => s,
+                v => return (Err(Error::InvalidDatabaseError(format!("unexpected map key type {}", v))), 0)
             };
             values.insert(str_key, val);
         }
-        (Ok(Map(values)), new_offset)
+        (Ok(DataRecord::Map(values)), new_offset)
     }
 
 
@@ -265,8 +265,8 @@ impl BinaryDecoder {
         let new_offset : uint = offset + size;
         let bytes = read_from_map(&self.map, size, offset);
         match from_utf8(bytes.as_slice()) {
-            Some(v) => (Ok(String(v.to_string())), new_offset),
-            None => (Err(InvalidDatabaseError("error decoding string".to_string())), new_offset)
+            Some(v) => (Ok(DataRecord::String(v.to_string())), new_offset),
+            None => (Err(Error::InvalidDatabaseError("error decoding string".to_string())), new_offset)
         }
     }
 
@@ -330,7 +330,7 @@ impl BinaryDecoder {
             11 => self.decode_array(size, offset),
             14 => self.decode_bool(size, offset),
             15 => self.decode_float(size, offset),
-            u  => (Err(InvalidDatabaseError(format!("Unknown data type: {}", u))), offset),
+            u  => (Err(Error::InvalidDatabaseError(format!("Unknown data type: {}", u))), offset),
         }
     }
 }
@@ -372,20 +372,20 @@ impl Reader {
 
         let mut f = match File::open_mode(&path, Open, Read) {
             Ok(f)  => f,
-            Err(_) => return Err(IoError("Error opening file".to_string()))
+            Err(_) => return Err(Error::IoError("Error opening file".to_string()))
         };
         let fd = f.as_fd().fd;
 
         let stats = match f.stat() {
             Ok(s) => s,
-            Err(_) => return Err(IoError("Error calling stat on file".to_string()))
+            Err(_) => return Err(Error::IoError("Error calling stat on file".to_string()))
         };
 
         let database_size = stats.size as uint;
         let map = match os::MemoryMap::new(database_size, [os::MapReadable, os::MapFd(fd), os::MapOffset(0)])
         {
             Ok(mem)  => mem,
-            Err(msg) => return Err(MapError(msg.to_string()))
+            Err(msg) => return Err(Error::MapError(msg.to_string()))
         };
 
         let metadata_start = match find_metadata_start(&map) {
@@ -396,13 +396,13 @@ impl Reader {
 
         let raw_metadata = match metadata_decoder.decode(metadata_start) {
             (Ok(m), _) => m,
-            m      => return Err(InvalidDatabaseError(format!("metadata of wrong type: {}", m))),
+            m      => return Err(Error::InvalidDatabaseError(format!("metadata of wrong type: {}", m))),
         };
 
         let mut type_decoder = ::Decoder::new(raw_metadata);
         let metadata: Metadata = match Decodable::decode(&mut type_decoder) {
             Ok(v) => v,
-            Err(e) => return Err(InvalidDatabaseError(format!("Decoding error: {}", e)))
+            Err(e) => return Err(Error::InvalidDatabaseError(format!("Decoding error: {}", e)))
         };
 
         let search_tree_size = metadata.node_count * (metadata.record_size as uint) / 4;
@@ -430,13 +430,13 @@ impl Reader {
         if pointer > 0 {
             self.resolve_data_pointer(pointer)
         } else {
-            Err(AddressNotFoundError("Address not found in database".to_string()))
+            Err(Error::AddressNotFoundError("Address not found in database".to_string()))
         }
     }
 
     fn find_address_in_tree(&self, ip_address: Vec<u8>) -> Result<uint, Error> {
         let bit_count = ip_address.len()*8;
-        let mut node = self.start_node(bit_count).unwrap();
+        let mut node = try!(self.start_node(bit_count));
 
         for i in range(0, bit_count) {
             if node >= self.metadata.node_count {
@@ -454,7 +454,7 @@ impl Reader {
         } else if node > self.metadata.node_count {
             Ok(node)
         } else {
-           Err(InvalidDatabaseError("invalid node in search tree".to_string()))
+           Err(Error::InvalidDatabaseError("invalid node in search tree".to_string()))
         }
     }
 
@@ -511,7 +511,7 @@ impl Reader {
                 let offset = base_offset + index * 4;
                 read_from_map(&self.decoder.map, 4, offset)
             },
-            s => return Err(InvalidDatabaseError(format!("unknown record size: {}", s)))
+            s => return Err(Error::InvalidDatabaseError(format!("unknown record size: {}", s)))
         };
         let mut reader = BufReader::new(bytes.as_slice());
         Ok(reader.read_be_uint_n(bytes.len()).unwrap() as uint)
@@ -523,7 +523,7 @@ impl Reader {
         let resolved = pointer - self.metadata.node_count + search_tree_size;
 
         if resolved > self.decoder.map.len()  {
-            return Err(InvalidDatabaseError("the MaxMind DB file's search tree is corrupt".to_string()));
+            return Err(Error::InvalidDatabaseError("the MaxMind DB file's search tree is corrupt".to_string()));
         }
 
         let (record, _) = self.decoder.decode(resolved);
@@ -593,7 +593,7 @@ fn find_metadata_start(map: &os::MemoryMap) -> Result<uint, Error> {
             return Ok(map.len() - start_position);
         }
     }
-    Err(InvalidDatabaseError("Could not find MaxMind DB metadata in file.".to_string()))
+    Err(Error::InvalidDatabaseError("Could not find MaxMind DB metadata in file.".to_string()))
 }
 
 mod decoder;

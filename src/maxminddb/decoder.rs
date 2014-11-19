@@ -2,8 +2,10 @@ extern crate serialize;
 
 use std::string;
 
-use super::{Array, Boolean, Byte, DataRecord, DecodingError, Double, Error,
-            Float, Int32, Map, Null, String, Uint16, Uint32, Uint64};
+use super::{ DataRecord, Error,};
+use super::DataRecord::{Array, Boolean, Byte, Double, Float, Int32, Map,
+                        Null, String, Uint16, Uint32, Uint64};
+use super::Error::DecodingError;
 
 macro_rules! expect(
     ($e:expr, Null) => ({

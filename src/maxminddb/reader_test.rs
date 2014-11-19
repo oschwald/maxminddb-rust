@@ -1,8 +1,7 @@
-use super::{AddressNotFoundError, Decoder, InvalidDatabaseError, IoError,
-            Reader};
+use super::{Error, Decoder, Reader};
 
+use std::str::FromStr;
 use std::io::net::ip::IpAddr;
-use std::from_str::FromStr;
 use serialize::Decodable;
 
 #[test]
@@ -69,7 +68,7 @@ fn test_broken_database() {
     let r = Reader::open("test-data/test-data/GeoIP2-City-Test-Broken-Double-Format.mmdb").unwrap();
     let ip: IpAddr = FromStr::from_str("2001:220::").unwrap();
     let result = r.lookup(ip);
-    assert_eq!(result, Err(InvalidDatabaseError("double of size 2".to_string())));
+    assert_eq!(result, Err(Error::InvalidDatabaseError("double of size 2".to_string())));
 }
 
 #[test]
@@ -77,7 +76,7 @@ fn test_missing_database() {
     let r = Reader::open("file-does-not-exist.mmdb");
     match r {
         Ok(_) => panic!("Received Reader when opening non-existent file"),
-        Err(IoError(_)) => assert!(true),
+        Err(Error::IoError(_)) => assert!(true),
         Err(_) => assert!(false)
     }
 }
@@ -87,7 +86,7 @@ fn test_non_database() {
     let r = Reader::open("README.md");
     match r {
         Ok(_) => panic!("Received Reader when opening a non-MMDB file"),
-        Err(e) => assert_eq!(e, InvalidDatabaseError("Could not find MaxMind DB metadata in file.".to_string()))
+        Err(e) => assert_eq!(e, Error::InvalidDatabaseError("Could not find MaxMind DB metadata in file.".to_string()))
 
     }
 }
@@ -188,7 +187,7 @@ fn check_ip(reader: &Reader, ip_version: uint) {
         let ip: IpAddr = FromStr::from_str(address).unwrap();
         match reader.lookup(ip) {
             Ok(v) => panic!("received an unexpected value: {}", v),
-            Err(e) => assert_eq!(e, AddressNotFoundError("Address not found in database".to_string()))
+            Err(e) => assert_eq!(e, Error::AddressNotFoundError("Address not found in database".to_string()))
         }
     }
 }
