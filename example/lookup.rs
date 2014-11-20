@@ -13,7 +13,6 @@ fn main() {
     let r = maxminddb::Reader::open("GeoLite2-City.mmdb").unwrap();
     let ip: IpAddr = FromStr::from_str("128.101.101.101").unwrap();
     let dr = r.lookup(ip);
-    //print!("{}", dr)
 
     let mut decoder = maxminddb::Decoder::new(dr.unwrap());
     let decoded_object: Country = match Decodable::decode(&mut decoder) {

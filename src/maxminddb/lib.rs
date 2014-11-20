@@ -382,7 +382,7 @@ impl Reader {
         };
 
         let database_size = stats.size as uint;
-        let map = match os::MemoryMap::new(database_size, [os::MapReadable, os::MapFd(fd), os::MapOffset(0)])
+        let map = match os::MemoryMap::new(database_size, &[os::MapReadable, os::MapFd(fd), os::MapOffset(0)])
         {
             Ok(mem)  => mem,
             Err(msg) => return Err(Error::MapError(msg.to_string()))
