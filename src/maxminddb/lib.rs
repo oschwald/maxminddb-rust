@@ -12,7 +12,6 @@
 
 extern crate collections;
 extern crate libc;
-extern crate native;
 extern crate rustrt;
 extern crate serialize;
 
