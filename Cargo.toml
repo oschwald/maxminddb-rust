@@ -5,7 +5,7 @@ version = "0.1.0"
 description = "Library for reading MaxMind DB format used by GeoIP2"
 readme = "README.md"
 keywords = ["MaxMind", "GeoIP2", "GeoIP", "geolocation"]
-authors = [ "oschwald@gmail.com" ]
+authors = [ "Gregory J. Oschwald <oschwald@gmail.com>" ]
 license = "Apache-2.0"
 
 [lib]
