@@ -19,6 +19,7 @@ use std::io::net::ip::{IpAddr,Ipv6Addr,Ipv4Addr};
 use std::io::{Open, Read};
 use std::os;
 use std::string;
+use std::os::unix::{AsRawFd};
 
 use serialize::Decodable;
 
@@ -330,28 +331,6 @@ impl BinaryDecoder {
     }
 }
 
-// Borrowed from https://github.com/uutils/coreutils/pull/448/files
-// BEGIN CODE TO DELETE AFTER https://github.com/rust-lang/rust/issues/18897 is fixed
-struct HackyFile {
-    pub fd: FileDesc,
-}
-
-struct FileDesc {
-    fd: libc::c_int,
-}
-
-trait AsFileDesc {
-    fn as_fd(&self) -> FileDesc;
-}
-
-impl AsFileDesc for File {
-    fn as_fd(&self) -> FileDesc {
-        let hack: HackyFile = unsafe { std::mem::transmute_copy(self) };
-        hack.fd
-    }
-}
-// END CODE TO DELETE
-
 pub struct Reader {
     decoder: BinaryDecoder,
     pub metadata: Metadata,
@@ -369,7 +348,7 @@ impl Reader {
             Ok(f)  => f,
             Err(_) => return Err(Error::IoError("Error opening file".to_string()))
         };
-        let fd = f.as_fd().fd;
+        let fd = f.as_raw_fd();
 
         let stats = match f.stat() {
             Ok(s) => s,
