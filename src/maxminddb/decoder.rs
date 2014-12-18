@@ -133,17 +133,14 @@ impl serialize::Decoder<Error> for Decoder {
         Ok(try!(expect!(self.pop(), String)))
     }
 
-    fn read_enum<T>(&mut self,
-                    name: &str,
-                    f: |&mut Decoder| -> DecodeResult<T>) -> DecodeResult<T> {
+   fn read_enum<T, F>(&mut self, name: &str, f: F) -> DecodeResult<T> where
+        F: FnOnce(&mut Decoder) -> DecodeResult<T> {
         debug!("read_enum({})", name);
         f(self)
     }
 
-    fn read_enum_variant<T>(&mut self,
-                            names: &[&str],
-                            f: |&mut Decoder, uint| -> DecodeResult<T>)
-                            -> DecodeResult<T> {
+    fn read_enum_variant<T, F>(&mut self, names: &[&str], f: F) -> DecodeResult<T> where
+        F: FnOnce(&mut Decoder, uint) -> DecodeResult<T> {
         use std::str;
 
         debug!("read_enum_variant(names={})", names);
@@ -178,46 +175,46 @@ impl serialize::Decoder<Error> for Decoder {
         f(self, idx)
     }
 
-    fn read_enum_variant_arg<T>(&mut self, idx: uint, f: |&mut Decoder| -> DecodeResult<T>)
-                                -> DecodeResult<T> {
+    fn read_enum_variant_arg<T, F>(&mut self, idx: uint, f: F) -> DecodeResult<T> where
+        F: FnOnce(&mut Decoder) -> DecodeResult<T> {
         debug!("read_enum_variant_arg(idx={})", idx);
         f(self)
     }
 
-    fn read_enum_struct_variant<T>(&mut self,
-                                   names: &[&str],
-                                   f: |&mut Decoder, uint| -> DecodeResult<T>)
-                                   -> DecodeResult<T> {
+    fn read_enum_struct_variant<T, F>(&mut self, names: &[&str], f: F)
+            -> DecodeResult<T> where
+            F: FnOnce(&mut Decoder, uint) -> DecodeResult<T> {
         debug!("read_enum_struct_variant(names={})", names);
         self.read_enum_variant(names, f)
     }
 
 
-    fn read_enum_struct_variant_field<T>(&mut self,
+    fn read_enum_struct_variant_field<T, F>(&mut self,
                                          name: &str,
                                          idx: uint,
-                                         f: |&mut Decoder| -> DecodeResult<T>)
+                                         f: F)
+                                         -> DecodeResult<T> where
+                                         F: FnOnce(&mut Decoder)
                                          -> DecodeResult<T> {
         debug!("read_enum_struct_variant_field(name={}, idx={})", name, idx);
         self.read_enum_variant_arg(idx, f)
     }
 
-    fn read_struct<T>(&mut self,
-                      name: &str,
-                      len: uint,
-                      f: |&mut Decoder| -> DecodeResult<T>)
-                      -> DecodeResult<T> {
+    fn read_struct<T, F>(&mut self, name: &str, len: uint, f: F) -> DecodeResult<T> where
+        F: FnOnce(&mut Decoder) -> DecodeResult<T> {
         debug!("read_struct(name={}, len={})", name, len);
         let value = try!(f(self));
         self.pop();
         Ok(value)
     }
 
-    fn read_struct_field<T>(&mut self,
-                            name: &str,
-                            idx: uint,
-                            f: |&mut Decoder| -> DecodeResult<T>)
-                            -> DecodeResult<T> {
+    fn read_struct_field<T, F>(&mut self,
+                               name: &str,
+                               idx: uint,
+                               f: F)
+                               -> DecodeResult<T> where
+                               F: FnOnce(&mut Decoder)
+                               -> DecodeResult<T> {
         debug!("read_struct_field(name={}, idx={})", name, idx);
         let mut obj = try!(expect!(self.pop(), Map));
 
@@ -238,12 +235,10 @@ impl serialize::Decoder<Error> for Decoder {
         Ok(value)
     }
 
-    fn read_tuple<T>(&mut self,
-                     tuple_len: uint,
-                     f: |&mut Decoder| -> DecodeResult<T>)
-                     -> DecodeResult<T> {
+    fn read_tuple<T, F>(&mut self, tuple_len: uint, f: F) -> DecodeResult<T> where
+        F: FnOnce(&mut Decoder) -> DecodeResult<T> {
         debug!("read_tuple()");
-        self.read_seq(|d, len| {
+        self.read_seq(move |d, len| {
             if len == tuple_len {
                 f(d)
             } else {
@@ -252,32 +247,33 @@ impl serialize::Decoder<Error> for Decoder {
         })
     }
 
-
-    fn read_tuple_arg<T>(&mut self,
-                         idx: uint,
-                         f: |&mut Decoder| -> DecodeResult<T>) -> DecodeResult<T> {
+    fn read_tuple_arg<T, F>(&mut self, idx: uint, f: F) -> DecodeResult<T> where
+        F: FnOnce(&mut Decoder) -> DecodeResult<T> {
         debug!("read_tuple_arg(idx={})", idx);
         self.read_seq_elt(idx, f)
     }
 
-    fn read_tuple_struct<T>(&mut self,
-                            name: &str,
-                            len: uint,
-                            f: |&mut Decoder| -> DecodeResult<T>)
-                            -> DecodeResult<T> {
+    fn read_tuple_struct<T, F>(&mut self,
+                               name: &str,
+                               len: uint,
+                               f: F)
+                               -> DecodeResult<T> where
+                               F: FnOnce(&mut Decoder) -> DecodeResult<T> {
         debug!("read_tuple_struct(name={})", name);
         self.read_tuple(len, f)
     }
 
-    fn read_tuple_struct_arg<T>(&mut self,
-                                idx: uint,
-                                f: |&mut Decoder| -> DecodeResult<T>)
-                                -> DecodeResult<T> {
+    fn read_tuple_struct_arg<T, F>(&mut self,
+                                   idx: uint,
+                                   f: F)
+                                   -> DecodeResult<T> where
+        F: FnOnce(&mut Decoder) -> DecodeResult<T> {
         debug!("read_tuple_struct_arg(idx={})", idx);
         self.read_tuple_arg(idx, f)
     }
 
-    fn read_option<T>(&mut self, f: |&mut Decoder, bool| -> DecodeResult<T>) -> DecodeResult<T> {
+    fn read_option<T, F>(&mut self, f: F) -> DecodeResult<T> where
+        F: FnOnce(&mut Decoder, bool) -> DecodeResult<T> {
         debug!("read_option()");
         match self.pop() {
             Null => f(self, false),
@@ -285,7 +281,8 @@ impl serialize::Decoder<Error> for Decoder {
         }
     }
 
-    fn read_seq<T>(&mut self, f: |&mut Decoder, uint| -> DecodeResult<T>) -> DecodeResult<T> {
+    fn read_seq<T, F>(&mut self, f: F) -> DecodeResult<T> where
+        F: FnOnce(&mut Decoder, uint) -> DecodeResult<T> {
         debug!("read_seq()");
         let list = try!(expect!(self.pop(), Array));
         let len = list.len();
@@ -295,14 +292,14 @@ impl serialize::Decoder<Error> for Decoder {
         f(self, len)
     }
 
-    fn read_seq_elt<T>(&mut self,
-                       idx: uint,
-                       f: |&mut Decoder| -> DecodeResult<T>) -> DecodeResult<T> {
+    fn read_seq_elt<T, F>(&mut self, idx: uint, f: F) -> DecodeResult<T> where
+        F: FnOnce(&mut Decoder) -> DecodeResult<T> {
         debug!("read_seq_elt(idx={})", idx);
         f(self)
     }
 
-    fn read_map<T>(&mut self, f: |&mut Decoder, uint| -> DecodeResult<T>) -> DecodeResult<T> {
+    fn read_map<T, F>(&mut self, f: F) -> DecodeResult<T> where
+        F: FnOnce(&mut Decoder, uint) -> DecodeResult<T> {
         debug!("read_map()");
         let obj = try!(expect!(self.pop(), Map));
         let len = obj.len();
@@ -313,14 +310,14 @@ impl serialize::Decoder<Error> for Decoder {
         f(self, len)
     }
 
-    fn read_map_elt_key<T>(&mut self, idx: uint, f: |&mut Decoder| -> DecodeResult<T>)
-                           -> DecodeResult<T> {
+    fn read_map_elt_key<T, F>(&mut self, idx: uint, f: F) -> DecodeResult<T> where
+       F: FnOnce(&mut Decoder) -> DecodeResult<T> {
         debug!("read_map_elt_key(idx={})", idx);
         f(self)
     }
 
-    fn read_map_elt_val<T>(&mut self, idx: uint, f: |&mut Decoder| -> DecodeResult<T>)
-                           -> DecodeResult<T> {
+    fn read_map_elt_val<T, F>(&mut self, idx: uint, f: F) -> DecodeResult<T> where
+       F: FnOnce(&mut Decoder) -> DecodeResult<T> {
         debug!("read_map_elt_val(idx={})", idx);
         f(self)
     }

@@ -1,7 +1,4 @@
 #![crate_name = "maxminddb"]
-
-#![comment = "MaxMind DB Reader"]
-#![license = "Apache 2"]
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
 
@@ -22,7 +19,6 @@ use std::io::net::ip::{IpAddr,Ipv6Addr,Ipv4Addr};
 use std::io::{Open, Read};
 use std::os;
 use std::string;
-use std::vec;
 
 use serialize::Decodable;
 
@@ -369,7 +365,7 @@ impl Reader {
 
         let path = Path::new(&database.to_c_str());
 
-        let mut f = match File::open_mode(&path, Open, Read) {
+        let f = match File::open_mode(&path, Open, Read) {
             Ok(f)  => f,
             Err(_) => return Err(Error::IoError("Error opening file".to_string()))
         };
@@ -543,7 +539,7 @@ fn read_from_map(map: &os::MemoryMap, size: uint, offset: uint) -> Vec<u8> {
         error!("attempt to read beyond end of memory map: {}\n", offset);
         unsafe { intrinsics::abort() }
     }
-    unsafe { vec::raw::from_buf(map.data().offset(offset as int) as *const u8, size)}
+    unsafe { Vec::from_raw_buf(map.data().offset(offset as int) as *const u8, size)}
 }
 
 fn ip_to_bytes(ip_address: IpAddr) -> Vec<u8> {

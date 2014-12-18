@@ -6,6 +6,7 @@ description = "Library for reading MaxMind DB format used by GeoIP2"
 readme = "README.md"
 keywords = ["MaxMind", "GeoIP2", "GeoIP", "geolocation"]
 authors = [ "Gregory J. Oschwald <oschwald@gmail.com>" ]
+homepage = "https://github.com/oschwald/maxminddb-golang"
 license = "Apache-2.0"
 
 [lib]

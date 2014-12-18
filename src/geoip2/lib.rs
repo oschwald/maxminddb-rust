@@ -1,7 +1,4 @@
 #![crate_name = "geoip2"]
-
-#![comment = "MaxMind GeoIP2"]
-#![license = "Apache 2"]
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
 
@@ -28,7 +25,7 @@ pub struct Place {
     names: Option<Names>,
 }
 
-#[deriving(Decodable, Show)]
+#[deriving(Copy, Decodable, Show)]
 pub struct Traits {
     is_anonymous_proxy: Option<bool>,
     is_satellite_provider: Option<bool>,
