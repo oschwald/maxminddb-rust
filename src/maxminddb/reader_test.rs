@@ -2,25 +2,25 @@ use super::{Error, Decoder, Reader};
 
 use std::str::FromStr;
 use std::io::net::ip::IpAddr;
-use serialize::Decodable;
+use rustc_serialize::Decodable;
 
 #[test]
 fn test_decoder() {
 
     #[allow(non_snake_case)]
-    #[deriving(Decodable, Show, Eq, PartialEq)]
+    #[deriving(RustcDecodable, Show, Eq, PartialEq)]
     struct MapXType {
         arrayX: Vec<uint>,
         utf8_stringX: String
     };
 
     #[allow(non_snake_case)]
-    #[deriving(Decodable, Show, Eq, PartialEq)]
+    #[deriving(RustcDecodable, Show, Eq, PartialEq)]
     struct MapType {
         mapX: MapXType
     };
 
-    #[deriving(Decodable, Show)]
+    #[deriving(RustcDecodable, Show)]
     struct TestType {
         array:       Vec<uint>,
         boolean:     bool,
@@ -48,7 +48,7 @@ fn test_decoder() {
 
     assert_eq!(result.array, vec![ 1u, 2u, 3u ]);
     assert_eq!(result.boolean, true);
-    assert_eq!(result.bytes, vec![0u8, 0u8, 0u8, 42u8])
+    assert_eq!(result.bytes, vec![0u8, 0u8, 0u8, 42u8]);
     assert_eq!(result.double, 42.123456);
     assert_eq!(result.float, 1.1);
     assert_eq!(result.int32, -268435456);
@@ -110,19 +110,19 @@ fn test_reader() {
 fn check_metadata(reader: &Reader, ip_version: uint, record_size: uint) {
     let metadata = &reader.metadata;
 
-    assert_eq!(metadata.binary_format_major_version,  2u16)
+    assert_eq!(metadata.binary_format_major_version,  2u16);
 
-    assert_eq!(metadata.binary_format_minor_version,  0u16)
-    assert!(metadata.build_epoch >= 1397457605)
-    assert_eq!(metadata.database_type, "Test".to_string())
+    assert_eq!(metadata.binary_format_minor_version,  0u16);
+    assert!(metadata.build_epoch >= 1397457605);
+    assert_eq!(metadata.database_type, "Test".to_string());
 
     assert_eq!(*metadata.description.get(&"en".to_string()).unwrap(),
                    "Test Database".to_string());
     assert_eq!(*metadata.description.get(&"zh".to_string()).unwrap(),
                    "Test Database Chinese".to_string());
 
-    assert_eq!(metadata.ip_version,  ip_version as u16)
-    assert_eq!(metadata.languages, vec!["en".to_string(), "zh".to_string()])
+    assert_eq!(metadata.ip_version,  ip_version as u16);
+    assert_eq!(metadata.languages, vec!["en".to_string(), "zh".to_string()]);
 
     if ip_version == 4 {
         assert_eq!(metadata.node_count,  37)
@@ -164,7 +164,7 @@ fn check_ip(reader: &Reader, ip_version: uint) {
                 ["1.1.1.31",  "1.1.1.16"]]
     };
 
-    #[deriving(Decodable, Show)]
+    #[deriving(RustcDecodable, Show)]
     struct IpType  {
          ip: String,
     }

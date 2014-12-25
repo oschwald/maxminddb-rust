@@ -1,4 +1,4 @@
-extern crate serialize;
+extern crate "rustc-serialize" as rustc_serialize;
 
 use std::string;
 
@@ -20,7 +20,7 @@ macro_rules! expect(
             other => Err(DecodingError(format!("Error decoding {} as {}", other, stringify!($t))))
         }
     })
-)
+);
 
 pub struct Decoder {
     stack: Vec<DataRecord>,
@@ -44,7 +44,7 @@ impl Decoder {
 pub type DecodeResult<T> = Result<T, Error>;
 
 // Much of this code was borrowed from the Rust JSON library
-impl serialize::Decoder<Error> for Decoder {
+impl rustc_serialize::Decoder<Error> for Decoder {
     fn read_nil(&mut self) -> DecodeResult<()> {
         debug!("read_nil");
         expect!(self.pop(), Null)
@@ -167,7 +167,7 @@ impl serialize::Decoder<Error> for Decoder {
         };
         let idx = match names.iter()
                              .position(|n| {
-                                 str::eq_slice(*n, name.as_slice())
+                                 *n == name
                              }) {
             Some(idx) => idx,
             None => return Err(DecodingError(name))
@@ -181,9 +181,8 @@ impl serialize::Decoder<Error> for Decoder {
         f(self)
     }
 
-    fn read_enum_struct_variant<T, F>(&mut self, names: &[&str], f: F)
-            -> DecodeResult<T> where
-            F: FnOnce(&mut Decoder, uint) -> DecodeResult<T> {
+    fn read_enum_struct_variant<T, F>(&mut self, names: &[&str], f: F) -> DecodeResult<T> where
+        F: FnMut(&mut Decoder, uint) -> DecodeResult<T> {
         debug!("read_enum_struct_variant(names={})", names);
         self.read_enum_variant(names, f)
     }

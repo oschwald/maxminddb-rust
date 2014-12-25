@@ -9,9 +9,10 @@
 
 extern crate collections;
 extern crate libc;
-extern crate rustrt;
 extern crate serialize;
+extern crate "rustc-serialize" as rustc_serialize;
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::io::BufReader;
 use std::io::File;
@@ -21,9 +22,7 @@ use std::os;
 use std::string;
 use std::os::unix::{AsRawFd};
 
-use serialize::Decodable;
-
-use collections::TreeMap;
+use rustc_serialize::Decodable;
 
 pub use self::decoder::Decoder;
 
@@ -55,7 +54,7 @@ pub enum DataRecord {
 }
 
 pub type DbArray = Vec<DataRecord>;
-pub type DbMap = TreeMap<string::String, DataRecord>;
+pub type DbMap = BTreeMap<string::String, DataRecord>;
 
 impl fmt::Show for DataRecord {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -76,13 +75,13 @@ impl fmt::Show for DataRecord {
     }
 }
 
-#[deriving(Decodable)]
+#[deriving(RustcDecodable)]
 pub struct Metadata {
     pub binary_format_major_version : u16,
     pub binary_format_minor_version : u16,
     pub build_epoch                 : u64,
     pub database_type               : string::String,
-    pub description                 : TreeMap<string::String, string::String>,
+    pub description                 : BTreeMap<string::String, string::String>,
     pub ip_version                  : u16,
     pub languages                   : Vec<string::String>,
     pub node_count                  : uint,
@@ -210,7 +209,7 @@ impl BinaryDecoder {
     }
 
     fn decode_map(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
-        let mut values = box TreeMap::new();
+        let mut values = box BTreeMap::new();
         let mut new_offset = offset;
 
         for _ in range(0, size) {
@@ -261,8 +260,8 @@ impl BinaryDecoder {
         let new_offset : uint = offset + size;
         let bytes = read_from_map(&self.map, size, offset);
         match from_utf8(bytes.as_slice()) {
-            Some(v) => (Ok(DataRecord::String(v.to_string())), new_offset),
-            None => (Err(Error::InvalidDatabaseError("error decoding string".to_string())), new_offset)
+            Ok(v) => (Ok(DataRecord::String(v.to_string())), new_offset),
+            Err(_) => (Err(Error::InvalidDatabaseError("error decoding string".to_string())), new_offset)
         }
     }
 
@@ -356,7 +355,7 @@ impl Reader {
         };
 
         let database_size = stats.size as uint;
-        let map = match os::MemoryMap::new(database_size, &[os::MapReadable, os::MapFd(fd), os::MapOffset(0)])
+        let map = match os::MemoryMap::new(database_size, &[os::MapOption::MapReadable, os::MapOption::MapFd(fd), os::MapOption::   MapOffset(0)])
         {
             Ok(mem)  => mem,
             Err(msg) => return Err(Error::MapError(msg.to_string()))

@@ -4,34 +4,34 @@
 
 extern crate collections;
 extern crate maxminddb;
-extern crate serialize;
+extern crate "rustc-serialize" as rustc_serialize;
 
-#[deriving(Decodable, Show)]
+#[deriving(RustcDecodable, Show)]
 pub struct Names {
     en: Option<String>,
 }
 
-#[deriving(Decodable, Show)]
+#[deriving(RustcDecodable, Show)]
 pub struct Continent {
     code: Option<String>,
     geoname_id: Option<uint>,
     names: Option<Names>,
 }
 
-#[deriving(Decodable, Show)]
+#[deriving(RustcDecodable, Show)]
 pub struct Place {
     geoname_id: Option<uint>,
     iso_code: Option<String>,
     names: Option<Names>,
 }
 
-#[deriving(Copy, Decodable, Show)]
+#[deriving(Copy, RustcDecodable, Show)]
 pub struct Traits {
     is_anonymous_proxy: Option<bool>,
     is_satellite_provider: Option<bool>,
 }
 
-#[deriving(Decodable, Show)]
+#[deriving(RustcDecodable, Show)]
 pub struct Country {
     continent: Option<Continent>,
     country: Option<Place>,

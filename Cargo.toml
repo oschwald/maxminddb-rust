@@ -12,5 +12,8 @@ license = "Apache-2.0"
 [lib]
 
 name ="maxminddb"
-crate_type = ["dylib", "staticlib"]
+crate_type = ["lib", "dylib", "staticlib"]
 path = "src/maxminddb/lib.rs"
+
+[dependencies]
+rustc-serialize = "0.1.1"
