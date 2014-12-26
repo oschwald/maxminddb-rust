@@ -18,6 +18,21 @@ To build everything:
 make all check
 ```
 
+## Usage
+
+Add this to your `Cargo.toml`:
+
+```toml
+[dependencies]
+maxminddb = "0.1.1"
+```
+
+and this to your crate root:
+
+```rust
+extern crate maxminddb;
+```
+
 ## Example ##
 
 See `example/lookup.rs` for a basic example.

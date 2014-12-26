@@ -24,4 +24,4 @@ check: $(libmaxminddb_so)
 
 .PHONY: clean
 clean:
-	rm -fr build
+	rm -fr target

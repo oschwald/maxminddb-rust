@@ -141,7 +141,6 @@ impl rustc_serialize::Decoder<Error> for Decoder {
 
     fn read_enum_variant<T, F>(&mut self, names: &[&str], f: F) -> DecodeResult<T> where
         F: FnOnce(&mut Decoder, uint) -> DecodeResult<T> {
-        use std::str;
 
         debug!("read_enum_variant(names={})", names);
         let name = match self.pop() {
