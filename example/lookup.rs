@@ -1,4 +1,5 @@
 #![feature(globs)]
+#![feature(old_orphan_check)]
 extern crate collections;
 extern crate maxminddb;
 extern crate serialize;
@@ -9,32 +10,32 @@ use std::str::FromStr;
 
 use rustc_serialize::Decodable;
 
-#[deriving(RustcDecodable, Show)]
+#[derive(RustcDecodable, Show)]
 pub struct Names {
     en: Option<String>,
 }
 
-#[deriving(RustcDecodable, Show)]
+#[derive(RustcDecodable, Show)]
 pub struct Continent {
     code: Option<String>,
     geoname_id: Option<uint>,
     names: Option<Names>,
 }
 
-#[deriving(RustcDecodable, Show)]
+#[derive(RustcDecodable, Show)]
 pub struct Place {
     geoname_id: Option<uint>,
     iso_code: Option<String>,
     names: Option<Names>,
 }
 
-#[deriving(Copy, RustcDecodable, Show)]
+#[derive(Copy, RustcDecodable, Show)]
 pub struct Traits {
     is_anonymous_proxy: Option<bool>,
     is_satellite_provider: Option<bool>,
 }
 
-#[deriving(RustcDecodable, Show)]
+#[derive(RustcDecodable, Show)]
 pub struct Country {
     continent: Option<Continent>,
     country: Option<Place>,

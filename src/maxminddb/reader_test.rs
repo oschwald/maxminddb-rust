@@ -8,19 +8,19 @@ use rustc_serialize::Decodable;
 fn test_decoder() {
 
     #[allow(non_snake_case)]
-    #[deriving(RustcDecodable, Show, Eq, PartialEq)]
+    #[derive(RustcDecodable, Show, Eq, PartialEq)]
     struct MapXType {
         arrayX: Vec<uint>,
         utf8_stringX: String
     };
 
     #[allow(non_snake_case)]
-    #[deriving(RustcDecodable, Show, Eq, PartialEq)]
+    #[derive(RustcDecodable, Show, Eq, PartialEq)]
     struct MapType {
         mapX: MapXType
     };
 
-    #[deriving(RustcDecodable, Show)]
+    #[derive(RustcDecodable, Show)]
     struct TestType {
         array:       Vec<uint>,
         boolean:     bool,
@@ -164,7 +164,7 @@ fn check_ip(reader: &Reader, ip_version: uint) {
                 ["1.1.1.31",  "1.1.1.16"]]
     };
 
-    #[deriving(RustcDecodable, Show)]
+    #[derive(RustcDecodable, Show)]
     struct IpType  {
          ip: String,
     }

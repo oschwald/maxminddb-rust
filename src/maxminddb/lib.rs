@@ -3,7 +3,7 @@
 #![crate_type = "rlib"]
 
 #![feature(macro_rules)]
-
+#![feature(old_orphan_check)]
 #![feature(phase)]
 #[phase(plugin, link)] extern crate log;
 
@@ -12,6 +12,7 @@ extern crate libc;
 extern crate serialize;
 extern crate "rustc-serialize" as rustc_serialize;
 
+use std::c_str::ToCStr;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io::BufReader;
@@ -26,7 +27,7 @@ use rustc_serialize::Decodable;
 
 pub use self::decoder::Decoder;
 
-#[deriving(Show, Eq, PartialEq)]
+#[derive(Show, Eq, PartialEq)]
 pub enum Error {
     AddressNotFoundError(string::String),
     InvalidDatabaseError(string::String),
@@ -37,7 +38,7 @@ pub enum Error {
 
 pub type BinaryDecodeResult<T> = (Result<T, Error>, uint);
 
-#[deriving(Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum DataRecord {
     String(string::String),
     Double(f64),
@@ -75,7 +76,7 @@ impl fmt::Show for DataRecord {
     }
 }
 
-#[deriving(RustcDecodable)]
+#[derive(RustcDecodable)]
 pub struct Metadata {
     pub binary_format_major_version : u16,
     pub binary_format_minor_version : u16,
@@ -243,7 +244,7 @@ impl BinaryDecoder {
                 pointer_bytes
             } else {
                 // XXX - make this sane.
-                [vec![ (size & 0x7) as u8 ], pointer_bytes].concat_vec()
+                [vec![ (size & 0x7) as u8 ], pointer_bytes].concat()
             };
         let mut r = BufReader::new(packed.as_slice());
         let unpacked = r.read_be_uint_n(packed.len()).unwrap() as uint;
@@ -478,7 +479,7 @@ impl Reader {
                     middle = (0xF0 & middle) >> 4
                 }
                 let offset = base_offset + index * 4;
-                [vec![middle], read_from_map(&self.decoder.map, 3, offset)].concat_vec()
+                [vec![middle], read_from_map(&self.decoder.map, 3, offset)].concat()
             },
             32 => {
                 let offset = base_offset + index * 4;
@@ -544,7 +545,7 @@ fn ip_to_bytes(ip_address: IpAddr) -> Vec<u8> {
 
 fn find_metadata_start(map: &os::MemoryMap) -> Result<uint, Error> {
     // This is reversed to make the loop below a bit simpler
-    let metadata_start_marker : [u8, ..14] = [ 0x6d, 0x6f, 0x63, 0x2e, 0x64,
+    let metadata_start_marker : [u8; 14] = [ 0x6d, 0x6f, 0x63, 0x2e, 0x64,
                                                0x6e, 0x69, 0x4d, 0x78, 0x61,
                                                0x4d, 0xEF, 0xCD, 0xAB,
                                              ];
