@@ -2,17 +2,15 @@
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
 
-#![feature(macro_rules)]
 #![feature(old_orphan_check)]
-#![feature(phase)]
-#[phase(plugin, link)] extern crate log;
+
+#[macro_use] extern crate log;
 
 extern crate collections;
 extern crate libc;
 extern crate serialize;
 extern crate "rustc-serialize" as rustc_serialize;
 
-use std::c_str::ToCStr;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io::BufReader;
@@ -27,7 +25,7 @@ use rustc_serialize::Decodable;
 
 pub use self::decoder::Decoder;
 
-#[derive(Show, Eq, PartialEq)]
+#[derive(Show, PartialEq)]
 pub enum Error {
     AddressNotFoundError(string::String),
     InvalidDatabaseError(string::String),
@@ -36,7 +34,7 @@ pub enum Error {
     DecodingError(string::String),
 }
 
-pub type BinaryDecodeResult<T> = (Result<T, Error>, uint);
+pub type BinaryDecodeResult<T> = (Result<T, Error>, usize);
 
 #[derive(Clone, PartialEq)]
 pub enum DataRecord {
@@ -76,6 +74,7 @@ impl fmt::Show for DataRecord {
     }
 }
 
+
 #[derive(RustcDecodable)]
 pub struct Metadata {
     pub binary_format_major_version : u16,
@@ -85,17 +84,17 @@ pub struct Metadata {
     pub description                 : BTreeMap<string::String, string::String>,
     pub ip_version                  : u16,
     pub languages                   : Vec<string::String>,
-    pub node_count                  : uint,
+    pub node_count                  : usize,
     pub record_size                 : u16,
 }
 
 struct BinaryDecoder {
     map      : os::MemoryMap,
-    pointer_base: uint
+    pointer_base: usize
 }
 
 impl BinaryDecoder {
-    fn decode_array(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
+    fn decode_array(&self, size: usize, offset: usize) -> BinaryDecodeResult<DataRecord> {
         let mut array = Vec::new();
         let mut new_offset = offset;
 
@@ -110,14 +109,14 @@ impl BinaryDecoder {
         (Ok(DataRecord::Array(array)), new_offset)
     }
 
-    fn decode_bool(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
+    fn decode_bool(&self, size: usize, offset: usize) -> BinaryDecodeResult<DataRecord> {
         match size {
             0|1 => (Ok(DataRecord::Boolean(size != 0)), offset),
-             s => (Err(Error::InvalidDatabaseError(format!("float of size {}", s))), 0)
+             s => (Err(Error::InvalidDatabaseError(format!("float of size {:?}", s))), 0)
          }
     }
 
-    fn decode_bytes(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
+    fn decode_bytes(&self, size: usize, offset: usize) -> BinaryDecodeResult<DataRecord> {
         let new_offset = offset + size;
         let u8_slice = read_from_map(&self.map, size, offset);
         // XXX - baby rust
@@ -128,7 +127,7 @@ impl BinaryDecoder {
         (Ok(DataRecord::Array(bytes)), new_offset)
     }
 
-    fn decode_float(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
+    fn decode_float(&self, size: usize, offset: usize) -> BinaryDecodeResult<DataRecord> {
         match size {
             4 => {
                 let new_offset = offset + size;
@@ -137,11 +136,11 @@ impl BinaryDecoder {
                 let mut reader = BufReader::new(buf.as_slice());
                 (Ok(DataRecord::Float(reader.read_be_f32().unwrap())), new_offset)
             },
-            s => (Err(Error::InvalidDatabaseError(format!("float of size {}", s))), 0)
+            s => (Err(Error::InvalidDatabaseError(format!("float of size {:?}", s))), 0)
         }
     }
 
-    fn decode_double(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
+    fn decode_double(&self, size: usize, offset: usize) -> BinaryDecodeResult<DataRecord> {
         match size {
             8 => {
                 let new_offset = offset + size;
@@ -150,11 +149,11 @@ impl BinaryDecoder {
                 let mut reader = BufReader::new(buf.as_slice());
                 (Ok(DataRecord::Double(reader.read_be_f64().unwrap())), new_offset)
             },
-            s => (Err(Error::InvalidDatabaseError(format!("double of size {}", s))), 0)
+            s => (Err(Error::InvalidDatabaseError(format!("double of size {:?}", s))), 0)
         }
     }
 
-    fn decode_uint64(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
+    fn decode_u64(&self, size: usize, offset: usize) -> BinaryDecodeResult<DataRecord> {
         match size {
             s if s <= 8 => {
                 let new_offset = offset + size;
@@ -168,35 +167,35 @@ impl BinaryDecoder {
                     };
                 (Ok(DataRecord::Uint64(value)), new_offset)
             },
-            s => (Err(Error::InvalidDatabaseError(format!("uint64 of size {}", s))), 0)
+            s => (Err(Error::InvalidDatabaseError(format!("u64 of size {:?}", s))), 0)
         }
     }
 
-    fn decode_uint32(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
+    fn decode_u32(&self, size: usize, offset: usize) -> BinaryDecodeResult<DataRecord> {
         match size {
             s if s <= 4 => {
-                match self.decode_uint64(size, offset) {
+                match self.decode_u64(size, offset) {
                     (Ok(DataRecord::Uint64(u)), o) => (Ok(DataRecord::Uint32(u as u32)), o),
                     e => e
                 }
             },
-            s => (Err(Error::InvalidDatabaseError(format!("uint32 of size {}", s))), 0)
+            s => (Err(Error::InvalidDatabaseError(format!("u32 of size {:?}", s))), 0)
         }
     }
 
-    fn decode_uint16(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
+    fn decode_u16(&self, size: usize, offset: usize) -> BinaryDecodeResult<DataRecord> {
         match size {
             s if s <= 4 => {
-                match self.decode_uint64(size, offset) {
+                match self.decode_u64(size, offset) {
                     (Ok(DataRecord::Uint64(u)), o) => (Ok(DataRecord::Uint16(u as u16)), o),
                     e => e
                 }
             },
-            s => (Err(Error::InvalidDatabaseError(format!("uint16 of size {}", s))), 0)
+            s => (Err(Error::InvalidDatabaseError(format!("u16 of size {:?}", s))), 0)
         }
     }
 
-    fn decode_int(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
+    fn decode_int(&self, size: usize, offset: usize) -> BinaryDecodeResult<DataRecord> {
         match size {
             s if s <= 4 => {
                 let new_offset = offset + size;
@@ -205,12 +204,12 @@ impl BinaryDecoder {
                 let mut reader = BufReader::new(buf.as_slice());
                 (Ok(DataRecord::Int32(reader.read_be_int_n(size).unwrap() as i32)), new_offset)
             },
-            s => (Err(Error::InvalidDatabaseError(format!("int32 of size {}", s))), 0)
+            s => (Err(Error::InvalidDatabaseError(format!("int32 of size {:?}", s))), 0)
         }
     }
 
-    fn decode_map(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
-        let mut values = box BTreeMap::new();
+    fn decode_map(&self, size: usize, offset: usize) -> BinaryDecodeResult<DataRecord> {
+        let mut values = Box::new(BTreeMap::new());
         let mut new_offset = offset;
 
         for _ in range(0, size) {
@@ -226,7 +225,7 @@ impl BinaryDecoder {
 
             let str_key = match key {
                 DataRecord::String(s) => s,
-                v => return (Err(Error::InvalidDatabaseError(format!("unexpected map key type {}", v))), 0)
+                v => return (Err(Error::InvalidDatabaseError(format!("unexpected map key type {:?}", v))), 0)
             };
             values.insert(str_key, val);
         }
@@ -234,7 +233,7 @@ impl BinaryDecoder {
     }
 
 
-    fn decode_pointer(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
+    fn decode_pointer(&self, size: usize, offset: usize) -> BinaryDecodeResult<DataRecord> {
         let pointer_value_offset = [0, 0, 2048, 526336, 0];
         let pointer_size = ((size >> 3) & 0x3) + 1;
         let new_offset = offset + pointer_size;
@@ -247,18 +246,18 @@ impl BinaryDecoder {
                 [vec![ (size & 0x7) as u8 ], pointer_bytes].concat()
             };
         let mut r = BufReader::new(packed.as_slice());
-        let unpacked = r.read_be_uint_n(packed.len()).unwrap() as uint;
+        let unpacked = r.read_be_uint_n(packed.len()).unwrap() as usize;
         let pointer = unpacked + self.pointer_base + pointer_value_offset[pointer_size];
 
-        // XXX fix cast. Use uint everywhere?
-        let (result, _) = self.decode(pointer as uint);
+        // XXX fix cast. Use usize everywhere?
+        let (result, _) = self.decode(pointer as usize);
         (result, new_offset)
     }
 
-    fn decode_string(&self, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
+    fn decode_string(&self, size: usize, offset: usize) -> BinaryDecodeResult<DataRecord> {
         use std::str::from_utf8;
 
-        let new_offset : uint = offset + size;
+        let new_offset : usize = offset + size;
         let bytes = read_from_map(&self.map, size, offset);
         match from_utf8(bytes.as_slice()) {
             Ok(v) => (Ok(DataRecord::String(v.to_string())), new_offset),
@@ -266,7 +265,7 @@ impl BinaryDecoder {
         }
     }
 
-    fn decode(&self, offset: uint) -> BinaryDecodeResult<DataRecord> {
+    fn decode(&self, offset: usize) -> BinaryDecodeResult<DataRecord> {
         let mut new_offset = offset + 1;
         let ctrl_byte = read_u8_from_map(&self.map, offset);
 
@@ -282,9 +281,9 @@ impl BinaryDecoder {
         self.decode_from_type(type_num, size, value_offset)
     }
 
-    fn size_from_ctrl_byte(&self, ctrl_byte: u8, offset: uint, type_num: u8) -> (uint, uint) {
+    fn size_from_ctrl_byte(&self, ctrl_byte: u8, offset: usize, type_num: u8) -> (usize, usize) {
 
-        let mut size = (ctrl_byte & 0x1f) as uint;
+        let mut size = (ctrl_byte & 0x1f) as usize;
         // extended
         if type_num == 0 {
             return (size, offset);
@@ -297,36 +296,36 @@ impl BinaryDecoder {
 
         size = match size {
                 s if s < 29 => s,
-                29 => 29u + size_bytes[0] as uint,
+                29 => 29us + size_bytes[0] as usize,
                 30 => {
                     let mut r = BufReader::new(size_bytes.as_slice());
-                    285u + r.read_be_uint_n(size_bytes.len()).unwrap() as uint
+                    285us + r.read_be_uint_n(size_bytes.len()).unwrap() as usize
                 },
                 _ => {
                     let mut r = BufReader::new(size_bytes.as_slice());
-                    65821u + r.read_be_uint_n(size_bytes.len()).unwrap() as uint
+                    65821us + r.read_be_uint_n(size_bytes.len()).unwrap() as usize
                 }
             };
         (size, new_offset)
     }
 
-    fn decode_from_type(&self, data_type: u8, size: uint, offset: uint) -> BinaryDecodeResult<DataRecord> {
+    fn decode_from_type(&self, data_type: u8, size: usize, offset: usize) -> BinaryDecodeResult<DataRecord> {
         match data_type {
             1 => self.decode_pointer(size, offset),
             2 => self.decode_string(size, offset),
             3 => self.decode_double(size, offset),
             4 => self.decode_bytes(size, offset),
-            5 => self.decode_uint16(size, offset),
-            6 => self.decode_uint32(size, offset),
+            5 => self.decode_u16(size, offset),
+            6 => self.decode_u32(size, offset),
             7 => self.decode_map(size, offset),
             8 => self.decode_int(size, offset),
-            9 => self.decode_uint64(size, offset),
-            // XXX - this is uint128. The return value for this is subject to change.
+            9 => self.decode_u64(size, offset),
+            // XXX - this is u128. The return value for this is subject to change.
             10 => self.decode_bytes(size, offset),
             11 => self.decode_array(size, offset),
             14 => self.decode_bool(size, offset),
             15 => self.decode_float(size, offset),
-            u  => (Err(Error::InvalidDatabaseError(format!("Unknown data type: {}", u))), offset),
+            u  => (Err(Error::InvalidDatabaseError(format!("Unknown data type: {:?}", u))), offset),
         }
     }
 }
@@ -334,7 +333,7 @@ impl BinaryDecoder {
 pub struct Reader {
     decoder: BinaryDecoder,
     pub metadata: Metadata,
-    ipv4_start: uint,
+    ipv4_start: usize,
 }
 
 impl Reader {
@@ -342,7 +341,7 @@ impl Reader {
     pub fn open(database: &str) -> Result<Reader, Error> {
         let data_section_separator_size = 16;
 
-        let path = Path::new(&database.to_c_str());
+        let path = Path::new(database);
 
         let f = match File::open_mode(&path, Open, Read) {
             Ok(f)  => f,
@@ -355,11 +354,11 @@ impl Reader {
             Err(_) => return Err(Error::IoError("Error calling stat on file".to_string()))
         };
 
-        let database_size = stats.size as uint;
+        let database_size = stats.size as usize;
         let map = match os::MemoryMap::new(database_size, &[os::MapOption::MapReadable, os::MapOption::MapFd(fd), os::MapOption::   MapOffset(0)])
         {
             Ok(mem)  => mem,
-            Err(msg) => return Err(Error::MapError(msg.to_string()))
+            Err(msg) => return Err(Error::MapError(format!("{:?}", msg)))
         };
 
         let metadata_start = match find_metadata_start(&map) {
@@ -370,17 +369,17 @@ impl Reader {
 
         let raw_metadata = match metadata_decoder.decode(metadata_start) {
             (Ok(m), _) => m,
-            m      => return Err(Error::InvalidDatabaseError(format!("metadata of wrong type: {}", m))),
+            m      => return Err(Error::InvalidDatabaseError(format!("metadata of wrong type: {:?}", m))),
         };
 
         let mut type_decoder = ::Decoder::new(raw_metadata);
         let metadata: Metadata = match Decodable::decode(&mut type_decoder) {
             Ok(v) => v,
-            Err(e) => return Err(Error::InvalidDatabaseError(format!("Decoding error: {}", e)))
+            Err(e) => return Err(Error::InvalidDatabaseError(format!("Decoding error: {:?}", e)))
         };
 
-        let search_tree_size = metadata.node_count * (metadata.record_size as uint) / 4;
-        let decoder = BinaryDecoder{map: metadata_decoder.map, pointer_base: search_tree_size as uint + data_section_separator_size};
+        let search_tree_size = metadata.node_count * (metadata.record_size as usize) / 4;
+        let decoder = BinaryDecoder{map: metadata_decoder.map, pointer_base: search_tree_size as usize + data_section_separator_size};
 
         let mut reader = Reader { decoder: decoder, metadata: metadata, ipv4_start: 0, };
         match reader.find_ipv4_start() {
@@ -408,7 +407,7 @@ impl Reader {
         }
     }
 
-    fn find_address_in_tree(&self, ip_address: Vec<u8>) -> Result<uint, Error> {
+    fn find_address_in_tree(&self, ip_address: Vec<u8>) -> Result<usize, Error> {
         let bit_count = ip_address.len()*8;
         let mut node = try!(self.start_node(bit_count));
 
@@ -418,7 +417,7 @@ impl Reader {
             }
             let bit = 1 & (ip_address[i>>3] >> (7-(i % 8)));
 
-            node = match self.read_node(node, bit as uint) {
+            node = match self.read_node(node, bit as usize) {
                 Ok(v) => v,
                 e => return e
             };
@@ -432,7 +431,7 @@ impl Reader {
         }
     }
 
-    fn start_node(&self, length: uint) -> Result<uint, Error> {
+    fn start_node(&self, length: usize) -> Result<usize, Error> {
         if length == 128 {
             Ok(0)
         } else {
@@ -440,7 +439,7 @@ impl Reader {
         }
     }
 
-    fn find_ipv4_start(&self)  -> Result<uint, Error> {
+    fn find_ipv4_start(&self)  -> Result<usize, Error> {
 
         if self.metadata.ip_version != 6 {
             return Ok(0);
@@ -448,7 +447,7 @@ impl Reader {
 
         // We are looking up an IPv4 address in an IPv6 tree. Skip over the
         // first 96 nodes.
-        let mut node: uint = 0u;
+        let mut node: usize = 0us;
         for _ in range(0u8, 96) {
             if node >= self.metadata.node_count {
                 break;
@@ -462,9 +461,9 @@ impl Reader {
     }
 
 
-    fn read_node(&self, node_number: uint, index: uint) -> Result<uint, Error> {
+    fn read_node(&self, node_number: usize, index: usize) -> Result<usize, Error> {
 
-        let base_offset = node_number * (self.metadata.record_size as uint)/ 4;
+        let base_offset = node_number * (self.metadata.record_size as usize)/ 4;
 
         let bytes = match self.metadata.record_size {
             24 => {
@@ -485,14 +484,14 @@ impl Reader {
                 let offset = base_offset + index * 4;
                 read_from_map(&self.decoder.map, 4, offset)
             },
-            s => return Err(Error::InvalidDatabaseError(format!("unknown record size: {}", s)))
+            s => return Err(Error::InvalidDatabaseError(format!("unknown record size: {:?}", s)))
         };
         let mut reader = BufReader::new(bytes.as_slice());
-        Ok(reader.read_be_uint_n(bytes.len()).unwrap() as uint)
+        Ok(reader.read_be_uint_n(bytes.len()).unwrap() as usize)
     }
 
-    fn resolve_data_pointer(&self, pointer: uint) -> Result<DataRecord, Error> {
-        let search_tree_size = (self.metadata.record_size as uint) * self.metadata.node_count / 4;
+    fn resolve_data_pointer(&self, pointer: usize) -> Result<DataRecord, Error> {
+        let search_tree_size = (self.metadata.record_size as usize) * self.metadata.node_count / 4;
 
         let resolved = pointer - self.metadata.node_count + search_tree_size;
 
@@ -505,20 +504,20 @@ impl Reader {
     }
 }
 
-fn read_u8_from_map(map: &os::MemoryMap, offset: uint) -> u8 {
+fn read_u8_from_map(map: &os::MemoryMap, offset: usize) -> u8 {
     match read_from_map(map, 1, offset).as_slice() {
         [head] => head,
         _ => unreachable!()
     }
 }
 
-fn read_from_map(map: &os::MemoryMap, size: uint, offset: uint) -> Vec<u8> {
+fn read_from_map(map: &os::MemoryMap, size: usize, offset: usize) -> Vec<u8> {
     if offset >= map.len() - size {
         use std::intrinsics;
-        error!("attempt to read beyond end of memory map: {}\n", offset);
+        error!("attempt to read beyond end of memory map: {:?}\n", offset);
         unsafe { intrinsics::abort() }
     }
-    unsafe { Vec::from_raw_buf(map.data().offset(offset as int) as *const u8, size)}
+    unsafe { Vec::from_raw_buf(map.data().offset(offset as isize) as *const u8, size)}
 }
 
 fn ip_to_bytes(ip_address: IpAddr) -> Vec<u8> {
@@ -543,7 +542,7 @@ fn ip_to_bytes(ip_address: IpAddr) -> Vec<u8> {
     }
 }
 
-fn find_metadata_start(map: &os::MemoryMap) -> Result<uint, Error> {
+fn find_metadata_start(map: &os::MemoryMap) -> Result<usize, Error> {
     // This is reversed to make the loop below a bit simpler
     let metadata_start_marker : [u8; 14] = [ 0x6d, 0x6f, 0x63, 0x2e, 0x64,
                                                0x6e, 0x69, 0x4d, 0x78, 0x61,

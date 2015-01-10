@@ -10,7 +10,7 @@ fn test_decoder() {
     #[allow(non_snake_case)]
     #[derive(RustcDecodable, Show, Eq, PartialEq)]
     struct MapXType {
-        arrayX: Vec<uint>,
+        arrayX: Vec<usize>,
         utf8_stringX: String
     };
 
@@ -22,7 +22,7 @@ fn test_decoder() {
 
     #[derive(RustcDecodable, Show)]
     struct TestType {
-        array:       Vec<uint>,
+        array:       Vec<usize>,
         boolean:     bool,
         bytes:       Vec<u8>,
         double:      f64,
@@ -43,10 +43,10 @@ fn test_decoder() {
     let mut decoder = Decoder::new(raw_data.unwrap());
     let result: TestType = match Decodable::decode(&mut decoder) {
         Ok(v) => v,
-        Err(e) => panic!("Decoding error: {}", e)
+        Err(e) => panic!("Decoding error: {:?}", e)
     };
 
-    assert_eq!(result.array, vec![ 1u, 2u, 3u ]);
+    assert_eq!(result.array, vec![ 1us, 2us, 3us ]);
     assert_eq!(result.boolean, true);
     assert_eq!(result.bytes, vec![0u8, 0u8, 0u8, 42u8]);
     assert_eq!(result.double, 42.123456);
@@ -68,7 +68,7 @@ fn test_broken_database() {
     let r = Reader::open("test-data/test-data/GeoIP2-City-Test-Broken-Double-Format.mmdb").unwrap();
     let ip: IpAddr = FromStr::from_str("2001:220::").unwrap();
     let result = r.lookup(ip);
-    assert_eq!(result, Err(Error::InvalidDatabaseError("double of size 2".to_string())));
+    assert_eq!(result, Err(Error::InvalidDatabaseError("double of size 2u".to_string())));
 }
 
 #[test]
@@ -93,9 +93,9 @@ fn test_non_database() {
 
 #[test]
 fn test_reader() {
-    let sizes = [24u, 28, 32];
+    let sizes = [24us, 28, 32];
     for record_size in sizes.iter() {
-        let versions = [4u, 6];
+        let versions = [4us, 6];
         for ip_version in versions.iter() {
             let filename = format!("test-data/test-data/MaxMind-DB-test-ipv{}-{}.mmdb",
                 ip_version, record_size);
@@ -107,7 +107,7 @@ fn test_reader() {
     }
 }
 
-fn check_metadata(reader: &Reader, ip_version: uint, record_size: uint) {
+fn check_metadata(reader: &Reader, ip_version: usize, record_size: usize) {
     let metadata = &reader.metadata;
 
     assert_eq!(metadata.binary_format_major_version,  2u16);
@@ -133,7 +133,7 @@ fn check_metadata(reader: &Reader, ip_version: uint, record_size: uint) {
     assert_eq!(metadata.record_size,  record_size as u16)
 }
 
-fn check_ip(reader: &Reader, ip_version: uint) {
+fn check_ip(reader: &Reader, ip_version: usize) {
 
     let subnets = match ip_version {
         6 =>   [["::1:ffff:ffff", "::1:ffff:ffff"],
@@ -176,7 +176,7 @@ fn check_ip(reader: &Reader, ip_version: uint) {
         let mut decoder = Decoder::new(res);
         let value: IpType =  match Decodable::decode(&mut decoder) {
             Ok(v) => v,
-            Err(e) => panic!("Decoding error: {}", e)
+            Err(e) => panic!("Decoding error: {:?}", e)
         };
         assert_eq!(value.ip, values[1].to_string());
     }
@@ -186,7 +186,7 @@ fn check_ip(reader: &Reader, ip_version: uint) {
     for &address in no_record.iter() {
         let ip: IpAddr = FromStr::from_str(address).unwrap();
         match reader.lookup(ip) {
-            Ok(v) => panic!("received an unexpected value: {}", v),
+            Ok(v) => panic!("received an unexpected value: {:?}", v),
             Err(e) => assert_eq!(e, Error::AddressNotFoundError("Address not found in database".to_string()))
         }
     }

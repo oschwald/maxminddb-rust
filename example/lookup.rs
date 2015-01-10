@@ -1,4 +1,3 @@
-#![feature(globs)]
 #![feature(old_orphan_check)]
 extern crate collections;
 extern crate maxminddb;
@@ -18,13 +17,13 @@ pub struct Names {
 #[derive(RustcDecodable, Show)]
 pub struct Continent {
     code: Option<String>,
-    geoname_id: Option<uint>,
+    geoname_id: Option<u32>,
     names: Option<Names>,
 }
 
 #[derive(RustcDecodable, Show)]
 pub struct Place {
-    geoname_id: Option<uint>,
+    geoname_id: Option<u32>,
     iso_code: Option<String>,
     names: Option<Names>,
 }
@@ -52,8 +51,8 @@ fn main() {
     let mut decoder = maxminddb::Decoder::new(dr.unwrap());
     let decoded_object: Country = match Decodable::decode(&mut decoder) {
         Ok(v) => v,
-        Err(e) => panic!("Decoding error: {}", e)
+        Err(e) => panic!("Decoding error: {:?}", e)
     }; // create the final object
-    print!("{}\n", decoded_object);
+    print!("{:?}\n", decoded_object);
 
 }
