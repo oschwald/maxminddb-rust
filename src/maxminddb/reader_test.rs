@@ -36,11 +36,11 @@ fn test_decoder() {
         utf8_string: String
     }
 
-    let r = Reader::open("test-data/test-data/MaxMind-DB-test-decoder.mmdb").unwrap();
+    let r = Reader::open("test-data/test-data/MaxMind-DB-test-decoder.mmdb").ok().unwrap();
     let ip: IpAddr = FromStr::from_str("::1.1.1.0").unwrap();
     let raw_data = r.lookup(ip);
 
-    let mut decoder = Decoder::new(raw_data.unwrap());
+    let mut decoder = Decoder::new(raw_data.ok().unwrap());
     let result: TestType = match Decodable::decode(&mut decoder) {
         Ok(v) => v,
         Err(e) => panic!("Decoding error: {:?}", e)
@@ -65,10 +65,10 @@ fn test_decoder() {
 
 #[test]
 fn test_broken_database() {
-    let r = Reader::open("test-data/test-data/GeoIP2-City-Test-Broken-Double-Format.mmdb").unwrap();
+    let r = Reader::open("test-data/test-data/GeoIP2-City-Test-Broken-Double-Format.mmdb").ok().unwrap();
     let ip: IpAddr = FromStr::from_str("2001:220::").unwrap();
     let result = r.lookup(ip);
-    assert_eq!(result, Err(Error::InvalidDatabaseError("double of size 2u".to_string())));
+    assert_eq!(result, Err(Error::InvalidDatabaseError("double of size 2".to_string())));
 }
 
 #[test]
@@ -99,7 +99,7 @@ fn test_reader() {
         for ip_version in versions.iter() {
             let filename = format!("test-data/test-data/MaxMind-DB-test-ipv{}-{}.mmdb",
                 ip_version, record_size);
-            let reader = Reader::open(filename.as_slice()).unwrap();
+            let reader = Reader::open(filename.as_slice()).ok().unwrap();
 
             check_metadata(&reader, *ip_version, *record_size);
             check_ip(&reader, *ip_version);
@@ -171,7 +171,7 @@ fn check_ip(reader: &Reader, ip_version: usize) {
 
     for values in subnets.iter() {
         let ip: IpAddr = FromStr::from_str(values[0]).unwrap();
-        let res = reader.lookup(ip).unwrap();
+        let res = reader.lookup(ip).ok().unwrap();
 
         let mut decoder = Decoder::new(res);
         let value: IpType =  match Decodable::decode(&mut decoder) {

@@ -7,10 +7,12 @@
 #[macro_use] extern crate log;
 
 extern crate collections;
+extern crate core;
 extern crate libc;
 extern crate serialize;
 extern crate "rustc-serialize" as rustc_serialize;
 
+use core::fmt::Debug;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io::BufReader;
@@ -153,7 +155,7 @@ impl BinaryDecoder {
         }
     }
 
-    fn decode_u64(&self, size: usize, offset: usize) -> BinaryDecodeResult<DataRecord> {
+    fn decode_uint64(&self, size: usize, offset: usize) -> BinaryDecodeResult<DataRecord> {
         match size {
             s if s <= 8 => {
                 let new_offset = offset + size;
@@ -171,10 +173,10 @@ impl BinaryDecoder {
         }
     }
 
-    fn decode_u32(&self, size: usize, offset: usize) -> BinaryDecodeResult<DataRecord> {
+    fn decode_uint32(&self, size: usize, offset: usize) -> BinaryDecodeResult<DataRecord> {
         match size {
             s if s <= 4 => {
-                match self.decode_u64(size, offset) {
+                match self.decode_uint64(size, offset) {
                     (Ok(DataRecord::Uint64(u)), o) => (Ok(DataRecord::Uint32(u as u32)), o),
                     e => e
                 }
@@ -183,10 +185,10 @@ impl BinaryDecoder {
         }
     }
 
-    fn decode_u16(&self, size: usize, offset: usize) -> BinaryDecodeResult<DataRecord> {
+    fn decode_uint16(&self, size: usize, offset: usize) -> BinaryDecodeResult<DataRecord> {
         match size {
             s if s <= 4 => {
-                match self.decode_u64(size, offset) {
+                match self.decode_uint64(size, offset) {
                     (Ok(DataRecord::Uint64(u)), o) => (Ok(DataRecord::Uint16(u as u16)), o),
                     e => e
                 }
@@ -315,11 +317,11 @@ impl BinaryDecoder {
             2 => self.decode_string(size, offset),
             3 => self.decode_double(size, offset),
             4 => self.decode_bytes(size, offset),
-            5 => self.decode_u16(size, offset),
-            6 => self.decode_u32(size, offset),
+            5 => self.decode_uint16(size, offset),
+            6 => self.decode_uint32(size, offset),
             7 => self.decode_map(size, offset),
             8 => self.decode_int(size, offset),
-            9 => self.decode_u64(size, offset),
+            9 => self.decode_uint64(size, offset),
             // XXX - this is u128. The return value for this is subject to change.
             10 => self.decode_bytes(size, offset),
             11 => self.decode_array(size, offset),

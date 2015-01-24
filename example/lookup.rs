@@ -44,11 +44,11 @@ pub struct Country {
 }
 
 fn main() {
-    let r = maxminddb::Reader::open("/usr/local/share/GeoIP/GeoIP2-City.mmdb").unwrap();
+    let r = maxminddb::Reader::open("/usr/local/share/GeoIP/GeoIP2-City.mmdb").ok().unwrap();
     let ip: IpAddr = FromStr::from_str("128.101.101.101").unwrap();
     let dr = r.lookup(ip);
 
-    let mut decoder = maxminddb::Decoder::new(dr.unwrap());
+    let mut decoder = maxminddb::Decoder::new(dr.ok().unwrap());
     let decoded_object: Country = match Decodable::decode(&mut decoder) {
         Ok(v) => v,
         Err(e) => panic!("Decoding error: {:?}", e)
