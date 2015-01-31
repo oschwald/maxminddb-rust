@@ -16,4 +16,4 @@ crate_type = ["lib", "dylib", "staticlib"]
 path = "src/maxminddb/lib.rs"
 
 [dependencies]
-rustc-serialize = "0.2.9"
+rustc-serialize = "0.2.10"

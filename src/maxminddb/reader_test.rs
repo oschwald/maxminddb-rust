@@ -1,7 +1,7 @@
 use super::{Error, Decoder, Reader};
 
 use std::str::FromStr;
-use std::io::net::ip::IpAddr;
+use std::old_io::net::ip::IpAddr;
 use rustc_serialize::Decodable;
 
 #[test]

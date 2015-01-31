@@ -4,7 +4,7 @@ extern crate maxminddb;
 extern crate serialize;
 extern crate "rustc-serialize" as rustc_serialize;
 
-use std::io::net::ip::IpAddr;
+use std::old_io::net::ip::IpAddr;
 use std::str::FromStr;
 
 use rustc_serialize::Decodable;
