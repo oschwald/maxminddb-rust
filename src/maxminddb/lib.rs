@@ -2,7 +2,13 @@
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
 
+#![feature(core)]
+#![feature(io)]
+#![feature(libc)]
 #![feature(old_orphan_check)]
+#![feature(os)]
+#![feature(path)]
+#![feature(std_misc)]
 
 #[macro_use] extern crate log;
 
@@ -27,7 +33,7 @@ use rustc_serialize::Decodable;
 
 pub use self::decoder::Decoder;
 
-#[derive(Show, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum Error {
     AddressNotFoundError(string::String),
     InvalidDatabaseError(string::String),
@@ -57,7 +63,7 @@ pub enum DataRecord {
 pub type DbArray = Vec<DataRecord>;
 pub type DbMap = BTreeMap<string::String, DataRecord>;
 
-impl fmt::Show for DataRecord {
+impl fmt::Debug for DataRecord {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
       match self {
         &DataRecord::String(ref v) => v.fmt(f),

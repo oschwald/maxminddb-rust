@@ -9,32 +9,32 @@ use std::str::FromStr;
 
 use rustc_serialize::Decodable;
 
-#[derive(RustcDecodable, Show)]
+#[derive(RustcDecodable, Debug)]
 pub struct Names {
     en: Option<String>,
 }
 
-#[derive(RustcDecodable, Show)]
+#[derive(RustcDecodable, Debug)]
 pub struct Continent {
     code: Option<String>,
     geoname_id: Option<u32>,
     names: Option<Names>,
 }
 
-#[derive(RustcDecodable, Show)]
+#[derive(RustcDecodable, Debug)]
 pub struct Place {
     geoname_id: Option<u32>,
     iso_code: Option<String>,
     names: Option<Names>,
 }
 
-#[derive(Copy, RustcDecodable, Show)]
+#[derive(Copy, RustcDecodable, Debug)]
 pub struct Traits {
     is_anonymous_proxy: Option<bool>,
     is_satellite_provider: Option<bool>,
 }
 
-#[derive(RustcDecodable, Show)]
+#[derive(RustcDecodable, Debug)]
 pub struct Country {
     continent: Option<Continent>,
     country: Option<Place>,
