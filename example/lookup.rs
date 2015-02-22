@@ -1,7 +1,8 @@
-#![feature(old_orphan_check)]
+#![feature(collections)]
+#![feature(old_io)]
+
 extern crate collections;
 extern crate maxminddb;
-extern crate serialize;
 extern crate "rustc-serialize" as rustc_serialize;
 
 use std::old_io::net::ip::IpAddr;
