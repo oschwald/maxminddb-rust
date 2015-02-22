@@ -8,19 +8,19 @@ use rustc_serialize::Decodable;
 fn test_decoder() {
 
     #[allow(non_snake_case)]
-    #[derive(RustcDecodable, Show, Eq, PartialEq)]
+    #[derive(RustcDecodable, Debug, Eq, PartialEq)]
     struct MapXType {
         arrayX: Vec<usize>,
         utf8_stringX: String
     };
 
     #[allow(non_snake_case)]
-    #[derive(RustcDecodable, Show, Eq, PartialEq)]
+    #[derive(RustcDecodable, Debug, Eq, PartialEq)]
     struct MapType {
         mapX: MapXType
     };
 
-    #[derive(RustcDecodable, Show)]
+    #[derive(RustcDecodable, Debug)]
     struct TestType {
         array:       Vec<usize>,
         boolean:     bool,
@@ -46,7 +46,7 @@ fn test_decoder() {
         Err(e) => panic!("Decoding error: {:?}", e)
     };
 
-    assert_eq!(result.array, vec![ 1us, 2us, 3us ]);
+    assert_eq!(result.array, vec![ 1usize, 2usize, 3usize ]);
     assert_eq!(result.boolean, true);
     assert_eq!(result.bytes, vec![0u8, 0u8, 0u8, 42u8]);
     assert_eq!(result.double, 42.123456);
@@ -93,9 +93,9 @@ fn test_non_database() {
 
 #[test]
 fn test_reader() {
-    let sizes = [24us, 28, 32];
+    let sizes = [24usize, 28, 32];
     for record_size in sizes.iter() {
-        let versions = [4us, 6];
+        let versions = [4usize, 6];
         for ip_version in versions.iter() {
             let filename = format!("test-data/test-data/MaxMind-DB-test-ipv{}-{}.mmdb",
                 ip_version, record_size);
@@ -164,7 +164,7 @@ fn check_ip(reader: &Reader, ip_version: usize) {
                 ["1.1.1.31",  "1.1.1.16"]]
     };
 
-    #[derive(RustcDecodable, Show)]
+    #[derive(RustcDecodable, Debug)]
     struct IpType  {
          ip: String,
     }

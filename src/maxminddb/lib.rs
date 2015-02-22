@@ -2,12 +2,12 @@
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
 
+#![feature(collections)]
 #![feature(core)]
-#![feature(io)]
 #![feature(libc)]
-#![feature(old_orphan_check)]
+#![feature(old_io)]
+#![feature(old_path)]
 #![feature(os)]
-#![feature(path)]
 #![feature(std_misc)]
 
 #[macro_use] extern crate log;
@@ -15,7 +15,6 @@
 extern crate collections;
 extern crate core;
 extern crate libc;
-extern crate serialize;
 extern crate "rustc-serialize" as rustc_serialize;
 
 use core::fmt::Debug;
@@ -304,14 +303,14 @@ impl BinaryDecoder {
 
         size = match size {
                 s if s < 29 => s,
-                29 => 29us + size_bytes[0] as usize,
+                29 => 29usize + size_bytes[0] as usize,
                 30 => {
                     let mut r = BufReader::new(size_bytes.as_slice());
-                    285us + r.read_be_uint_n(size_bytes.len()).unwrap() as usize
+                    285usize + r.read_be_uint_n(size_bytes.len()).unwrap() as usize
                 },
                 _ => {
                     let mut r = BufReader::new(size_bytes.as_slice());
-                    65821us + r.read_be_uint_n(size_bytes.len()).unwrap() as usize
+                    65821usize + r.read_be_uint_n(size_bytes.len()).unwrap() as usize
                 }
             };
         (size, new_offset)
@@ -455,7 +454,7 @@ impl Reader {
 
         // We are looking up an IPv4 address in an IPv6 tree. Skip over the
         // first 96 nodes.
-        let mut node: usize = 0us;
+        let mut node: usize = 0usize;
         for _ in range(0u8, 96) {
             if node >= self.metadata.node_count {
                 break;
