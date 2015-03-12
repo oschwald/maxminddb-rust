@@ -14,7 +14,7 @@ $(libmaxminddb_so): src/maxminddb/lib.rs
 
 target/lookup: example/lookup.rs $(libmaxminddb_so)
 	mkdir -p build
-	$(RUSTC) $(RUSTFLAGS) $< -o $@ -L target/ -L target/deps/
+	$(RUSTC) $(RUSTFLAGS) $< -o $@ -L target/debug -L target/debug/deps/
 
 examples: target/lookup
 
