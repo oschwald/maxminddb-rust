@@ -4,6 +4,7 @@
 
 #![feature(collections)]
 #![feature(core)]
+#![feature(io_ext)]
 #![feature(libc)]
 #![feature(old_io)]
 #![feature(old_path)]
@@ -26,7 +27,7 @@ use std::old_io::net::ip::{IpAddr,Ipv6Addr,Ipv4Addr};
 use std::old_io::{Open, Read};
 use std::os;
 use std::string;
-use std::os::unix::{AsRawFd};
+use std::os::unix::io::AsRawFd;
 
 use rustc_serialize::Decodable;
 

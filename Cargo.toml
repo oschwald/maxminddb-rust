@@ -18,4 +18,4 @@ path = "src/maxminddb/lib.rs"
 [dependencies]
 
 log = "0.2.5"
-rustc-serialize = "0.3.1"
+rustc-serialize = "0.3.6"
