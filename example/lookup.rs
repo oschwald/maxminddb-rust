@@ -37,6 +37,7 @@ pub struct Traits {
 
 #[derive(RustcDecodable, Debug)]
 pub struct Country {
+    city: Option<Place>,
     continent: Option<Continent>,
     country: Option<Place>,
     registered_country: Option<Place>,

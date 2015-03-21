@@ -9,7 +9,6 @@
 #![feature(old_io)]
 #![feature(old_path)]
 #![feature(os)]
-#![feature(std_misc)]
 
 #[macro_use] extern crate log;
 
@@ -21,13 +20,13 @@ extern crate "rustc-serialize" as rustc_serialize;
 use core::fmt::Debug;
 use std::collections::BTreeMap;
 use std::fmt;
-use std::old_io::BufReader;
-use std::old_io::File;
+use std::fs::File;
+use std::mem;
 use std::old_io::net::ip::{IpAddr,Ipv6Addr,Ipv4Addr};
-use std::old_io::{Open, Read};
-use std::os;
-use std::string;
 use std::os::unix::io::AsRawFd;
+use std::os;
+use std::slice;
+use std::string;
 
 use rustc_serialize::Decodable;
 
@@ -41,6 +40,7 @@ pub enum Error {
     MapError(string::String),
     DecodingError(string::String),
 }
+
 
 pub type BinaryDecodeResult<T> = (Result<T, Error>, usize);
 
@@ -106,7 +106,7 @@ impl BinaryDecoder {
         let mut array = Vec::new();
         let mut new_offset = offset;
 
-        for _ in range(0, size) {
+        for _ in (0..size) {
             let (val, tmp_offset) = match self.decode(new_offset) {
                 (Ok(v), os) => (v, os),
                 (Err(e), os) => return (Err(e), os)
@@ -129,7 +129,7 @@ impl BinaryDecoder {
         let u8_slice = read_from_map(&self.map, size, offset);
         // XXX - baby rust
         let mut bytes = Vec::new();
-        for b in u8_slice.into_iter() {
+        for &b in u8_slice.iter() {
             bytes.push(DataRecord::Byte(b));
         }
         (Ok(DataRecord::Array(bytes)), new_offset)
@@ -140,9 +140,12 @@ impl BinaryDecoder {
             4 => {
                 let new_offset = offset + size;
 
-                let buf = read_from_map(&self.map, size, offset);
-                let mut reader = BufReader::new(buf.as_slice());
-                (Ok(DataRecord::Float(reader.read_be_f32().unwrap())), new_offset)
+                let mut value = 0u32;
+                for &b in read_from_map(&self.map, size, offset).iter() {
+                    value = (value << 8) | b as u32;
+                }
+                let float_value : f32 = unsafe { mem::transmute(value) };
+                (Ok(DataRecord::Float(float_value)), new_offset)
             },
             s => (Err(Error::InvalidDatabaseError(format!("float of size {:?}", s))), 0)
         }
@@ -153,9 +156,12 @@ impl BinaryDecoder {
             8 => {
                 let new_offset = offset + size;
 
-                let buf = read_from_map(&self.map, size, offset);
-                let mut reader = BufReader::new(buf.as_slice());
-                (Ok(DataRecord::Double(reader.read_be_f64().unwrap())), new_offset)
+                let mut value = 0u64;
+                for &b in read_from_map(&self.map, size, offset).iter() {
+                    value = (value << 8) | b as u64;
+                }
+                let float_value : f64 = unsafe { mem::transmute(value) };
+                (Ok(DataRecord::Double(float_value)), new_offset)
             },
             s => (Err(Error::InvalidDatabaseError(format!("double of size {:?}", s))), 0)
         }
@@ -166,13 +172,11 @@ impl BinaryDecoder {
             s if s <= 8 => {
                 let new_offset = offset + size;
 
-                let value = if size == 0 {
-                        0
-                    } else {
-                        let buf = read_from_map(&self.map, size, offset);
-                        let mut reader = BufReader::new(buf.as_slice());
-                        reader.read_be_uint_n(size).unwrap()
-                    };
+                let mut value = 0u64;
+
+                for &b in read_from_map(&self.map, size, offset).iter() {
+                    value = (value << 8) | b as u64;
+                }
                 (Ok(DataRecord::Uint64(value)), new_offset)
             },
             s => (Err(Error::InvalidDatabaseError(format!("u64 of size {:?}", s))), 0)
@@ -208,9 +212,11 @@ impl BinaryDecoder {
             s if s <= 4 => {
                 let new_offset = offset + size;
 
-                let buf = read_from_map(&self.map, size, offset);
-                let mut reader = BufReader::new(buf.as_slice());
-                (Ok(DataRecord::Int32(reader.read_be_int_n(size).unwrap() as i32)), new_offset)
+                let mut value = 0i32;
+                for &b in read_from_map(&self.map, size, offset).iter() {
+                    value = (value << 8) | b as i32;
+                }
+                (Ok(DataRecord::Int32(value)), new_offset)
             },
             s => (Err(Error::InvalidDatabaseError(format!("int32 of size {:?}", s))), 0)
         }
@@ -220,7 +226,7 @@ impl BinaryDecoder {
         let mut values = Box::new(BTreeMap::new());
         let mut new_offset = offset;
 
-        for _ in range(0, size) {
+        for _ in (0..size) {
             let (key, val_offset) = match self.decode(new_offset) {
                 (Ok(v), os) => (v, os),
                 (Err(e), os) => return (Err(e), os)
@@ -247,14 +253,12 @@ impl BinaryDecoder {
         let new_offset = offset + pointer_size;
         let pointer_bytes = read_from_map(&self.map, pointer_size, offset);
 
-        let packed = if pointer_size == 4 {
-                pointer_bytes
+        let base = if pointer_size == 4 {
+                0
             } else {
-                // XXX - make this sane.
-                [vec![ (size & 0x7) as u8 ], pointer_bytes].concat()
+                (size & 0x7) as u8
             };
-        let mut r = BufReader::new(packed.as_slice());
-        let unpacked = r.read_be_uint_n(packed.len()).unwrap() as usize;
+        let unpacked = to_usize(base, pointer_bytes);
         let pointer = unpacked + self.pointer_base + pointer_value_offset[pointer_size];
 
         // XXX fix cast. Use usize everywhere?
@@ -306,12 +310,10 @@ impl BinaryDecoder {
                 s if s < 29 => s,
                 29 => 29usize + size_bytes[0] as usize,
                 30 => {
-                    let mut r = BufReader::new(size_bytes.as_slice());
-                    285usize + r.read_be_uint_n(size_bytes.len()).unwrap() as usize
+                    285usize + to_usize(0, size_bytes)
                 },
                 _ => {
-                    let mut r = BufReader::new(size_bytes.as_slice());
-                    65821usize + r.read_be_uint_n(size_bytes.len()).unwrap() as usize
+                    65821usize + to_usize(0, size_bytes)
                 }
             };
         (size, new_offset)
@@ -351,18 +353,17 @@ impl Reader {
 
         let path = Path::new(database);
 
-        let f = match File::open_mode(&path, Open, Read) {
+        let f = match File::open(&path) {
             Ok(f)  => f,
             Err(_) => return Err(Error::IoError("Error opening file".to_string()))
         };
         let fd = f.as_raw_fd();
 
-        let stats = match f.stat() {
-            Ok(s) => s,
-            Err(_) => return Err(Error::IoError("Error calling stat on file".to_string()))
+        let database_size = match f.metadata() {
+            Ok(m) => m.len() as usize,
+            Err(_) => return Err(Error::IoError("Error calling metadata on file".to_string()))
         };
 
-        let database_size = stats.size as usize;
         let map = match os::MemoryMap::new(database_size, &[os::MapOption::MapReadable, os::MapOption::MapFd(fd), os::MapOption::   MapOffset(0)])
         {
             Ok(mem)  => mem,
@@ -404,7 +405,8 @@ impl Reader {
     //      return nil, fmt.Errorf("error looking up '%s': you attempted to look up an IPv6 address in an IPv4-only database", ipAddress.String())
     //  }
         let ip_bytes = ip_to_bytes(ip_address);
-        let pointer = match self.find_address_in_tree(ip_bytes) {
+        let ip_slice = ip_bytes.as_slice();
+        let pointer = match self.find_address_in_tree(ip_slice) {
             Ok(v) => v,
             Err(e) => return Err(e)
         };
@@ -415,11 +417,11 @@ impl Reader {
         }
     }
 
-    fn find_address_in_tree(&self, ip_address: Vec<u8>) -> Result<usize, Error> {
+    fn find_address_in_tree(&self, ip_address: &[u8]) -> Result<usize, Error> {
         let bit_count = ip_address.len()*8;
         let mut node = try!(self.start_node(bit_count));
 
-        for i in range(0, bit_count) {
+        for i in (0..bit_count) {
             if node >= self.metadata.node_count {
                 break;
             }
@@ -456,7 +458,7 @@ impl Reader {
         // We are looking up an IPv4 address in an IPv6 tree. Skip over the
         // first 96 nodes.
         let mut node: usize = 0usize;
-        for _ in range(0u8, 96) {
+        for _ in (0u8..96) {
             if node >= self.metadata.node_count {
                 break;
             }
@@ -473,10 +475,10 @@ impl Reader {
 
         let base_offset = node_number * (self.metadata.record_size as usize)/ 4;
 
-        let bytes = match self.metadata.record_size {
+        let val = match self.metadata.record_size {
             24 => {
                 let offset = base_offset + index * 3;
-                read_from_map(&self.decoder.map, 3, offset)
+                to_usize(0, read_from_map(&self.decoder.map, 3, offset))
             },
             28 => {
                 let mut middle = read_u8_from_map(&self.decoder.map, base_offset + 3);
@@ -486,16 +488,15 @@ impl Reader {
                     middle = (0xF0 & middle) >> 4
                 }
                 let offset = base_offset + index * 4;
-                [vec![middle], read_from_map(&self.decoder.map, 3, offset)].concat()
+                to_usize(middle, read_from_map(&self.decoder.map, 3, offset))
             },
             32 => {
                 let offset = base_offset + index * 4;
-                read_from_map(&self.decoder.map, 4, offset)
+                to_usize(0, read_from_map(&self.decoder.map, 4, offset))
             },
             s => return Err(Error::InvalidDatabaseError(format!("unknown record size: {:?}", s)))
         };
-        let mut reader = BufReader::new(bytes.as_slice());
-        Ok(reader.read_be_uint_n(bytes.len()).unwrap() as usize)
+        Ok(val)
     }
 
     fn resolve_data_pointer(&self, pointer: usize) -> Result<DataRecord, Error> {
@@ -512,6 +513,14 @@ impl Reader {
     }
 }
 
+fn to_usize(base: u8, bytes: &[u8]) -> usize {
+    let mut val = base as usize;
+    for &u in bytes.iter() {
+        val = (val << 8) | u as usize;
+    }
+    return val;
+}
+
 fn read_u8_from_map(map: &os::MemoryMap, offset: usize) -> u8 {
     match read_from_map(map, 1, offset).as_slice() {
         [head] => head,
@@ -519,13 +528,13 @@ fn read_u8_from_map(map: &os::MemoryMap, offset: usize) -> u8 {
     }
 }
 
-fn read_from_map(map: &os::MemoryMap, size: usize, offset: usize) -> Vec<u8> {
+fn read_from_map(map: &os::MemoryMap, size: usize, offset: usize) -> &[u8] {
     if offset >= map.len() - size {
         use std::intrinsics;
         error!("attempt to read beyond end of memory map: {:?}\n", offset);
         unsafe { intrinsics::abort() }
     }
-    unsafe { Vec::from_raw_buf(map.data().offset(offset as isize) as *const u8, size)}
+    unsafe { slice::from_raw_parts(map.data().offset(offset as isize) as *const u8, size)}
 }
 
 fn ip_to_bytes(ip_address: IpAddr) -> Vec<u8> {
@@ -550,6 +559,7 @@ fn ip_to_bytes(ip_address: IpAddr) -> Vec<u8> {
     }
 }
 
+
 fn find_metadata_start(map: &os::MemoryMap) -> Result<usize, Error> {
     // This is reversed to make the loop below a bit simpler
     let metadata_start_marker : [u8; 14] = [ 0x6d, 0x6f, 0x63, 0x2e, 0x64,
@@ -559,7 +569,7 @@ fn find_metadata_start(map: &os::MemoryMap) -> Result<usize, Error> {
     let marker_length = metadata_start_marker.len();
 
     // XXX - ugly code
-    for start_position in range(marker_length, map.len() - 1) {
+    for start_position in (marker_length..map.len() - 1) {
         let mut not_found = false;
         for (offset, marker_byte) in metadata_start_marker.iter().enumerate() {
             let file_byte = read_from_map(map, 1,
