@@ -14,7 +14,7 @@
 extern crate collections;
 extern crate core;
 extern crate libc;
-extern crate "rustc-serialize" as rustc_serialize;
+extern crate rustc_serialize;
 
 use core::fmt::Debug;
 use std::collections::BTreeMap;

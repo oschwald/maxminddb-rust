@@ -3,7 +3,7 @@
 
 extern crate collections;
 extern crate maxminddb;
-extern crate "rustc-serialize" as rustc_serialize;
+extern crate rustc_serialize;
 
 use std::old_io::net::ip::IpAddr;
 use std::str::FromStr;
