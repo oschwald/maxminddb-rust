@@ -1,7 +1,7 @@
-use super::{Error, Decoder, Reader};
+use super::{MaxMindDBError, Decoder, Reader};
 
 use std::str::FromStr;
-use std::old_io::net::ip::IpAddr;
+use std::net::IpAddr;
 use rustc_serialize::Decodable;
 
 #[test]
@@ -68,7 +68,7 @@ fn test_broken_database() {
     let r = Reader::open("test-data/test-data/GeoIP2-City-Test-Broken-Double-Format.mmdb").ok().unwrap();
     let ip: IpAddr = FromStr::from_str("2001:220::").unwrap();
     let result = r.lookup(ip);
-    assert_eq!(result, Err(Error::InvalidDatabaseError("double of size 2".to_string())));
+    assert_eq!(result, Err(MaxMindDBError::InvalidDatabaseError("double of size 2".to_string())));
 }
 
 #[test]
@@ -76,7 +76,7 @@ fn test_missing_database() {
     let r = Reader::open("file-does-not-exist.mmdb");
     match r {
         Ok(_) => panic!("Received Reader when opening non-existent file"),
-        Err(Error::IoError(_)) => assert!(true),
+        Err(MaxMindDBError::IoError(_)) => assert!(true),
         Err(_) => assert!(false)
     }
 }
@@ -86,7 +86,7 @@ fn test_non_database() {
     let r = Reader::open("README.md");
     match r {
         Ok(_) => panic!("Received Reader when opening a non-MMDB file"),
-        Err(e) => assert_eq!(e, Error::InvalidDatabaseError("Could not find MaxMind DB metadata in file.".to_string()))
+        Err(e) => assert_eq!(e, MaxMindDBError::InvalidDatabaseError("Could not find MaxMind DB metadata in file.".to_string()))
 
     }
 }
@@ -99,7 +99,7 @@ fn test_reader() {
         for ip_version in versions.iter() {
             let filename = format!("test-data/test-data/MaxMind-DB-test-ipv{}-{}.mmdb",
                 ip_version, record_size);
-            let reader = Reader::open(filename.as_slice()).ok().unwrap();
+            let reader = Reader::open(filename.as_ref()).ok().unwrap();
 
             check_metadata(&reader, *ip_version, *record_size);
             check_ip(&reader, *ip_version);
@@ -187,7 +187,7 @@ fn check_ip(reader: &Reader, ip_version: usize) {
         let ip: IpAddr = FromStr::from_str(address).unwrap();
         match reader.lookup(ip) {
             Ok(v) => panic!("received an unexpected value: {:?}", v),
-            Err(e) => assert_eq!(e, Error::AddressNotFoundError("Address not found in database".to_string()))
+            Err(e) => assert_eq!(e, MaxMindDBError::AddressNotFoundError("Address not found in database".to_string()))
         }
     }
 }

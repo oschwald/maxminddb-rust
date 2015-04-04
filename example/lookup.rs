@@ -1,11 +1,11 @@
 #![feature(collections)]
-#![feature(old_io)]
+#![feature(ip_addr)]
 
 extern crate collections;
 extern crate maxminddb;
 extern crate rustc_serialize;
 
-use std::old_io::net::ip::IpAddr;
+use std::net::IpAddr;
 use std::str::FromStr;
 
 use rustc_serialize::Decodable;
@@ -29,7 +29,7 @@ pub struct Place {
     names: Option<Names>,
 }
 
-#[derive(Copy, RustcDecodable, Debug)]
+#[derive(Clone, Copy, RustcDecodable, Debug)]
 pub struct Traits {
     is_anonymous_proxy: Option<bool>,
     is_satellite_provider: Option<bool>,

@@ -2,10 +2,10 @@ extern crate rustc_serialize;
 
 use std::string;
 
-use super::{ DataRecord, Error,};
+use super::{ DataRecord, MaxMindDBError,};
 use super::DataRecord::{Array, Boolean, Byte, Double, Float, Int32, Map,
                         Null, String, Uint16, Uint32, Uint64};
-use super::Error::DecodingError;
+use super::MaxMindDBError::DecodingError;
 
 macro_rules! expect(
     ($e:expr, Null) => ({
@@ -41,11 +41,11 @@ impl Decoder {
     }
 }
 
-pub type DecodeResult<T> = Result<T, Error>;
+pub type DecodeResult<T> = Result<T, MaxMindDBError>;
 
 // Much of this code was borrowed from the Rust JSON library
 impl rustc_serialize::Decoder for Decoder {
-    type Error = Error;
+    type Error = MaxMindDBError;
 
     fn read_nil(&mut self) -> DecodeResult<()> {
         debug!("read_nil");
@@ -120,7 +120,7 @@ impl rustc_serialize::Decoder for Decoder {
     fn read_char(&mut self) -> DecodeResult<char> {
         let s = try!(self.read_str());
         {
-            let mut it = s.as_slice().chars();
+            let mut it = s.chars();
             match (it.next(), it.next()) {
                 // exactly one character
                 (Some(c), None) => return Ok(c),
@@ -322,7 +322,7 @@ impl rustc_serialize::Decoder for Decoder {
         f(self)
     }
 
-    fn error(&mut self, err: &str) -> Error {
+    fn error(&mut self, err: &str) -> MaxMindDBError {
         DecodingError(err.to_string())
     }
 }
