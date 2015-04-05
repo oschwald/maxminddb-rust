@@ -128,10 +128,8 @@ impl BinaryDecoder {
         let new_offset = offset + size;
         let u8_slice = &self.buf[offset..new_offset];
 
-        let mut bytes = Vec::new();
-        for &b in u8_slice.iter() {
-            bytes.push(DataRecord::Byte(b));
-        }
+        let bytes = u8_slice.iter().map(|&b| DataRecord::Byte(b)).collect();
+
         (Ok(DataRecord::Array(bytes)), new_offset)
     }
 
@@ -140,10 +138,8 @@ impl BinaryDecoder {
             4 => {
                 let new_offset = offset + size;
 
-                let mut value = 0u32;
-                for &b in self.buf[offset..new_offset].iter() {
-                    value = (value << 8) | b as u32;
-                }
+                let value = self.buf[offset..new_offset].iter()
+                    .fold(0u32, |acc, &b| (acc << 8) | b as u32);
                 let float_value : f32 = unsafe { mem::transmute(value) };
                 (Ok(DataRecord::Float(float_value)), new_offset)
             },
@@ -156,10 +152,8 @@ impl BinaryDecoder {
             8 => {
                 let new_offset = offset + size;
 
-                let mut value = 0u64;
-                for &b in self.buf[offset..new_offset].iter() {
-                    value = (value << 8) | b as u64;
-                }
+                let value = self.buf[offset..new_offset].iter()
+                    .fold(0u64, |acc, &b| (acc << 8) | b as u64);
                 let float_value : f64 = unsafe { mem::transmute(value) };
                 (Ok(DataRecord::Double(float_value)), new_offset)
             },
@@ -172,11 +166,8 @@ impl BinaryDecoder {
             s if s <= 8 => {
                 let new_offset = offset + size;
 
-                let mut value = 0u64;
-
-                for &b in self.buf[offset..new_offset].iter() {
-                    value = (value << 8) | b as u64;
-                }
+                let value = self.buf[offset..new_offset].iter()
+                    .fold(0u64, |acc, &b| (acc << 8) | b as u64);
                 (Ok(DataRecord::Uint64(value)), new_offset)
             },
             s => (Err(MaxMindDBError::InvalidDatabaseError(format!("u64 of size {:?}", s))), 0)
@@ -212,10 +203,8 @@ impl BinaryDecoder {
             s if s <= 4 => {
                 let new_offset = offset + size;
 
-                let mut value = 0i32;
-                for &b in self.buf[offset..new_offset].iter() {
-                    value = (value << 8) | b as i32;
-                }
+                let value = self.buf[offset..new_offset].iter()
+                    .fold(0i32, |acc, &b| (acc << 8) | b as i32);
                 (Ok(DataRecord::Int32(value)), new_offset)
             },
             s => (Err(MaxMindDBError::InvalidDatabaseError(format!("int32 of size {:?}", s))), 0)
@@ -353,17 +342,12 @@ impl Reader {
 
         let path = Path::new(database);
 
-        let mut f = match File::open(&path) {
-            Ok(f)  => f,
-            Err(_) => return Err(MaxMindDBError::IoError("Error opening file".to_string()))
-        };
+        let mut f = try!(File::open(&path));
 
         let mut buf = Vec::new();
         try!(f.read_to_end(&mut buf));
-        let metadata_start = match find_metadata_start(&buf) {
-            Ok(i) => i,
-            Err(e) => return Err(e)
-        };
+        let metadata_start = try!(find_metadata_start(&buf));
+
         let metadata_decoder = BinaryDecoder { buf: buf, pointer_base: metadata_start};
 
         let raw_metadata = match metadata_decoder.decode(metadata_start) {
@@ -372,19 +356,13 @@ impl Reader {
         };
 
         let mut type_decoder = ::Decoder::new(raw_metadata);
-        let metadata: Metadata = match Decodable::decode(&mut type_decoder) {
-            Ok(v) => v,
-            Err(e) => return Err(MaxMindDBError::InvalidDatabaseError(format!("Decoding error: {:?}", e)))
-        };
+        let metadata: Metadata = try!(Decodable::decode(&mut type_decoder));
 
         let search_tree_size = metadata.node_count * (metadata.record_size as usize) / 4;
         let decoder = BinaryDecoder{buf: metadata_decoder.buf, pointer_base: search_tree_size as usize + data_section_separator_size};
 
         let mut reader = Reader { decoder: decoder, metadata: metadata, ipv4_start: 0, };
-        match reader.find_ipv4_start() {
-            Ok(i) => reader.ipv4_start = i,
-            Err(e) => return Err(e)
-        };
+        reader.ipv4_start = try!(reader.find_ipv4_start());
 
         Ok(reader)
     }
@@ -392,10 +370,7 @@ impl Reader {
 
     pub fn lookup(&self, ip_address: IpAddr) -> Result<DataRecord, MaxMindDBError> {
         let ip_bytes = ip_to_bytes(ip_address);
-        let pointer = match self.find_address_in_tree(ip_bytes) {
-            Ok(v) => v,
-            Err(e) => return Err(e)
-        };
+        let pointer = try!(self.find_address_in_tree(ip_bytes));
         if pointer > 0 {
             self.resolve_data_pointer(pointer)
         } else {
@@ -413,17 +388,14 @@ impl Reader {
             }
             let bit = 1 & (ip_address[i>>3] >> (7-(i % 8)));
 
-            node = match self.read_node(node, bit as usize) {
-                Ok(v) => v,
-                e => return e
-            };
+            node = try!(self.read_node(node, bit as usize));
         }
         if node == self.metadata.node_count {
             Ok(0)
         } else if node > self.metadata.node_count {
             Ok(node)
         } else {
-           Err(MaxMindDBError::InvalidDatabaseError("invalid node in search tree".to_string()))
+            Err(MaxMindDBError::InvalidDatabaseError("invalid node in search tree".to_string()))
         }
     }
 
@@ -448,10 +420,7 @@ impl Reader {
             if node >= self.metadata.node_count {
                 break;
             }
-            node = match self.read_node(node, 0) {
-                Ok(v) => v,
-                e => return e
-            };
+            node = try!(self.read_node(node, 0));
         }
         Ok(node)
     }
@@ -499,12 +468,11 @@ impl Reader {
     }
 }
 
+// I haven't moved all patterns of this form to a generic function as
+// the FromPrimitive trait is unstable
 fn to_usize(base: u8, bytes: &[u8]) -> usize {
-    let mut val = base as usize;
-    for &u in bytes.iter() {
-        val = (val << 8) | u as usize;
-    }
-    return val;
+    return bytes.iter()
+        .fold(base as usize, |acc, &b| (acc << 8) | b as usize);
 }
 
 fn ip_to_bytes(ip_address: IpAddr) -> Vec<u8> {
