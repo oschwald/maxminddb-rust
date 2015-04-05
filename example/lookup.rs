@@ -1,7 +1,5 @@
-#![feature(collections)]
 #![feature(ip_addr)]
 
-extern crate collections;
 extern crate maxminddb;
 extern crate rustc_serialize;
 

@@ -2,19 +2,12 @@
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
 
-#![feature(collections)]
-#![feature(convert)]
-#![feature(core)]
 #![feature(ip_addr)]
-#![feature(slice_patterns)]
 
 #[macro_use] extern crate log;
 
-extern crate collections;
-extern crate core;
 extern crate rustc_serialize;
 
-use core::fmt::Debug;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::File;
@@ -398,12 +391,8 @@ impl Reader {
 
 
     pub fn lookup(&self, ip_address: IpAddr) -> Result<DataRecord, MaxMindDBError> {
-    //  if len(ipAddress) == 16 && r.Metadata.IPVersion == 4 {
-    //      return nil, fmt.Errorf("error looking up '%s': you attempted to look up an IPv6 address in an IPv4-only database", ipAddress.String())
-    //  }
         let ip_bytes = ip_to_bytes(ip_address);
-        let ip_slice = ip_bytes.as_slice();
-        let pointer = match self.find_address_in_tree(ip_slice) {
+        let pointer = match self.find_address_in_tree(ip_bytes) {
             Ok(v) => v,
             Err(e) => return Err(e)
         };
@@ -414,7 +403,7 @@ impl Reader {
         }
     }
 
-    fn find_address_in_tree(&self, ip_address: &[u8]) -> Result<usize, MaxMindDBError> {
+    fn find_address_in_tree(&self, ip_address: Vec<u8>) -> Result<usize, MaxMindDBError> {
         let bit_count = ip_address.len()*8;
         let mut node = try!(self.start_node(bit_count));
 
