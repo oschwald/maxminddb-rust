@@ -2,8 +2,6 @@
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
 
-#![feature(ip_addr)]
-
 #[macro_use] extern crate log;
 
 extern crate rustc_serialize;
@@ -15,7 +13,7 @@ use std::io::prelude::*;
 use std::io;
 use std::error::Error;
 use std::mem;
-use std::net::IpAddr;
+use std::net::SocketAddr;
 use std::path::Path;
 use std::string;
 
@@ -368,8 +366,8 @@ impl Reader {
     }
 
 
-    pub fn lookup(&self, ip_address: IpAddr) -> Result<DataRecord, MaxMindDBError> {
-        let ip_bytes = ip_to_bytes(ip_address);
+    pub fn lookup(&self, address: SocketAddr) -> Result<DataRecord, MaxMindDBError> {
+        let ip_bytes = ip_to_bytes(address);
         let pointer = try!(self.find_address_in_tree(ip_bytes));
         if pointer > 0 {
             self.resolve_data_pointer(pointer)
@@ -475,12 +473,12 @@ fn to_usize(base: u8, bytes: &[u8]) -> usize {
         .fold(base as usize, |acc, &b| (acc << 8) | b as usize);
 }
 
-fn ip_to_bytes(ip_address: IpAddr) -> Vec<u8> {
-    match ip_address {
+fn ip_to_bytes(address: SocketAddr) -> Vec<u8> {
+    match address {
         // I am sure there is a less horrible way to do this.
-        IpAddr::V4(ip) => ip.octets().iter().map(|&x| x).collect(),
-        IpAddr::V6(ip) => {
-            let s = ip.segments();
+        SocketAddr::V4(a) => a.ip().octets().iter().map(|&x| x).collect(),
+        SocketAddr::V6(a) => {
+            let s = a.ip().segments();
             vec![
                 (s[0] >> 8) as u8, s[0] as u8,
                 (s[1] >> 8) as u8, s[1] as u8,

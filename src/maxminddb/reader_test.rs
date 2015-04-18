@@ -1,7 +1,7 @@
 use super::{MaxMindDBError, Decoder, Reader};
 
 use std::str::FromStr;
-use std::net::IpAddr;
+use std::net::SocketAddr;
 use rustc_serialize::Decodable;
 
 #[test]
@@ -37,7 +37,7 @@ fn test_decoder() {
     }
 
     let r = Reader::open("test-data/test-data/MaxMind-DB-test-decoder.mmdb").ok().unwrap();
-    let ip: IpAddr = FromStr::from_str("::1.1.1.0").unwrap();
+    let ip: SocketAddr = FromStr::from_str("1.1.1.0:0").unwrap();
     let raw_data = r.lookup(ip);
 
     let mut decoder = Decoder::new(raw_data.ok().unwrap());
@@ -66,7 +66,7 @@ fn test_decoder() {
 #[test]
 fn test_broken_database() {
     let r = Reader::open("test-data/test-data/GeoIP2-City-Test-Broken-Double-Format.mmdb").ok().unwrap();
-    let ip: IpAddr = FromStr::from_str("2001:220::").unwrap();
+    let ip: SocketAddr = FromStr::from_str("[2001:220::]:0").unwrap();
     let result = r.lookup(ip);
     assert_eq!(result, Err(MaxMindDBError::InvalidDatabaseError("double of size 2".to_string())));
 }
@@ -136,19 +136,19 @@ fn check_metadata(reader: &Reader, ip_version: usize, record_size: usize) {
 fn check_ip(reader: &Reader, ip_version: usize) {
 
     let subnets = match ip_version {
-        6 =>   [["::1:ffff:ffff", "::1:ffff:ffff"],
-                ["::2:0:0",  "::2:0:0"],
-                ["::2:0:1",  "::2:0:0"],
-                ["::2:0:33", "::2:0:0"],
-                ["::2:0:39", "::2:0:0"],
-                ["::2:0:40", "::2:0:40"],
-                ["::2:0:41", "::2:0:40"],
-                ["::2:0:49", "::2:0:40"],
-                ["::2:0:50", "::2:0:50"],
-                ["::2:0:52", "::2:0:50"],
-                ["::2:0:57", "::2:0:50"],
-                ["::2:0:58", "::2:0:58"],
-                ["::2:0:59", "::2:0:58"]],
+        6 =>   [["[::1:ffff:ffff]", "::1:ffff:ffff"],
+                ["[::2:0:0]",  "::2:0:0"],
+                ["[::2:0:1]",  "::2:0:0"],
+                ["[::2:0:33]", "::2:0:0"],
+                ["[::2:0:39]", "::2:0:0"],
+                ["[::2:0:40]", "::2:0:40"],
+                ["[::2:0:41]", "::2:0:40"],
+                ["[::2:0:49]", "::2:0:40"],
+                ["[::2:0:50]", "::2:0:50"],
+                ["[::2:0:52]", "::2:0:50"],
+                ["[::2:0:57]", "::2:0:50"],
+                ["[::2:0:58]", "::2:0:58"],
+                ["[::2:0:59]", "::2:0:58"]],
         _ =>   [["1.1.1.1", "1.1.1.1"],
                 ["1.1.1.2", "1.1.1.2"],
                 ["1.1.1.3", "1.1.1.2"],
@@ -170,7 +170,8 @@ fn check_ip(reader: &Reader, ip_version: usize) {
     }
 
     for values in subnets.iter() {
-        let ip: IpAddr = FromStr::from_str(values[0]).unwrap();
+        let addr = format!("{}:0", values[0]);
+        let ip: SocketAddr = FromStr::from_str(&addr).unwrap();
         let res = reader.lookup(ip).ok().unwrap();
 
         let mut decoder = Decoder::new(res);
@@ -181,10 +182,10 @@ fn check_ip(reader: &Reader, ip_version: usize) {
         assert_eq!(value.ip, values[1].to_string());
     }
 
-    let no_record =  ["1.1.1.33", "255.254.253.123", "89fa::"];
+    let no_record =  ["1.1.1.33:0", "255.254.253.123:0", "[89fa::]:0"];
 
     for &address in no_record.iter() {
-        let ip: IpAddr = FromStr::from_str(address).unwrap();
+        let ip: SocketAddr = FromStr::from_str(address).unwrap();
         match reader.lookup(ip) {
             Ok(v) => panic!("received an unexpected value: {:?}", v),
             Err(e) => assert_eq!(e, MaxMindDBError::AddressNotFoundError("Address not found in database".to_string()))

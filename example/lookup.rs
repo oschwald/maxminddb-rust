@@ -1,9 +1,7 @@
-#![feature(ip_addr)]
-
 extern crate maxminddb;
 extern crate rustc_serialize;
 
-use std::net::IpAddr;
+use std::net::SocketAddr;
 use std::str::FromStr;
 
 use rustc_serialize::Decodable;
@@ -45,7 +43,7 @@ pub struct Country {
 
 fn main() {
     let r = maxminddb::Reader::open("/usr/local/share/GeoIP/GeoIP2-City.mmdb").ok().unwrap();
-    let ip: IpAddr = FromStr::from_str("128.101.101.101").unwrap();
+    let ip: SocketAddr = FromStr::from_str("128.101.101.101:0").unwrap();
     let dr = r.lookup(ip);
 
     let mut decoder = maxminddb::Decoder::new(dr.ok().unwrap());
