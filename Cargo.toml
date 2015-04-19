@@ -3,6 +3,7 @@
 name = "maxminddb"
 version = "0.5.0"
 description = "Library for reading MaxMind DB format used by GeoIP2"
+documentation = "http://oschwald.github.io/maxminddb-rust/maxminddb/struct.Reader.html"
 readme = "README.md"
 keywords = ["MaxMind", "GeoIP2", "GeoIP", "geolocation"]
 authors = [ "Gregory J. Oschwald <oschwald@gmail.com>" ]
