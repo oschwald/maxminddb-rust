@@ -7,7 +7,6 @@
 extern crate rustc_serialize;
 
 use std::collections::BTreeMap;
-use std::fmt;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io;
@@ -30,7 +29,6 @@ pub enum MaxMindDBError {
     DecodingError(string::String),
 }
 
-
 impl From<io::Error> for MaxMindDBError {
 
     fn from(err: io::Error) -> MaxMindDBError {
@@ -39,10 +37,9 @@ impl From<io::Error> for MaxMindDBError {
     }
 }
 
-
 pub type BinaryDecodeResult<T> = (Result<T, MaxMindDBError>, usize);
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum DataRecord {
     String(string::String),
     Double(f64),
@@ -60,26 +57,6 @@ pub enum DataRecord {
 
 pub type DbArray = Vec<DataRecord>;
 pub type DbMap = BTreeMap<string::String, DataRecord>;
-
-impl fmt::Debug for DataRecord {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-      match self {
-        &DataRecord::String(ref v) => v.fmt(f),
-        &DataRecord::Double(v) => v.fmt(f),
-        &DataRecord::Byte(v) => v.fmt(f),
-        &DataRecord::Uint16(v) => v.fmt(f),
-        &DataRecord::Uint32(v) => v.fmt(f),
-        &DataRecord::Uint64(v) => v.fmt(f),
-        &DataRecord::Map(ref v) => v.fmt(f),
-        &DataRecord::Int32(v) => v.fmt(f),
-        &DataRecord::Boolean(v) => v.fmt(f),
-        &DataRecord::Array(ref v) => v.fmt(f),
-        &DataRecord::Float(v) => v.fmt(f),
-        &DataRecord::Null => "Null".fmt(f),
-      }
-    }
-}
-
 
 #[derive(RustcDecodable)]
 pub struct Metadata {
