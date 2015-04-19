@@ -7,8 +7,7 @@ databases.
 
 ## Rust Version Supported ##
 
-This project tracks Rust master. Previous releases are not currently
-supported.
+This project supports Rust 1.0.0-beta.2.
 
 ## Building ##
 
@@ -24,7 +23,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-maxminddb = "0.3.0"
+maxminddb = "0.4.0"
 ```
 
 and this to your crate root:
