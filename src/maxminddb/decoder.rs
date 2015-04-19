@@ -23,7 +23,7 @@ macro_rules! expect(
 );
 
 pub struct Decoder {
-    stack: Vec<DataRecord>,
+    pub stack: Vec<DataRecord>,
 }
 
 impl Decoder {
@@ -41,7 +41,7 @@ impl Decoder {
     }
 }
 
-pub type DecodeResult<T> = Result<T, MaxMindDBError>;
+type DecodeResult<T> = Result<T, MaxMindDBError>;
 
 // Much of this code was borrowed from the Rust JSON library
 impl rustc_serialize::Decoder for Decoder {

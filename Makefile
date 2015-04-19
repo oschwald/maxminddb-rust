@@ -8,7 +8,7 @@ libmaxminddb_so=target/.libmaxminddb.timestamp
 .PHONY: all
 all:   $(libmaxminddb_so) examples
 
-$(libmaxminddb_so): src/maxminddb/lib.rs
+$(libmaxminddb_so): src/maxminddb/lib.rs src/maxminddb/geoip2.rs src/maxminddb/decoder.rs
 	$(CARGO) build
 	touch $@
 

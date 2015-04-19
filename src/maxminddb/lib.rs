@@ -18,8 +18,6 @@ use std::string;
 
 use rustc_serialize::Decodable;
 
-pub use self::decoder::Decoder;
-
 #[derive(Debug, PartialEq)]
 pub enum MaxMindDBError {
     AddressNotFoundError(string::String),
@@ -37,7 +35,7 @@ impl From<io::Error> for MaxMindDBError {
     }
 }
 
-pub type BinaryDecodeResult<T> = (Result<T, MaxMindDBError>, usize);
+type BinaryDecodeResult<T> = (Result<T, MaxMindDBError>, usize);
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum DataRecord {
@@ -304,6 +302,8 @@ impl BinaryDecoder {
     }
 }
 
+
+/// A reader for the MaxMind DB format
 pub struct Reader {
     decoder: BinaryDecoder,
     pub metadata: Metadata,
@@ -312,6 +312,13 @@ pub struct Reader {
 
 impl Reader {
 
+    /// Open a MaxMind DB database file.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let reader = maxminddb::Reader::open("/usr/local/share/GeoIP/GeoIP2-City.mmdb").unwrap();
+    /// ```
     pub fn open(database: &str) -> Result<Reader, MaxMindDBError> {
         let data_section_separator_size = 16;
 
@@ -330,7 +337,7 @@ impl Reader {
             m      => return Err(MaxMindDBError::InvalidDatabaseError(format!("metadata of wrong type: {:?}", m))),
         };
 
-        let mut type_decoder = ::Decoder::new(raw_metadata);
+        let mut type_decoder = decoder::Decoder::new(raw_metadata);
         let metadata: Metadata = try!(Decodable::decode(&mut type_decoder));
 
         let search_tree_size = metadata.node_count * (metadata.record_size as usize) / 4;
@@ -343,14 +350,34 @@ impl Reader {
     }
 
 
-    pub fn lookup(&self, address: SocketAddr) -> Result<DataRecord, MaxMindDBError> {
+    /// Lookup the socket address in the opened MaxMind DB
+    ///
+    /// Example:
+    ///
+    /// ```
+    /// use maxminddb::geoip2;
+    /// use std::net::SocketAddr;
+    /// use std::str::FromStr;
+    ///
+    /// let reader = maxminddb::Reader::open("/usr/local/share/GeoIP/GeoIP2-City.mmdb").unwrap();
+    ///
+    /// let ip: SocketAddr = FromStr::from_str("128.101.101.101:0").unwrap();
+    /// let city: geoip2::City = reader.lookup(ip).unwrap();
+    /// print!("{:?}", city);
+    /// ```
+    ///
+    /// Note that SocketAddr requires a port, which is not needed to look up
+    /// the address in the database. This library will likely switch to IpAddr
+    /// if the feature gate for that is removed.
+    pub fn lookup<T: Decodable>(&self, address: SocketAddr) -> Result<T, MaxMindDBError> {
         let ip_bytes = ip_to_bytes(address);
         let pointer = try!(self.find_address_in_tree(ip_bytes));
-        if pointer > 0 {
-            self.resolve_data_pointer(pointer)
-        } else {
-            Err(MaxMindDBError::AddressNotFoundError("Address not found in database".to_string()))
+        if pointer <= 0 {
+            return Err(MaxMindDBError::AddressNotFoundError("Address not found in database".to_string()))
         }
+        let rec = try!(self.resolve_data_pointer(pointer));
+        let mut decoder = decoder::Decoder::new(rec);
+        Decodable::decode(&mut decoder)
     }
 
     fn find_address_in_tree(&self, ip_address: Vec<u8>) -> Result<usize, MaxMindDBError> {
@@ -497,6 +524,7 @@ fn find_metadata_start(buf: &[u8]) -> Result<usize, MaxMindDBError> {
 }
 
 mod decoder;
+pub mod geoip2;
 
 #[cfg(test)]
 mod reader_test;

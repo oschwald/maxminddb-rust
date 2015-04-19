@@ -1,8 +1,7 @@
-use super::{MaxMindDBError, Decoder, Reader};
+use super::{MaxMindDBError, Reader};
 
 use std::str::FromStr;
 use std::net::SocketAddr;
-use rustc_serialize::Decodable;
 
 #[test]
 fn test_decoder() {
@@ -38,13 +37,7 @@ fn test_decoder() {
 
     let r = Reader::open("test-data/test-data/MaxMind-DB-test-decoder.mmdb").ok().unwrap();
     let ip: SocketAddr = FromStr::from_str("1.1.1.0:0").unwrap();
-    let raw_data = r.lookup(ip);
-
-    let mut decoder = Decoder::new(raw_data.ok().unwrap());
-    let result: TestType = match Decodable::decode(&mut decoder) {
-        Ok(v) => v,
-        Err(e) => panic!("Decoding error: {:?}", e)
-    };
+    let result: TestType = r.lookup(ip).unwrap();
 
     assert_eq!(result.array, vec![ 1usize, 2usize, 3usize ]);
     assert_eq!(result.boolean, true);
@@ -67,8 +60,13 @@ fn test_decoder() {
 fn test_broken_database() {
     let r = Reader::open("test-data/test-data/GeoIP2-City-Test-Broken-Double-Format.mmdb").ok().unwrap();
     let ip: SocketAddr = FromStr::from_str("[2001:220::]:0").unwrap();
-    let result = r.lookup(ip);
-    assert_eq!(result, Err(MaxMindDBError::InvalidDatabaseError("double of size 2".to_string())));
+
+    #[derive(RustcDecodable, Debug)]
+    struct TestType;
+    match r.lookup::<TestType> (ip){
+        Err(e) => assert_eq!(e, MaxMindDBError::InvalidDatabaseError("double of size 2".to_string())),
+        Ok(_) => panic!("Error expected")
+    }
 }
 
 #[test]
@@ -172,13 +170,8 @@ fn check_ip(reader: &Reader, ip_version: usize) {
     for values in subnets.iter() {
         let addr = format!("{}:0", values[0]);
         let ip: SocketAddr = FromStr::from_str(&addr).unwrap();
-        let res = reader.lookup(ip).ok().unwrap();
+        let value: IpType = reader.lookup(ip).unwrap();
 
-        let mut decoder = Decoder::new(res);
-        let value: IpType =  match Decodable::decode(&mut decoder) {
-            Ok(v) => v,
-            Err(e) => panic!("Decoding error: {:?}", e)
-        };
         assert_eq!(value.ip, values[1].to_string());
     }
 
@@ -186,7 +179,7 @@ fn check_ip(reader: &Reader, ip_version: usize) {
 
     for &address in no_record.iter() {
         let ip: SocketAddr = FromStr::from_str(address).unwrap();
-        match reader.lookup(ip) {
+        match reader.lookup::<IpType>(ip) {
             Ok(v) => panic!("received an unexpected value: {:?}", v),
             Err(e) => assert_eq!(e, MaxMindDBError::AddressNotFoundError("Address not found in database".to_string()))
         }
