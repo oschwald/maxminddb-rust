@@ -17,7 +17,7 @@ To build everything:
 make all check
 ```
 
-## Usage
+## Usage ##
 
 Add this to your `Cargo.toml`:
 
@@ -31,6 +31,10 @@ and this to your crate root:
 ```rust
 extern crate maxminddb;
 ```
+
+## API Documentation ##
+
+The API docs are on [GitHub Pages](http://oschwald.github.io/maxminddb-rust/maxminddb/struct.Reader.html).
 
 ## Example ##
 
