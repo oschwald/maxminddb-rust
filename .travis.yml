@@ -1,5 +1,8 @@
 language: rust
 
+env:
+  global:
+    - secure: JORSB96bJRZjsLMXPBeoDXD9e9tchg2muvle690VxriCYZy7nRj5tknqpeo6Vvao4fAPP2XV7EVlnFRh3cXPrgvxHtHeNGh/tZXUJEhXh1YKf4lOVZj98lQXf9hvgrXxFqoesw4lXFrKrZKY63NUDU6OltIIFhj9RQbtZaJCtLY=
 script:
   - make all check
 after_script:
