@@ -361,7 +361,7 @@ impl Reader {
     ///
     /// let reader = maxminddb::Reader::open("/usr/local/share/GeoIP/GeoIP2-City.mmdb").unwrap();
     ///
-    /// let ip: SocketAddr = FromStr::from_str("128.101.101.101:0").unwrap();
+    /// let ip: SocketAddr = FromStr::from_str("89.160.20.128:0").unwrap();
     /// let city: geoip2::City = reader.lookup(ip).unwrap();
     /// print!("{:?}", city);
     /// ```
