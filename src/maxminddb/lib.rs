@@ -317,7 +317,7 @@ impl Reader {
     /// # Example
     ///
     /// ```
-    /// let reader = maxminddb::Reader::open("/usr/local/share/GeoIP/GeoIP2-City.mmdb").unwrap();
+    /// let reader = maxminddb::Reader::open("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
     /// ```
     pub fn open(database: &str) -> Result<Reader, MaxMindDBError> {
         let data_section_separator_size = 16;
@@ -359,7 +359,7 @@ impl Reader {
     /// use std::net::SocketAddr;
     /// use std::str::FromStr;
     ///
-    /// let reader = maxminddb::Reader::open("/usr/local/share/GeoIP/GeoIP2-City.mmdb").unwrap();
+    /// let reader = maxminddb::Reader::open("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
     ///
     /// let ip: SocketAddr = FromStr::from_str("89.160.20.128:0").unwrap();
     /// let city: geoip2::City = reader.lookup(ip).unwrap();
