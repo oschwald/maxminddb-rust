@@ -2,7 +2,8 @@
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
 
-#[macro_use] extern crate log;
+#[macro_use]
+extern crate log;
 
 extern crate rustc_serialize;
 
@@ -281,7 +282,11 @@ impl BinaryDecoder {
         (size, new_offset)
     }
 
-    fn decode_from_type(&self, data_type: u8, size: usize, offset: usize) -> BinaryDecodeResult<DataRecord> {
+    fn decode_from_type(&self,
+                        data_type: u8,
+                        size: usize,
+                        offset: usize)
+                        -> BinaryDecodeResult<DataRecord> {
         match data_type {
             1 => self.decode_pointer(size, offset),
             2 => self.decode_string(size, offset),
@@ -409,7 +414,7 @@ impl Reader {
         }
     }
 
-    fn find_ipv4_start(&self)  -> Result<usize, MaxMindDBError> {
+    fn find_ipv4_start(&self) -> Result<usize, MaxMindDBError> {
 
         if self.metadata.ip_version != 6 {
             return Ok(0);
@@ -528,4 +533,3 @@ pub mod geoip2;
 
 #[cfg(test)]
 mod reader_test;
-

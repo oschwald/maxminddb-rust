@@ -1,3 +1,4 @@
+
 extern crate rustc_serialize;
 
 /// GeoIP2 Country record

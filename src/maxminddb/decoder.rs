@@ -1,10 +1,11 @@
+
 extern crate rustc_serialize;
 
 use std::string;
 
-use super::{ DataRecord, MaxMindDBError,};
-use super::DataRecord::{Array, Boolean, Byte, Double, Float, Int32, Map,
-                        Null, String, Uint16, Uint32, Uint64};
+use super::{DataRecord, MaxMindDBError};
+use super::DataRecord::{Array, Boolean, Byte, Double, Float, Int32, Map, Null,
+                        String, Uint16, Uint32, Uint64};
 use super::MaxMindDBError::DecodingError;
 
 macro_rules! expect(
@@ -52,22 +53,22 @@ impl rustc_serialize::Decoder for Decoder {
         expect!(self.pop(), Null)
     }
 
-    fn read_u64(&mut self)  -> DecodeResult<u64> {
+    fn read_u64(&mut self) -> DecodeResult<u64> {
         debug!("read_u64");
         Ok(try!(expect!(self.pop(), Uint64)))
     }
 
-    fn read_u32(&mut self)  -> DecodeResult<u32> {
+    fn read_u32(&mut self) -> DecodeResult<u32> {
         debug!("read_u32");
         Ok(try!(expect!(self.pop(), Uint32)))
     }
 
-    fn read_u16(&mut self)  -> DecodeResult<u16> {
+    fn read_u16(&mut self) -> DecodeResult<u16> {
         debug!("read_u16");
         Ok(try!(expect!(self.pop(), Uint16)))
     }
 
-    fn read_u8 (&mut self)  -> DecodeResult<u8> {
+    fn read_u8(&mut self) -> DecodeResult<u8> {
         debug!("read_u8");
         Ok(try!(expect!(self.pop(), Byte)))
     }
@@ -92,7 +93,7 @@ impl rustc_serialize::Decoder for Decoder {
         Err(DecodingError("i16 data not supported by MaxMind DB format".to_string()))
     }
 
-    fn read_i8 (&mut self) -> DecodeResult<i8 > {
+    fn read_i8(&mut self) -> DecodeResult<i8> {
         debug!("read_i8");
         Err(DecodingError("i8 data not supported by MaxMind DB format".to_string()))
     }
@@ -135,14 +136,16 @@ impl rustc_serialize::Decoder for Decoder {
         Ok(try!(expect!(self.pop(), String)))
     }
 
-   fn read_enum<T, F>(&mut self, name: &str, f: F) -> DecodeResult<T> where
-        F: FnOnce(&mut Decoder) -> DecodeResult<T> {
+   fn read_enum<T, F>(&mut self, name: &str, f: F) -> DecodeResult<T>
+        where F: FnOnce(&mut Decoder) -> DecodeResult<T>
+    {
         debug!("read_enum({:?})", name);
         f(self)
     }
 
-    fn read_enum_variant<T, F>(&mut self, names: &[&str], f: F) -> DecodeResult<T> where
-        F: FnOnce(&mut Decoder, usize) -> DecodeResult<T> {
+    fn read_enum_variant<T, F>(&mut self, names: &[&str], f: F) -> DecodeResult<T>
+        where F: FnOnce(&mut Decoder, usize) -> DecodeResult<T>
+    {
 
         debug!("read_enum_variant(names={:?})", names);
         let name = match self.pop() {
@@ -176,45 +179,44 @@ impl rustc_serialize::Decoder for Decoder {
         f(self, idx)
     }
 
-    fn read_enum_variant_arg<T, F>(&mut self, idx: usize, f: F) -> DecodeResult<T> where
-        F: FnOnce(&mut Decoder) -> DecodeResult<T> {
+    fn read_enum_variant_arg<T, F>(&mut self, idx: usize, f: F) -> DecodeResult<T>
+        where F: FnOnce(&mut Decoder) -> DecodeResult<T>
+    {
         debug!("read_enum_variant_arg(idx={:?})", idx);
         f(self)
     }
 
-    fn read_enum_struct_variant<T, F>(&mut self, names: &[&str], f: F) -> DecodeResult<T> where
-        F: FnMut(&mut Decoder, usize) -> DecodeResult<T> {
+    fn read_enum_struct_variant<T, F>(&mut self, names: &[&str], f: F) -> DecodeResult<T>
+        where F: FnMut(&mut Decoder, usize) -> DecodeResult<T>
+    {
         debug!("read_enum_struct_variant(names={:?})", names);
         self.read_enum_variant(names, f)
     }
 
 
     fn read_enum_struct_variant_field<T, F>(&mut self,
-                                         name: &str,
-                                         idx: usize,
-                                         f: F)
-                                         -> DecodeResult<T> where
-                                         F: FnOnce(&mut Decoder)
-                                         -> DecodeResult<T> {
+                                            name: &str,
+                                            idx: usize,
+                                            f: F)
+                                            -> DecodeResult<T>
+        where F: FnOnce(&mut Decoder) -> DecodeResult<T>
+    {
         debug!("read_enum_struct_variant_field(name={:?}, idx={:?})", name, idx);
         self.read_enum_variant_arg(idx, f)
     }
 
-    fn read_struct<T, F>(&mut self, name: &str, len: usize, f: F) -> DecodeResult<T> where
-        F: FnOnce(&mut Decoder) -> DecodeResult<T> {
+    fn read_struct<T, F>(&mut self, name: &str, len: usize, f: F) -> DecodeResult<T>
+        where F: FnOnce(&mut Decoder) -> DecodeResult<T>
+    {
         debug!("read_struct(name={:?}, len={:?})", name, len);
         let value = try!(f(self));
         self.pop();
         Ok(value)
     }
 
-    fn read_struct_field<T, F>(&mut self,
-                               name: &str,
-                               idx: usize,
-                               f: F)
-                               -> DecodeResult<T> where
-                               F: FnOnce(&mut Decoder)
-                               -> DecodeResult<T> {
+    fn read_struct_field<T, F>(&mut self, name: &str, idx: usize, f: F) -> DecodeResult<T>
+        where F: FnOnce(&mut Decoder) -> DecodeResult<T>
+    {
         debug!("read_struct_field(name={:?}, idx={:?})", name, idx);
         let mut obj = try!(expect!(self.pop(), Map));
 
@@ -235,8 +237,9 @@ impl rustc_serialize::Decoder for Decoder {
         Ok(value)
     }
 
-    fn read_tuple<T, F>(&mut self, tuple_len: usize, f: F) -> DecodeResult<T> where
-        F: FnOnce(&mut Decoder) -> DecodeResult<T> {
+    fn read_tuple<T, F>(&mut self, tuple_len: usize, f: F) -> DecodeResult<T>
+        where F: FnOnce(&mut Decoder) -> DecodeResult<T>
+    {
         debug!("read_tuple()");
         self.read_seq(move |d, len| {
             if len == tuple_len {
@@ -247,33 +250,30 @@ impl rustc_serialize::Decoder for Decoder {
         })
     }
 
-    fn read_tuple_arg<T, F>(&mut self, idx: usize, f: F) -> DecodeResult<T> where
-        F: FnOnce(&mut Decoder) -> DecodeResult<T> {
+    fn read_tuple_arg<T, F>(&mut self, idx: usize, f: F) -> DecodeResult<T>
+        where F: FnOnce(&mut Decoder) -> DecodeResult<T>
+    {
         debug!("read_tuple_arg(idx={:?})", idx);
         self.read_seq_elt(idx, f)
     }
 
-    fn read_tuple_struct<T, F>(&mut self,
-                               name: &str,
-                               len: usize,
-                               f: F)
-                               -> DecodeResult<T> where
-                               F: FnOnce(&mut Decoder) -> DecodeResult<T> {
+    fn read_tuple_struct<T, F>(&mut self, name: &str, len: usize, f: F) -> DecodeResult<T>
+        where F: FnOnce(&mut Decoder) -> DecodeResult<T>
+    {
         debug!("read_tuple_struct(name={:?})", name);
         self.read_tuple(len, f)
     }
 
-    fn read_tuple_struct_arg<T, F>(&mut self,
-                                   idx: usize,
-                                   f: F)
-                                   -> DecodeResult<T> where
-        F: FnOnce(&mut Decoder) -> DecodeResult<T> {
+    fn read_tuple_struct_arg<T, F>(&mut self, idx: usize, f: F) -> DecodeResult<T>
+        where F: FnOnce(&mut Decoder) -> DecodeResult<T>
+    {
         debug!("read_tuple_struct_arg(idx={:?})", idx);
         self.read_tuple_arg(idx, f)
     }
 
-    fn read_option<T, F>(&mut self, f: F) -> DecodeResult<T> where
-        F: FnOnce(&mut Decoder, bool) -> DecodeResult<T> {
+    fn read_option<T, F>(&mut self, f: F) -> DecodeResult<T>
+        where F: FnOnce(&mut Decoder, bool) -> DecodeResult<T>
+    {
         debug!("read_option()");
         match self.pop() {
             Null => f(self, false),
@@ -281,8 +281,9 @@ impl rustc_serialize::Decoder for Decoder {
         }
     }
 
-    fn read_seq<T, F>(&mut self, f: F) -> DecodeResult<T> where
-        F: FnOnce(&mut Decoder, usize) -> DecodeResult<T> {
+    fn read_seq<T, F>(&mut self, f: F) -> DecodeResult<T>
+        where F: FnOnce(&mut Decoder, usize) -> DecodeResult<T>
+    {
         debug!("read_seq()");
         let list = try!(expect!(self.pop(), Array));
         let len = list.len();
@@ -292,14 +293,16 @@ impl rustc_serialize::Decoder for Decoder {
         f(self, len)
     }
 
-    fn read_seq_elt<T, F>(&mut self, idx: usize, f: F) -> DecodeResult<T> where
-        F: FnOnce(&mut Decoder) -> DecodeResult<T> {
+    fn read_seq_elt<T, F>(&mut self, idx: usize, f: F) -> DecodeResult<T>
+        where F: FnOnce(&mut Decoder) -> DecodeResult<T>
+    {
         debug!("read_seq_elt(idx={:?})", idx);
         f(self)
     }
 
-    fn read_map<T, F>(&mut self, f: F) -> DecodeResult<T> where
-        F: FnOnce(&mut Decoder, usize) -> DecodeResult<T> {
+    fn read_map<T, F>(&mut self, f: F) -> DecodeResult<T>
+        where F: FnOnce(&mut Decoder, usize) -> DecodeResult<T>
+    {
         debug!("read_map()");
         let obj = try!(expect!(self.pop(), Map));
         let len = obj.len();
@@ -310,14 +313,16 @@ impl rustc_serialize::Decoder for Decoder {
         f(self, len)
     }
 
-    fn read_map_elt_key<T, F>(&mut self, idx: usize, f: F) -> DecodeResult<T> where
-       F: FnOnce(&mut Decoder) -> DecodeResult<T> {
+    fn read_map_elt_key<T, F>(&mut self, idx: usize, f: F) -> DecodeResult<T>
+        where F: FnOnce(&mut Decoder) -> DecodeResult<T>
+    {
         debug!("read_map_elt_key(idx={:?})", idx);
         f(self)
     }
 
-    fn read_map_elt_val<T, F>(&mut self, idx: usize, f: F) -> DecodeResult<T> where
-       F: FnOnce(&mut Decoder) -> DecodeResult<T> {
+    fn read_map_elt_val<T, F>(&mut self, idx: usize, f: F) -> DecodeResult<T>
+        where F: FnOnce(&mut Decoder) -> DecodeResult<T>
+    {
         debug!("read_map_elt_val(idx={:?})", idx);
         f(self)
     }
