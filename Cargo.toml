@@ -9,7 +9,7 @@ keywords = ["MaxMind", "GeoIP2", "GeoIP", "geolocation", "ip"]
 authors = [ "Gregory J. Oschwald <oschwald@gmail.com>" ]
 homepage = "https://github.com/oschwald/maxminddb-rust"
 repository = "https://github.com/oschwald/maxminddb-rust"
-license = "Apache-2.0"
+license = "ISC"
 
 [lib]
 
