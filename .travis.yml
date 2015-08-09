@@ -1,8 +1,13 @@
 language: rust
 
 rust:
-  - nightly
   - stable
+  - beta
+  - nightly
+
+matrix:
+  allow_failure:
+    - rust: nightly
 
 script:
   - make all check
