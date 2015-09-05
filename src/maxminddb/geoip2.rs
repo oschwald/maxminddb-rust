@@ -25,6 +25,28 @@ pub struct City {
     pub traits: Option<model::Traits>,
 }
 
+/// GeoIP2 ISP record
+#[derive(RustcDecodable, Debug)]
+pub struct Isp {
+    pub autonomous_system_number: Option<u32>,
+    pub autonomous_system_organization: Option<String>,
+    pub isp: Option<String>,
+    pub organization: Option<String>,
+}
+
+/// GeoIP2 Connection-Type record
+#[derive(RustcDecodable, Debug)]
+pub struct ConnectionType {
+    pub connection_type: Option<String>,
+}
+
+/// GeoIP2 Anonymous Ip record
+#[derive(RustcDecodable, Debug)]
+pub struct AnonymousIp {
+    pub is_anonymous: Option<bool>,
+    pub is_public_proxy: Option<bool>
+}
+
 pub mod model {
     use std::collections::BTreeMap;
 
