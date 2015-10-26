@@ -4,7 +4,7 @@
 
 #![deny(trivial_casts, trivial_numeric_casts,
         unstable_features,
-        unused_import_braces, unused_qualifications)]
+        unused_import_braces)]
 
 #![cfg_attr(feature = "dev", allow(unstable_features))]
 #![cfg_attr(feature = "dev", feature(plugin))]
