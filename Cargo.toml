@@ -1,7 +1,7 @@
 [package]
 
 name = "maxminddb"
-version = "0.5.5"
+version = "0.6.0"
 description = "Library for reading MaxMind DB format used by GeoIP2"
 documentation = "http://oschwald.github.io/maxminddb-rust/maxminddb/struct.Reader.html"
 readme = "README.md"
@@ -21,3 +21,8 @@ path = "src/maxminddb/lib.rs"
 
 log = "0.3.2"
 rustc-serialize = "0.3.16"
+clippy = {version = "0.0.21", optional = true}
+
+[features]
+default = []
+dev = ["clippy"]

@@ -4,8 +4,8 @@ extern crate rustc_serialize;
 use std::string;
 
 use super::{DataRecord, MaxMindDBError};
-use super::DataRecord::{Array, Boolean, Byte, Double, Float, Int32, Map, Null,
-                        String, Uint16, Uint32, Uint64};
+use super::DataRecord::{Array, Boolean, Byte, Double, Float, Int32, Map, Null, String, Uint16,
+                        Uint32, Uint64};
 use super::MaxMindDBError::DecodingError;
 
 macro_rules! expect(
@@ -18,11 +18,13 @@ macro_rules! expect(
     ($e:expr, $t:ident) => ({
         match $e {
             $t(v) => Ok(v),
-            other => Err(DecodingError(format!("Error decoding {:?} as {:?}", other, stringify!($t))))
+            other => Err(DecodingError(format!("Error decoding {:?} as {:?}",
+                         other, stringify!($t))))
         }
     })
 );
 
+#[derive(Debug)]
 pub struct Decoder {
     pub stack: Vec<DataRecord>,
 }
@@ -30,9 +32,7 @@ pub struct Decoder {
 impl Decoder {
     /// Creates a new decoder instance for decoding the specified JSON value.
     pub fn new(record: DataRecord) -> Decoder {
-        Decoder {
-            stack: vec!(record),
-        }
+        Decoder { stack: vec![record] }
     }
 }
 
@@ -90,12 +90,12 @@ impl rustc_serialize::Decoder for Decoder {
 
     fn read_i16(&mut self) -> DecodeResult<i16> {
         debug!("read_i16");
-        Err(DecodingError("i16 data not supported by MaxMind DB format".to_string()))
+        Err(DecodingError("i16 data not supported by MaxMind DB format".to_owned()))
     }
 
     fn read_i8(&mut self) -> DecodeResult<i8> {
         debug!("read_i8");
-        Err(DecodingError("i8 data not supported by MaxMind DB format".to_string()))
+        Err(DecodingError("i8 data not supported by MaxMind DB format".to_owned()))
     }
 
     fn read_isize(&mut self) -> DecodeResult<isize> {
@@ -120,15 +120,12 @@ impl rustc_serialize::Decoder for Decoder {
 
     fn read_char(&mut self) -> DecodeResult<char> {
         let s = try!(self.read_str());
-        {
-            let mut it = s.chars();
-            match (it.next(), it.next()) {
-                // exactly one character
-                (Some(c), None) => return Ok(c),
-                _ => ()
-            }
+        let mut it = s.chars();
+        if let (Some(c), None) = (it.next(), it.next()) {
+            Ok(c)
+        } else {
+            Err(DecodingError(format!("char {:?}", s)))
         }
-        Err(DecodingError(format!("char {:?}", s)))
     }
 
     fn read_str(&mut self) -> DecodeResult<string::String> {
@@ -136,7 +133,7 @@ impl rustc_serialize::Decoder for Decoder {
         Ok(try!(expect!(self.pop(), String)))
     }
 
-   fn read_enum<T, F>(&mut self, name: &str, f: F) -> DecodeResult<T>
+    fn read_enum<T, F>(&mut self, name: &str, f: F) -> DecodeResult<T>
         where F: FnOnce(&mut Decoder) -> DecodeResult<T>
     {
         debug!("read_enum({:?})", name);
@@ -151,30 +148,28 @@ impl rustc_serialize::Decoder for Decoder {
         let name = match self.pop() {
             String(s) => s,
             Map(mut o) => {
-                let n = match o.remove(&"variant".to_string()) {
+                let n = match o.remove(&"variant".to_owned()) {
                     Some(String(s)) => s,
-                    Some(val) => return Err(DecodingError( format!("enum {:?}", val))),
-                    None => return Err(DecodingError("variant".to_string()))
+                    Some(val) => return Err(DecodingError(format!("enum {:?}", val))),
+                    None => return Err(DecodingError("variant".to_owned())),
                 };
-                match o.remove(&"fields".to_string()) {
+                match o.remove(&"fields".to_owned()) {
                     Some(Array(l)) => {
                         for field in l.into_iter().rev() {
                             self.stack.push(field.clone());
                         }
-                    },
+                    }
                     Some(val) => return Err(DecodingError(format!("enum {:?}", val))),
-                    None => return Err(DecodingError("fields".to_string()))
+                    None => return Err(DecodingError("fields".to_owned())),
                 }
                 n
             }
-            json => return Err(DecodingError( format!("enum {:?}", json)))
+            json => return Err(DecodingError(format!("enum {:?}", json))),
         };
         let idx = match names.iter()
-                             .position(|n| {
-                                 *n == name
-                             }) {
+                             .position(|n| *n == name) {
             Some(idx) => idx,
-            None => return Err(DecodingError(name))
+            None => return Err(DecodingError(name)),
         };
         f(self, idx)
     }
@@ -201,7 +196,9 @@ impl rustc_serialize::Decoder for Decoder {
                                             -> DecodeResult<T>
         where F: FnOnce(&mut Decoder) -> DecodeResult<T>
     {
-        debug!("read_enum_struct_variant_field(name={:?}, idx={:?})", name, idx);
+        debug!("read_enum_struct_variant_field(name={:?}, idx={:?})",
+               name,
+               idx);
         self.read_enum_variant_arg(idx, f)
     }
 
@@ -220,14 +217,15 @@ impl rustc_serialize::Decoder for Decoder {
         debug!("read_struct_field(name={:?}, idx={:?})", name, idx);
         let mut obj = try!(expect!(self.pop(), Map));
 
-        let value = match obj.remove(&name.to_string()) {
+        let value = match obj.remove(&name.to_owned()) {
             None => {
                 self.stack.push(Null);
                 match f(self) {
                     Ok(v) => v,
-                    Err(_) =>  return Err(DecodingError(format!("Unknown struct field {:?}", name.to_string()))),
+                    Err(_) => return Err(DecodingError(format!("Unknown struct field {:?}",
+                                                               name.to_owned()))),
                 }
-            },
+            }
             Some(record) => {
                 self.stack.push(record);
                 try!(f(self))
@@ -277,7 +275,10 @@ impl rustc_serialize::Decoder for Decoder {
         debug!("read_option()");
         match self.pop() {
             Null => f(self, false),
-            value => { self.stack.push(value); f(self, true) }
+            value => {
+                self.stack.push(value);
+                f(self, true)
+            }
         }
     }
 
@@ -328,6 +329,6 @@ impl rustc_serialize::Decoder for Decoder {
     }
 
     fn error(&mut self, err: &str) -> MaxMindDBError {
-        DecodingError(err.to_string())
+        DecodingError(err.to_owned())
     }
 }

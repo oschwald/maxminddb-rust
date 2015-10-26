@@ -19,7 +19,8 @@ target/lookup: example/lookup.rs $(libmaxminddb_so)
 examples: target/lookup
 
 .PHONY: check
-check: $(libmaxminddb_so)
+check:
+	$(CARGO) build --features "dev"
 	$(CARGO) test
 
 .PHONY: clean
