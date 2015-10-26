@@ -1,12 +1,34 @@
 
 extern crate rustc_serialize;
 
+use std::collections::BTreeMap;
 use std::string;
 
-use super::{DataRecord, MaxMindDBError};
-use super::DataRecord::{Array, Boolean, Byte, Double, Float, Int32, Map, Null, String, Uint16,
-                        Uint32, Uint64};
+use super::MaxMindDBError;
 use super::MaxMindDBError::DecodingError;
+
+pub type DbArray = Vec<DataRecord>;
+pub type DbMap = BTreeMap<string::String, DataRecord>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum DataRecord {
+    String(string::String),
+    Double(f64),
+    Byte(u8),
+    Uint16(u16),
+    Uint32(u32),
+    Map(Box<DbMap>),
+    Int32(i32),
+    Uint64(u64),
+    Boolean(bool),
+    Array(DbArray),
+    Float(f32),
+    Null,
+}
+
+use self::DataRecord::{Array, Boolean, Byte, Double, Float, Int32, Map, Null, String, Uint16,
+                       Uint32, Uint64};
+
 
 macro_rules! expect(
     ($e:expr, Null) => ({
@@ -26,7 +48,7 @@ macro_rules! expect(
 
 #[derive(Debug)]
 pub struct Decoder {
-    pub stack: Vec<DataRecord>,
+    stack: Vec<DataRecord>,
 }
 
 impl Decoder {
