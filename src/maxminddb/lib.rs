@@ -514,8 +514,7 @@ fn to_usize(base: u8, bytes: &[u8]) -> usize {
 
 fn ip_to_bytes(address: SocketAddr) -> Vec<u8> {
     match address {
-        // I am sure there is a less horrible way to do this.
-        SocketAddr::V4(a) => a.ip().octets().iter().map(|&x| x).collect(),
+        SocketAddr::V4(a) => a.ip().octets().to_vec(),
         SocketAddr::V6(a) => {
             let s = a.ip().segments();
             vec![(s[0] >> 8) as u8,
