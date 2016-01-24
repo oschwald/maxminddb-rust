@@ -64,7 +64,7 @@ impl Decoder {
     }
 }
 
-type DecodeResult<T> = Result<T, MaxMindDBError>;
+pub type DecodeResult<T> = Result<T, MaxMindDBError>;
 
 // Much of this code was borrowed from the Rust JSON library
 impl rustc_serialize::Decoder for Decoder {
