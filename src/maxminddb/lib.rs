@@ -6,10 +6,6 @@
         unstable_features,
         unused_import_braces)]
 
-#![cfg_attr(feature = "dev", allow(unstable_features))]
-#![cfg_attr(feature = "dev", feature(plugin))]
-#![cfg_attr(feature = "dev", plugin(clippy))]
-
 #[macro_use]
 extern crate log;
 
@@ -21,7 +17,7 @@ use std::io::prelude::*;
 use std::io;
 use std::error::Error;
 use std::mem;
-use std::net::SocketAddr;
+use std::net::IpAddr;
 use std::path::Path;
 
 use rustc_serialize::Decodable;
@@ -387,12 +383,12 @@ impl Reader {
     ///
     /// ```
     /// use maxminddb::geoip2;
-    /// use std::net::SocketAddr;
+    /// use std::net::IpAddr;
     /// use std::str::FromStr;
     ///
     /// let reader = maxminddb::Reader::open("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
     ///
-    /// let ip: SocketAddr = FromStr::from_str("89.160.20.128:0").unwrap();
+    /// let ip: IpAddr = FromStr::from_str("89.160.20.128").unwrap();
     /// let city: geoip2::City = reader.lookup(ip).unwrap();
     /// print!("{:?}", city);
     /// ```
@@ -400,10 +396,10 @@ impl Reader {
     /// Note that SocketAddr requires a port, which is not needed to look up
     /// the address in the database. This library will likely switch to IpAddr
     /// if the feature gate for that is removed.
-    pub fn lookup<T: Decodable>(&self, address: SocketAddr) -> Result<T, MaxMindDBError> {
+    pub fn lookup<T: Decodable>(&self, address: IpAddr) -> Result<T, MaxMindDBError> {
         let ip_bytes = ip_to_bytes(address);
         let pointer = try!(self.find_address_in_tree(ip_bytes));
-        if pointer <= 0 {
+        if pointer == 0 {
             return Err(MaxMindDBError::AddressNotFoundError("Address not found in database"
                                                                 .to_owned()));
         }
@@ -512,11 +508,11 @@ fn to_usize(base: u8, bytes: &[u8]) -> usize {
     bytes.iter().fold(base as usize, |acc, &b| (acc << 8) | b as usize)
 }
 
-fn ip_to_bytes(address: SocketAddr) -> Vec<u8> {
+fn ip_to_bytes(address: IpAddr) -> Vec<u8> {
     match address {
-        SocketAddr::V4(a) => a.ip().octets().to_vec(),
-        SocketAddr::V6(a) => {
-            let s = a.ip().segments();
+        IpAddr::V4(a) => a.octets().to_vec(),
+        IpAddr::V6(a) => {
+            let s = a.segments();
             vec![(s[0] >> 8) as u8,
                  s[0] as u8,
                  (s[1] >> 8) as u8,

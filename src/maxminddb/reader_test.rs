@@ -1,7 +1,7 @@
 use super::{MaxMindDBError, Reader};
 
 use std::str::FromStr;
-use std::net::SocketAddr;
+use std::net::IpAddr;
 
 #[test]
 fn test_decoder() {
@@ -36,7 +36,7 @@ fn test_decoder() {
     }
 
     let r = Reader::open("test-data/test-data/MaxMind-DB-test-decoder.mmdb").ok().unwrap();
-    let ip: SocketAddr = FromStr::from_str("1.1.1.0:0").unwrap();
+    let ip: IpAddr = FromStr::from_str("1.1.1.0").unwrap();
     let result: TestType = r.lookup(ip).unwrap();
 
     assert_eq!(result.array, vec![1usize, 2usize, 3usize]);
@@ -68,7 +68,7 @@ fn test_broken_database() {
     let r = Reader::open("test-data/test-data/GeoIP2-City-Test-Broken-Double-Format.mmdb")
                 .ok()
                 .unwrap();
-    let ip: SocketAddr = FromStr::from_str("[2001:220::]:0").unwrap();
+    let ip: IpAddr = FromStr::from_str("2001:220::").unwrap();
 
     #[derive(RustcDecodable, Debug)]
     struct TestType;
@@ -148,32 +148,32 @@ fn check_metadata(reader: &Reader, ip_version: usize, record_size: usize) {
 fn check_ip(reader: &Reader, ip_version: usize) {
 
     let subnets = match ip_version {
-        6 => [["[::1:ffff:ffff]", "::1:ffff:ffff"],
-              ["[::2:0:0]", "::2:0:0"],
-              ["[::2:0:1]", "::2:0:0"],
-              ["[::2:0:33]", "::2:0:0"],
-              ["[::2:0:39]", "::2:0:0"],
-              ["[::2:0:40]", "::2:0:40"],
-              ["[::2:0:41]", "::2:0:40"],
-              ["[::2:0:49]", "::2:0:40"],
-              ["[::2:0:50]", "::2:0:50"],
-              ["[::2:0:52]", "::2:0:50"],
-              ["[::2:0:57]", "::2:0:50"],
-              ["[::2:0:58]", "::2:0:58"],
-              ["[::2:0:59]", "::2:0:58"]],
-        _ => [["1.1.1.1", "1.1.1.1"],
-              ["1.1.1.2", "1.1.1.2"],
-              ["1.1.1.3", "1.1.1.2"],
-              ["1.1.1.4", "1.1.1.4"],
-              ["1.1.1.5", "1.1.1.4"],
-              ["1.1.1.6", "1.1.1.4"],
-              ["1.1.1.7", "1.1.1.4"],
-              ["1.1.1.8", "1.1.1.8"],
-              ["1.1.1.9", "1.1.1.8"],
-              ["1.1.1.15", "1.1.1.8"],
-              ["1.1.1.16", "1.1.1.16"],
-              ["1.1.1.17", "1.1.1.16"],
-              ["1.1.1.31", "1.1.1.16"]],
+        6 => ["::1:ffff:ffff",
+              "::2:0:0",
+              "::2:0:0",
+              "::2:0:0",
+              "::2:0:0",
+              "::2:0:40",
+              "::2:0:40",
+              "::2:0:40",
+              "::2:0:50",
+              "::2:0:50",
+              "::2:0:50",
+              "::2:0:58",
+              "::2:0:58"],
+        _ => ["1.1.1.1",
+              "1.1.1.2",
+              "1.1.1.2",
+              "1.1.1.4",
+              "1.1.1.4",
+              "1.1.1.4",
+              "1.1.1.4",
+              "1.1.1.8",
+              "1.1.1.8",
+              "1.1.1.8",
+              "1.1.1.16",
+              "1.1.1.16",
+              "1.1.1.16"],
     };
 
     #[derive(RustcDecodable, Debug)]
@@ -181,18 +181,17 @@ fn check_ip(reader: &Reader, ip_version: usize) {
         ip: String,
     }
 
-    for values in subnets.iter() {
-        let addr = format!("{}:0", values[0]);
-        let ip: SocketAddr = FromStr::from_str(&addr).unwrap();
+    for subnet in subnets.iter() {
+        let ip: IpAddr = FromStr::from_str(&subnet).unwrap();
         let value: IpType = reader.lookup(ip).unwrap();
 
-        assert_eq!(value.ip, values[1].to_string());
+        assert_eq!(value.ip, subnet.to_string());
     }
 
-    let no_record = ["1.1.1.33:0", "255.254.253.123:0", "[89fa::]:0"];
+    let no_record = ["1.1.1.33", "255.254.253.123", "89fa::"];
 
     for &address in no_record.iter() {
-        let ip: SocketAddr = FromStr::from_str(address).unwrap();
+        let ip: IpAddr = FromStr::from_str(address).unwrap();
         match reader.lookup::<IpType>(ip) {
             Ok(v) => panic!("received an unexpected value: {:?}", v),
             Err(e) =>
