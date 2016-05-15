@@ -5,10 +5,6 @@
 This library reads the MaxMind DB format, including the GeoIP2 and GeoLite2
 databases.
 
-## Rust Version Supported ##
-
-This project supports Rust 1.0.0-beta.2.
-
 ## Building ##
 
 To build everything:
@@ -23,7 +19,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-maxminddb = "0.5.3"
+maxminddb = "0.7.0"
 ```
 
 and this to your crate root:
