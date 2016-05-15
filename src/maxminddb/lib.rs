@@ -32,7 +32,6 @@ pub enum MaxMindDBError {
 }
 
 impl From<io::Error> for MaxMindDBError {
-
     fn from(err: io::Error) -> MaxMindDBError {
         // clean up and clean up MaxMindDBError generally
         MaxMindDBError::IoError(err.description().to_owned())
@@ -78,8 +77,7 @@ impl BinaryDecoder {
     fn decode_bool(&self, size: usize, offset: usize) -> BinaryDecodeResult<decoder::DataRecord> {
         match size {
             0 | 1 => (Ok(decoder::DataRecord::Boolean(size != 0)), offset),
-            s => (Err(MaxMindDBError::InvalidDatabaseError(format!("float of size {:?}", s))),
-                  0),
+            s => (Err(MaxMindDBError::InvalidDatabaseError(format!("float of size {:?}", s))), 0),
         }
     }
 
@@ -98,13 +96,12 @@ impl BinaryDecoder {
                 let new_offset = offset + size;
 
                 let value = self.buf[offset..new_offset]
-                                .iter()
-                                .fold(0u32, |acc, &b| (acc << 8) | b as u32);
+                    .iter()
+                    .fold(0u32, |acc, &b| (acc << 8) | b as u32);
                 let float_value: f32 = unsafe { mem::transmute(value) };
                 (Ok(decoder::DataRecord::Float(float_value)), new_offset)
             }
-            s => (Err(MaxMindDBError::InvalidDatabaseError(format!("float of size {:?}", s))),
-                  0),
+            s => (Err(MaxMindDBError::InvalidDatabaseError(format!("float of size {:?}", s))), 0),
         }
     }
 
@@ -114,13 +111,12 @@ impl BinaryDecoder {
                 let new_offset = offset + size;
 
                 let value = self.buf[offset..new_offset]
-                                .iter()
-                                .fold(0u64, |acc, &b| (acc << 8) | b as u64);
+                    .iter()
+                    .fold(0u64, |acc, &b| (acc << 8) | b as u64);
                 let float_value: f64 = unsafe { mem::transmute(value) };
                 (Ok(decoder::DataRecord::Double(float_value)), new_offset)
             }
-            s => (Err(MaxMindDBError::InvalidDatabaseError(format!("double of size {:?}", s))),
-                  0),
+            s => (Err(MaxMindDBError::InvalidDatabaseError(format!("double of size {:?}", s))), 0),
         }
     }
 
@@ -130,12 +126,11 @@ impl BinaryDecoder {
                 let new_offset = offset + size;
 
                 let value = self.buf[offset..new_offset]
-                                .iter()
-                                .fold(0u64, |acc, &b| (acc << 8) | b as u64);
+                    .iter()
+                    .fold(0u64, |acc, &b| (acc << 8) | b as u64);
                 (Ok(decoder::DataRecord::Uint64(value)), new_offset)
             }
-            s => (Err(MaxMindDBError::InvalidDatabaseError(format!("u64 of size {:?}", s))),
-                  0),
+            s => (Err(MaxMindDBError::InvalidDatabaseError(format!("u64 of size {:?}", s))), 0),
         }
     }
 
@@ -143,13 +138,13 @@ impl BinaryDecoder {
         match size {
             s if s <= 4 => {
                 match self.decode_uint64(size, offset) {
-                    (Ok(decoder::DataRecord::Uint64(u)), o) =>
-                        (Ok(decoder::DataRecord::Uint32(u as u32)), o),
+                    (Ok(decoder::DataRecord::Uint64(u)), o) => {
+                        (Ok(decoder::DataRecord::Uint32(u as u32)), o)
+                    }
                     e => e,
                 }
             }
-            s => (Err(MaxMindDBError::InvalidDatabaseError(format!("u32 of size {:?}", s))),
-                  0),
+            s => (Err(MaxMindDBError::InvalidDatabaseError(format!("u32 of size {:?}", s))), 0),
         }
     }
 
@@ -157,13 +152,13 @@ impl BinaryDecoder {
         match size {
             s if s <= 4 => {
                 match self.decode_uint64(size, offset) {
-                    (Ok(decoder::DataRecord::Uint64(u)), o) =>
-                        (Ok(decoder::DataRecord::Uint16(u as u16)), o),
+                    (Ok(decoder::DataRecord::Uint64(u)), o) => {
+                        (Ok(decoder::DataRecord::Uint16(u as u16)), o)
+                    }
                     e => e,
                 }
             }
-            s => (Err(MaxMindDBError::InvalidDatabaseError(format!("u16 of size {:?}", s))),
-                  0),
+            s => (Err(MaxMindDBError::InvalidDatabaseError(format!("u16 of size {:?}", s))), 0),
         }
     }
 
@@ -173,12 +168,11 @@ impl BinaryDecoder {
                 let new_offset = offset + size;
 
                 let value = self.buf[offset..new_offset]
-                                .iter()
-                                .fold(0i32, |acc, &b| (acc << 8) | b as i32);
+                    .iter()
+                    .fold(0i32, |acc, &b| (acc << 8) | b as i32);
                 (Ok(decoder::DataRecord::Int32(value)), new_offset)
             }
-            s => (Err(MaxMindDBError::InvalidDatabaseError(format!("int32 of size {:?}", s))),
-                  0),
+            s => (Err(MaxMindDBError::InvalidDatabaseError(format!("int32 of size {:?}", s))), 0),
         }
     }
 
@@ -199,10 +193,12 @@ impl BinaryDecoder {
 
             let str_key = match key {
                 decoder::DataRecord::String(s) => s,
-                v => return (Err(MaxMindDBError::InvalidDatabaseError(format!("unexpected map \
-                                                                               key type {:?}",
-                                                                              v))),
-                             0),
+                v => {
+                    return (Err(MaxMindDBError::InvalidDatabaseError(format!("unexpected map \
+                                                                              key type {:?}",
+                                                                             v))),
+                            0)
+                }
             };
             values.insert(str_key, val);
         }
@@ -239,9 +235,10 @@ impl BinaryDecoder {
         let bytes = &self.buf[offset..new_offset];
         match from_utf8(bytes) {
             Ok(v) => (Ok(decoder::DataRecord::String(v.to_owned())), new_offset),
-            Err(_) =>
+            Err(_) => {
                 (Err(MaxMindDBError::InvalidDatabaseError("error decoding string".to_owned())),
-                 new_offset),
+                 new_offset)
+            }
         }
     }
 
@@ -281,12 +278,8 @@ impl BinaryDecoder {
         size = match size {
             s if s < 29 => s,
             29 => 29usize + size_bytes[0] as usize,
-            30 => {
-                285usize + to_usize(0, size_bytes)
-            }
-            _ => {
-                65821usize + to_usize(0, size_bytes)
-            }
+            30 => 285usize + to_usize(0, size_bytes),
+            _ => 65821usize + to_usize(0, size_bytes),
         };
         (size, new_offset)
     }
@@ -311,8 +304,10 @@ impl BinaryDecoder {
             11 => self.decode_array(size, offset),
             14 => self.decode_bool(size, offset),
             15 => self.decode_float(size, offset),
-            u => (Err(MaxMindDBError::InvalidDatabaseError(format!("Unknown data type: {:?}", u))),
-                  offset),
+            u => {
+                (Err(MaxMindDBError::InvalidDatabaseError(format!("Unknown data type: {:?}", u))),
+                 offset)
+            }
         }
     }
 }
@@ -326,7 +321,6 @@ pub struct Reader {
 }
 
 impl Reader {
-
     /// Open a MaxMind DB database file.
     ///
     /// # Example
@@ -352,9 +346,11 @@ impl Reader {
 
         let raw_metadata = match metadata_decoder.decode(metadata_start) {
             (Ok(m), _) => m,
-            m => return Err(MaxMindDBError::InvalidDatabaseError(format!("metadata of wrong \
-                                                                          type: {:?}",
-                                                                         m))),
+            m => {
+                return Err(MaxMindDBError::InvalidDatabaseError(format!("metadata of wrong \
+                                                                         type: {:?}",
+                                                                        m)))
+            }
         };
 
         let mut type_decoder = decoder::Decoder::new(raw_metadata);
@@ -401,7 +397,7 @@ impl Reader {
         let pointer = try!(self.find_address_in_tree(ip_bytes));
         if pointer == 0 {
             return Err(MaxMindDBError::AddressNotFoundError("Address not found in database"
-                                                                .to_owned()));
+                .to_owned()));
         }
         let rec = try!(self.resolve_data_pointer(pointer));
         let mut decoder = decoder::Decoder::new(rec);
@@ -479,9 +475,11 @@ impl Reader {
                 let offset = base_offset + index * 4;
                 to_usize(0, &self.decoder.buf[offset..offset + 4])
             }
-            s => return Err(MaxMindDBError::InvalidDatabaseError(format!("unknown record size: \
-                                                                          {:?}",
-                                                                         s))),
+            s => {
+                return Err(MaxMindDBError::InvalidDatabaseError(format!("unknown record size: \
+                                                                         {:?}",
+                                                                        s)))
+            }
         };
         Ok(val)
     }
@@ -494,7 +492,7 @@ impl Reader {
         if resolved > self.decoder.buf.len() {
             return Err(MaxMindDBError::InvalidDatabaseError("the MaxMind DB file's search tree \
                                                              is corrupt"
-                                                                .to_owned()));
+                .to_owned()));
         }
 
         let (record, _) = self.decoder.decode(resolved);
@@ -555,7 +553,7 @@ fn find_metadata_start(buf: &[u8]) -> Result<usize, MaxMindDBError> {
         }
     }
     Err(MaxMindDBError::InvalidDatabaseError("Could not find MaxMind DB metadata in file."
-                                                 .to_owned()))
+        .to_owned()))
 }
 
 mod decoder;

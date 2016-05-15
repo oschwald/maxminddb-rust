@@ -189,7 +189,7 @@ impl rustc_serialize::Decoder for Decoder {
             json => return Err(DecodingError(format!("enum {:?}", json))),
         };
         let idx = match names.iter()
-                             .position(|n| *n == name) {
+            .position(|n| *n == name) {
             Some(idx) => idx,
             None => return Err(DecodingError(name)),
         };
@@ -244,8 +244,10 @@ impl rustc_serialize::Decoder for Decoder {
                 self.stack.push(Null);
                 match f(self) {
                     Ok(v) => v,
-                    Err(_) => return Err(DecodingError(format!("Unknown struct field {:?}",
-                                                               name.to_owned()))),
+                    Err(_) => {
+                        return Err(DecodingError(format!("Unknown struct field {:?}",
+                                                               name.to_owned())))
+                    }
                 }
             }
             Some(record) => {
