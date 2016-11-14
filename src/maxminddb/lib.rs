@@ -266,11 +266,7 @@ impl BinaryDecoder {
             return (size, offset);
         }
 
-        let bytes_to_read = if size > 28 {
-            size - 28
-        } else {
-            0
-        };
+        let bytes_to_read = if size > 28 { size - 28 } else { 0 };
 
         let new_offset = offset + bytes_to_read;
         let size_bytes = &self.buf[offset..new_offset];
