@@ -430,7 +430,6 @@ impl Reader {
     }
 
     fn find_ipv4_start(&self) -> Result<usize, MaxMindDBError> {
-
         if self.metadata.ip_version != 6 {
             return Ok(0);
         }
@@ -449,7 +448,6 @@ impl Reader {
 
 
     fn read_node(&self, node_number: usize, index: usize) -> Result<usize, MaxMindDBError> {
-
         let base_offset = node_number * (self.metadata.record_size as usize) / 4;
 
         let val = match self.metadata.record_size {
@@ -505,25 +503,7 @@ fn to_usize(base: u8, bytes: &[u8]) -> usize {
 fn ip_to_bytes(address: IpAddr) -> Vec<u8> {
     match address {
         IpAddr::V4(a) => a.octets().to_vec(),
-        IpAddr::V6(a) => {
-            let s = a.segments();
-            vec![(s[0] >> 8) as u8,
-                 s[0] as u8,
-                 (s[1] >> 8) as u8,
-                 s[1] as u8,
-                 (s[2] >> 8) as u8,
-                 s[2] as u8,
-                 (s[3] >> 8) as u8,
-                 s[3] as u8,
-                 (s[4] >> 8) as u8,
-                 s[4] as u8,
-                 (s[5] >> 8) as u8,
-                 s[5] as u8,
-                 (s[6] >> 8) as u8,
-                 s[6] as u8,
-                 (s[7] >> 8) as u8,
-                 s[7] as u8]
-        }
+        IpAddr::V6(a) => a.octets().to_vec(),
     }
 }
 
