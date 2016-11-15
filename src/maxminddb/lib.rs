@@ -329,11 +329,11 @@ impl Reader {
 
         let path = Path::new(database);
 
-        let mut f = try!(File::open(&path));
+        let mut f = File::open(&path)?;
 
         let mut buf = Vec::new();
-        try!(f.read_to_end(&mut buf));
-        let metadata_start = try!(find_metadata_start(&buf));
+        f.read_to_end(&mut buf)?;
+        let metadata_start = find_metadata_start(&buf)?;
 
         let metadata_decoder = BinaryDecoder {
             buf: buf,
@@ -350,7 +350,7 @@ impl Reader {
         };
 
         let mut type_decoder = decoder::Decoder::new(raw_metadata);
-        let metadata: Metadata = try!(Decodable::decode(&mut type_decoder));
+        let metadata: Metadata = Decodable::decode(&mut type_decoder)?;
 
         let search_tree_size = metadata.node_count * (metadata.record_size as usize) / 4;
         let decoder = BinaryDecoder {
@@ -363,7 +363,7 @@ impl Reader {
             metadata: metadata,
             ipv4_start: 0,
         };
-        reader.ipv4_start = try!(reader.find_ipv4_start());
+        reader.ipv4_start = reader.find_ipv4_start()?;
 
         Ok(reader)
     }
@@ -390,19 +390,19 @@ impl Reader {
     /// if the feature gate for that is removed.
     pub fn lookup<T: Decodable>(&self, address: IpAddr) -> Result<T, MaxMindDBError> {
         let ip_bytes = ip_to_bytes(address);
-        let pointer = try!(self.find_address_in_tree(ip_bytes));
+        let pointer = self.find_address_in_tree(ip_bytes)?;
         if pointer == 0 {
             return Err(MaxMindDBError::AddressNotFoundError("Address not found in database"
                 .to_owned()));
         }
-        let rec = try!(self.resolve_data_pointer(pointer));
+        let rec = self.resolve_data_pointer(pointer)?;
         let mut decoder = decoder::Decoder::new(rec);
         Decodable::decode(&mut decoder)
     }
 
     fn find_address_in_tree(&self, ip_address: Vec<u8>) -> Result<usize, MaxMindDBError> {
         let bit_count = ip_address.len() * 8;
-        let mut node = try!(self.start_node(bit_count));
+        let mut node = self.start_node(bit_count)?;
 
         for i in 0..bit_count {
             if node >= self.metadata.node_count {
@@ -410,7 +410,7 @@ impl Reader {
             }
             let bit = 1 & (ip_address[i >> 3] >> (7 - (i % 8)));
 
-            node = try!(self.read_node(node, bit as usize));
+            node = self.read_node(node, bit as usize)?;
         }
         if node == self.metadata.node_count {
             Ok(0)
@@ -442,7 +442,7 @@ impl Reader {
             if node >= self.metadata.node_count {
                 break;
             }
-            node = try!(self.read_node(node, 0));
+            node = self.read_node(node, 0)?;
         }
         Ok(node)
     }

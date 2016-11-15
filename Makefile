@@ -20,7 +20,7 @@ examples: target/lookup
 
 .PHONY: check
 check:
-	$(CARGO) build --features "dev"
+	$(CARGO) build
 	$(CARGO) test
 
 .PHONY: clean

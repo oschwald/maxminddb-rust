@@ -76,37 +76,37 @@ impl rustc_serialize::Decoder for Decoder {
 
     fn read_u64(&mut self) -> DecodeResult<u64> {
         debug!("read_u64");
-        Ok(try!(expect!(self.pop(), Uint64)))
+        Ok(expect!(self.pop(), Uint64)?)
     }
 
     fn read_u32(&mut self) -> DecodeResult<u32> {
         debug!("read_u32");
-        Ok(try!(expect!(self.pop(), Uint32)))
+        Ok(expect!(self.pop(), Uint32)?)
     }
 
     fn read_u16(&mut self) -> DecodeResult<u16> {
         debug!("read_u16");
-        Ok(try!(expect!(self.pop(), Uint16)))
+        Ok(expect!(self.pop(), Uint16)?)
     }
 
     fn read_u8(&mut self) -> DecodeResult<u8> {
         debug!("read_u8");
-        Ok(try!(expect!(self.pop(), Byte)))
+        Ok(expect!(self.pop(), Byte)?)
     }
 
     fn read_usize(&mut self) -> DecodeResult<usize> {
         debug!("read_usize");
-        Ok(try!(expect!(self.pop(), Uint32)) as usize)
+        Ok(expect!(self.pop(), Uint32)? as usize)
     }
 
     fn read_i64(&mut self) -> DecodeResult<i64> {
         debug!("read_i64");
-        Ok(try!(self.read_i32()) as i64)
+        Ok(self.read_i32()? as i64)
     }
 
     fn read_i32(&mut self) -> DecodeResult<i32> {
         debug!("read_i32");
-        Ok(try!(expect!(self.pop(), Int32)))
+        Ok(expect!(self.pop(), Int32)?)
     }
 
     fn read_i16(&mut self) -> DecodeResult<i16> {
@@ -121,26 +121,26 @@ impl rustc_serialize::Decoder for Decoder {
 
     fn read_isize(&mut self) -> DecodeResult<isize> {
         debug!("read_int");
-        Ok(try!(self.read_i32()) as isize)
+        Ok(self.read_i32()? as isize)
     }
 
     fn read_bool(&mut self) -> DecodeResult<bool> {
         debug!("read_bool");
-        Ok(try!(expect!(self.pop(), Boolean)))
+        Ok(expect!(self.pop(), Boolean)?)
     }
 
     fn read_f64(&mut self) -> DecodeResult<f64> {
         debug!("read_f64");
-        Ok(try!(expect!(self.pop(), Double)))
+        Ok(expect!(self.pop(), Double)?)
     }
 
     fn read_f32(&mut self) -> DecodeResult<f32> {
         debug!("read_f32");
-        Ok(try!(expect!(self.pop(), Float)))
+        Ok(expect!(self.pop(), Float)?)
     }
 
     fn read_char(&mut self) -> DecodeResult<char> {
-        let s = try!(self.read_str());
+        let s = self.read_str()?;
         let mut it = s.chars();
         if let (Some(c), None) = (it.next(), it.next()) {
             Ok(c)
@@ -151,7 +151,7 @@ impl rustc_serialize::Decoder for Decoder {
 
     fn read_str(&mut self) -> DecodeResult<string::String> {
         debug!("read_str");
-        Ok(try!(expect!(self.pop(), String)))
+        Ok(expect!(self.pop(), String)?)
     }
 
     fn read_enum<T, F>(&mut self, name: &str, f: F) -> DecodeResult<T>
@@ -227,7 +227,7 @@ impl rustc_serialize::Decoder for Decoder {
         where F: FnOnce(&mut Decoder) -> DecodeResult<T>
     {
         debug!("read_struct(name={:?}, len={:?})", name, len);
-        let value = try!(f(self));
+        let value = f(self)?;
         self.pop();
         Ok(value)
     }
@@ -236,7 +236,7 @@ impl rustc_serialize::Decoder for Decoder {
         where F: FnOnce(&mut Decoder) -> DecodeResult<T>
     {
         debug!("read_struct_field(name={:?}, idx={:?})", name, idx);
-        let mut obj = try!(expect!(self.pop(), Map));
+        let mut obj = expect!(self.pop(), Map)?;
 
         let value = match obj.remove(&name.to_owned()) {
             None => {
@@ -251,7 +251,7 @@ impl rustc_serialize::Decoder for Decoder {
             }
             Some(record) => {
                 self.stack.push(record);
-                try!(f(self))
+                f(self)?
             }
         };
         self.stack.push(Map(obj));
@@ -309,7 +309,7 @@ impl rustc_serialize::Decoder for Decoder {
         where F: FnOnce(&mut Decoder, usize) -> DecodeResult<T>
     {
         debug!("read_seq()");
-        let list = try!(expect!(self.pop(), Array));
+        let list = expect!(self.pop(), Array)?;
         let len = list.len();
         for v in list.into_iter().rev() {
             self.stack.push(v);
@@ -328,7 +328,7 @@ impl rustc_serialize::Decoder for Decoder {
         where F: FnOnce(&mut Decoder, usize) -> DecodeResult<T>
     {
         debug!("read_map()");
-        let obj = try!(expect!(self.pop(), Map));
+        let obj = expect!(self.pop(), Map)?;
         let len = obj.len();
         for (key, value) in obj.into_iter() {
             self.stack.push(value);
