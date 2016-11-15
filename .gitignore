@@ -1,3 +1,6 @@
 *.rlib
 *.so
+*.sw?
+Cargo.lock
 GeoLite2-City.mmdb
+target
