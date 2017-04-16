@@ -35,7 +35,9 @@ fn test_decoder() {
         utf8_string: String,
     }
 
-    let r = Reader::open("test-data/test-data/MaxMind-DB-test-decoder.mmdb").ok().unwrap();
+    let r = Reader::open("test-data/test-data/MaxMind-DB-test-decoder.mmdb")
+        .ok()
+        .unwrap();
     let ip: IpAddr = FromStr::from_str("1.1.1.0").unwrap();
     let result: TestType = r.lookup(ip).unwrap();
 
@@ -100,7 +102,7 @@ fn test_non_database() {
             assert_eq!(e,
                        MaxMindDBError::InvalidDatabaseError("Could not find MaxMind DB metadata \
                                                              in file."
-                           .to_string()))
+                                                                    .to_string()))
         }
 
     }
@@ -194,7 +196,7 @@ fn check_ip(reader: &Reader, ip_version: usize) {
             Err(e) => {
                 assert_eq!(e,
                            MaxMindDBError::AddressNotFoundError("Address not found in database"
-                               .to_string()))
+                                                                    .to_string()))
             }
         }
     }

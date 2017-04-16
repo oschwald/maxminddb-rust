@@ -85,7 +85,10 @@ impl BinaryDecoder {
         let new_offset = offset + size;
         let u8_slice = &self.buf[offset..new_offset];
 
-        let bytes = u8_slice.iter().map(|&b| decoder::DataRecord::Byte(b)).collect();
+        let bytes = u8_slice
+            .iter()
+            .map(|&b| decoder::DataRecord::Byte(b))
+            .collect();
 
         (Ok(decoder::DataRecord::Array(bytes)), new_offset)
     }
@@ -393,7 +396,7 @@ impl Reader {
         let pointer = self.find_address_in_tree(ip_bytes)?;
         if pointer == 0 {
             return Err(MaxMindDBError::AddressNotFoundError("Address not found in database"
-                .to_owned()));
+                                                                .to_owned()));
         }
         let rec = self.resolve_data_pointer(pointer)?;
         let mut decoder = decoder::Decoder::new(rec);
@@ -486,7 +489,7 @@ impl Reader {
         if resolved > self.decoder.buf.len() {
             return Err(MaxMindDBError::InvalidDatabaseError("the MaxMind DB file's search tree \
                                                              is corrupt"
-                .to_owned()));
+                                                                    .to_owned()));
         }
 
         let (record, _) = self.decoder.decode(resolved);
@@ -497,7 +500,9 @@ impl Reader {
 // I haven't moved all patterns of this form to a generic function as
 // the FromPrimitive trait is unstable
 fn to_usize(base: u8, bytes: &[u8]) -> usize {
-    bytes.iter().fold(base as usize, |acc, &b| (acc << 8) | b as usize)
+    bytes
+        .iter()
+        .fold(base as usize, |acc, &b| (acc << 8) | b as usize)
 }
 
 fn ip_to_bytes(address: IpAddr) -> Vec<u8> {
@@ -529,7 +534,7 @@ fn find_metadata_start(buf: &[u8]) -> Result<usize, MaxMindDBError> {
         }
     }
     Err(MaxMindDBError::InvalidDatabaseError("Could not find MaxMind DB metadata in file."
-        .to_owned()))
+                                                 .to_owned()))
 }
 
 mod decoder;

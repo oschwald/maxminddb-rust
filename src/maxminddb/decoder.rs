@@ -187,8 +187,7 @@ impl rustc_serialize::Decoder for Decoder {
             }
             json => return Err(DecodingError(format!("enum {:?}", json))),
         };
-        let idx = match names.iter()
-            .position(|n| *n == name) {
+        let idx = match names.iter().position(|n| *n == name) {
             Some(idx) => idx,
             None => return Err(DecodingError(name)),
         };
@@ -245,7 +244,7 @@ impl rustc_serialize::Decoder for Decoder {
                     Ok(v) => v,
                     Err(_) => {
                         return Err(DecodingError(format!("Unknown struct field {:?}",
-                                                               name.to_owned())))
+                                                         name.to_owned())))
                     }
                 }
             }
@@ -262,13 +261,11 @@ impl rustc_serialize::Decoder for Decoder {
         where F: FnOnce(&mut Decoder) -> DecodeResult<T>
     {
         debug!("read_tuple()");
-        self.read_seq(move |d, len| {
-            if len == tuple_len {
-                f(d)
-            } else {
-                Err(DecodingError(format!("Tuple{:?}", tuple_len)))
-            }
-        })
+        self.read_seq(move |d, len| if len == tuple_len {
+                          f(d)
+                      } else {
+                          Err(DecodingError(format!("Tuple{:?}", tuple_len)))
+                      })
     }
 
     fn read_tuple_arg<T, F>(&mut self, idx: usize, f: F) -> DecodeResult<T>
