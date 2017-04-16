@@ -1,5 +1,9 @@
 # Change Log #
 
+## 0.7.2 - 2017-04-16
+
+* Update `log` to 0.3.7 and `rustc-serialize` to 0.3.23.
+
 ## 0.7.1 - 2016-11-13
 
 * Update `rustc-serialize` to 0.3.21.
