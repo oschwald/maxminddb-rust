@@ -9,6 +9,7 @@
 #[macro_use]
 extern crate log;
 
+extern crate serde;
 extern crate rustc_serialize;
 
 use std::collections::BTreeMap;
@@ -21,6 +22,7 @@ use std::net::IpAddr;
 use std::path::Path;
 
 use rustc_serialize::Decodable;
+use serde::Deserialize;
 
 #[derive(Debug, PartialEq)]
 pub enum MaxMindDBError {
