@@ -64,7 +64,8 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Decoder {
     type Error = MaxMindDBError;
 
     fn deserialize_any<V>(self, _visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         unimplemented!()
     }
@@ -81,94 +82,108 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Decoder {
     // implement `deserialize_any` and `deserialize_ignored_any` are known as
     // self-describing.
     fn deserialize_ignored_any<V>(self, visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         self.deserialize_any(visitor)
     }
 
     fn deserialize_u64<V>(self, visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         debug!("read_u64");
         visitor.visit_u64(expect!(self.pop(), Uint64)?)
     }
 
     fn deserialize_u32<V>(self, visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         debug!("read_u32");
         visitor.visit_u32(expect!(self.pop(), Uint32)?)
     }
 
     fn deserialize_u16<V>(self, visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         debug!("read_u16");
         visitor.visit_u16(expect!(self.pop(), Uint16)?)
     }
 
     fn deserialize_u8<V>(self, visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         debug!("read_u8");
         visitor.visit_u8(expect!(self.pop(), Byte)?)
     }
 
     fn deserialize_i64<V>(self, visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         debug!("read_i64");
         self.deserialize_i32(visitor)
     }
 
     fn deserialize_i32<V>(self, visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         debug!("read_i32");
         visitor.visit_i32(expect!(self.pop(), Int32)?)
     }
 
     fn deserialize_i16<V>(self, _visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         unimplemented!()
     }
 
     fn deserialize_i8<V>(self, _visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         unimplemented!()
     }
 
     fn deserialize_bool<V>(self, visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         debug!("read_bool");
         visitor.visit_bool(expect!(self.pop(), Boolean)?)
     }
 
     fn deserialize_f64<V>(self, visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         debug!("read_f64");
         visitor.visit_f64(expect!(self.pop(), Double)?)
     }
 
     fn deserialize_f32<V>(self, visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         debug!("read_f32");
         visitor.visit_f32(expect!(self.pop(), Float)?)
     }
 
     fn deserialize_char<V>(self, _visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         unimplemented!()
     }
 
     fn deserialize_str<V>(self, visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         let string = expect!(self.pop(), String)?;
         debug!("read_str: {}", string);
@@ -176,26 +191,35 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Decoder {
     }
 
     fn deserialize_string<V>(self, visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         debug!("read_string");
         self.deserialize_str(visitor)
     }
 
     fn deserialize_bytes<V>(self, _visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         unimplemented!()
     }
 
     fn deserialize_byte_buf<V>(self, _visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         unimplemented!()
     }
 
-    fn deserialize_enum<V>(self, _name: &'static str, _variants: &'static [&'static str], _visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    fn deserialize_enum<V>(
+        self,
+        _name: &'static str,
+        _variants: &'static [&'static str],
+        _visitor: V,
+    ) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
     {
         unimplemented!()
     }
@@ -206,8 +230,14 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Decoder {
     // that the `Deserialize` implementation is required to know what the fields
     // are before even looking at the input data. Any key-value pairing in which
     // the fields cannot be known ahead of time is probably a map.
-    fn deserialize_struct<V>(self, _name: &'static str, _fields: &'static [&'static str], visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    fn deserialize_struct<V>(
+        self,
+        _name: &'static str,
+        _fields: &'static [&'static str],
+        visitor: V,
+    ) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
     {
         self.deserialize_map(visitor)
     }
@@ -218,12 +248,9 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Decoder {
     // As indicated by the length parameter, the `Deserialize` implementation
     // for a tuple in the Serde data model is required to know the length of the
     // tuple before even looking at the input data.
-    fn deserialize_tuple<V>(
-        self,
-        _len: usize,
-        visitor: V
-    ) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    fn deserialize_tuple<V>(self, _len: usize, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
     {
         self.deserialize_seq(visitor)
     }
@@ -233,15 +260,17 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Decoder {
         self,
         _name: &'static str,
         _len: usize,
-        visitor: V
+        visitor: V,
     ) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         self.deserialize_seq(visitor)
     }
 
     fn deserialize_option<V>(self, visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         debug!("read_option()");
         match self.pop() {
@@ -255,18 +284,20 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Decoder {
 
     // In Serde, unit means an anonymous value containing no data.
     fn deserialize_unit<V>(self, visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         debug!("read_nil");
         match self.pop() {
             Null => visitor.visit_unit(),
-            other => Err(DecodingError(format!("Error decoding Null as {:?}", other)))
+            other => Err(DecodingError(format!("Error decoding Null as {:?}", other))),
         }
     }
 
     // Unit struct means a named value containing no data.
     fn deserialize_unit_struct<V>(self, _name: &'static str, visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         self.deserialize_unit(visitor)
     }
@@ -274,25 +305,29 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Decoder {
     // As is done here, serializers are encouraged to treat newtype structs as
     // insignificant wrappers around the data they contain. That means not
     // parsing anything other than the contained value.
-    fn deserialize_newtype_struct<V>(self, _name: &'static str, visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    fn deserialize_newtype_struct<V>(
+        self,
+        _name: &'static str,
+        visitor: V,
+    ) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
     {
         visitor.visit_newtype_struct(self)
     }
 
     // An identifier in Serde is the type that identifies a field of a struct or
     // the variant of an enum.
-    fn deserialize_identifier<V>(
-        self,
-        visitor: V
-    ) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    fn deserialize_identifier<V>(self, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
     {
         self.deserialize_str(visitor)
     }
 
     fn deserialize_seq<V>(mut self, visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         debug!("read_seq()");
         let list = expect!(self.pop(), Array)?;
@@ -310,7 +345,8 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Decoder {
     // with a `MapAccess` implementation, rather than the visitor's `visit_seq`
     // method with a `SeqAccess` implementation.
     fn deserialize_map<V>(mut self, visitor: V) -> DecodeResult<V::Value>
-        where V: Visitor<'de>
+    where
+        V: Visitor<'de>,
     {
         debug!("read_map()");
         let obj = expect!(self.pop(), Map)?;
@@ -332,7 +368,10 @@ struct ArrayAccess<'a> {
 
 impl<'a> ArrayAccess<'a> {
     fn new(de: &'a mut Decoder, count: usize) -> Self {
-        ArrayAccess { de: de, count: count }
+        ArrayAccess {
+            de: de,
+            count: count,
+        }
     }
 }
 
@@ -342,7 +381,8 @@ impl<'de, 'a> SeqAccess<'de> for ArrayAccess<'a> {
     type Error = MaxMindDBError;
 
     fn next_element_seed<T>(&mut self, seed: T) -> DecodeResult<Option<T::Value>>
-        where T: DeserializeSeed<'de>
+    where
+        T: DeserializeSeed<'de>,
     {
         // Check if there are no more elements.
         if self.count == 0 {
@@ -362,7 +402,10 @@ struct MapAccessor<'a> {
 
 impl<'a> MapAccessor<'a> {
     fn new(de: &'a mut Decoder, count: usize) -> Self {
-        MapAccessor { de: de, count: count }
+        MapAccessor {
+            de: de,
+            count: count,
+        }
     }
 }
 
@@ -372,7 +415,8 @@ impl<'de, 'a> MapAccess<'de> for MapAccessor<'a> {
     type Error = MaxMindDBError;
 
     fn next_key_seed<K>(&mut self, seed: K) -> DecodeResult<Option<K::Value>>
-        where K: DeserializeSeed<'de>
+    where
+        K: DeserializeSeed<'de>,
     {
         // Check if there are no more entries.
         if self.count == 0 {
@@ -385,11 +429,12 @@ impl<'de, 'a> MapAccess<'de> for MapAccessor<'a> {
     }
 
     fn next_value_seed<V>(&mut self, seed: V) -> DecodeResult<V::Value>
-        where V: DeserializeSeed<'de>
+    where
+        V: DeserializeSeed<'de>,
     {
         // Check if there are no more entries.
         if self.count == 0 {
-            return Err(DecodingError("no more entries".to_owned()))
+            return Err(DecodingError("no more entries".to_owned()));
         }
         self.count -= 1;
 

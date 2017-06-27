@@ -53,19 +53,23 @@ fn test_decoder() {
     assert_eq!(result.float, 1.1);
     assert_eq!(result.int32, -268435456);
 
-    assert_eq!(result.map,
-               MapType {
-                   mapX: MapXType {
-                       arrayX: vec![7, 8, 9],
-                       utf8_stringX: "hello".to_string(),
-                   },
-               });
+    assert_eq!(
+        result.map,
+        MapType {
+            mapX: MapXType {
+                arrayX: vec![7, 8, 9],
+                utf8_stringX: "hello".to_string(),
+            },
+        }
+    );
 
     assert_eq!(result.uint16, 100);
     assert_eq!(result.uint32, 268435456);
     assert_eq!(result.uint64, 1152921504606846976);
-    assert_eq!(result.uint128,
-               vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(
+        result.uint128,
+        vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    );
 
     assert_eq!(result.utf8_string, "unicode! ☯ - ♫".to_string());
 }
@@ -74,8 +78,9 @@ fn test_decoder() {
 fn test_broken_database() {
     let _ = env_logger::init();
 
-    let r = Reader::open("test-data/test-data/GeoIP2-City-Test-Broken-Double-Format.mmdb")
-        .ok()
+    let r = Reader::open(
+        "test-data/test-data/GeoIP2-City-Test-Broken-Double-Format.mmdb",
+    ).ok()
         .unwrap();
     let ip: IpAddr = FromStr::from_str("2001:220::").unwrap();
 
@@ -83,8 +88,10 @@ fn test_broken_database() {
     struct TestType;
     match r.lookup::<TestType>(ip) {
         Err(e) => {
-            assert_eq!(e,
-                       MaxMindDBError::InvalidDatabaseError("double of size 2".to_string()))
+            assert_eq!(
+                e,
+                MaxMindDBError::InvalidDatabaseError("double of size 2".to_string())
+            )
         }
         Ok(_) => panic!("Error expected"),
     }
@@ -110,10 +117,14 @@ fn test_non_database() {
     match r {
         Ok(_) => panic!("Received Reader when opening a non-MMDB file"),
         Err(e) => {
-            assert_eq!(e,
-                       MaxMindDBError::InvalidDatabaseError("Could not find MaxMind DB metadata \
-                                                             in file."
-                                                                    .to_string()))
+            assert_eq!(
+                e,
+                MaxMindDBError::InvalidDatabaseError(
+                    "Could not find MaxMind DB metadata \
+                     in file."
+                        .to_string()
+                )
+            )
         }
 
     }
@@ -127,9 +138,11 @@ fn test_reader() {
     for record_size in sizes.iter() {
         let versions = [4usize, 6];
         for ip_version in versions.iter() {
-            let filename = format!("test-data/test-data/MaxMind-DB-test-ipv{}-{}.mmdb",
-                                   ip_version,
-                                   record_size);
+            let filename = format!(
+                "test-data/test-data/MaxMind-DB-test-ipv{}-{}.mmdb",
+                ip_version,
+                record_size
+            );
             let reader = Reader::open(filename.as_ref()).ok().unwrap();
 
             check_metadata(&reader, *ip_version, *record_size);
@@ -147,10 +160,14 @@ fn check_metadata(reader: &Reader, ip_version: usize, record_size: usize) {
     assert!(metadata.build_epoch >= 1397457605);
     assert_eq!(metadata.database_type, "Test".to_string());
 
-    assert_eq!(*metadata.description.get(&"en".to_string()).unwrap(),
-               "Test Database".to_string());
-    assert_eq!(*metadata.description.get(&"zh".to_string()).unwrap(),
-               "Test Database Chinese".to_string());
+    assert_eq!(
+        *metadata.description.get(&"en".to_string()).unwrap(),
+        "Test Database".to_string()
+    );
+    assert_eq!(
+        *metadata.description.get(&"zh".to_string()).unwrap(),
+        "Test Database Chinese".to_string()
+    );
 
     assert_eq!(metadata.ip_version, ip_version as u16);
     assert_eq!(metadata.languages, vec!["en".to_string(), "zh".to_string()]);
@@ -168,23 +185,38 @@ fn check_ip(reader: &Reader, ip_version: usize) {
 
     let subnets = match ip_version {
         6 => {
-            ["::1:ffff:ffff",
-             "::2:0:0",
-             "::2:0:0",
-             "::2:0:0",
-             "::2:0:0",
-             "::2:0:40",
-             "::2:0:40",
-             "::2:0:40",
-             "::2:0:50",
-             "::2:0:50",
-             "::2:0:50",
-             "::2:0:58",
-             "::2:0:58"]
+            [
+                "::1:ffff:ffff",
+                "::2:0:0",
+                "::2:0:0",
+                "::2:0:0",
+                "::2:0:0",
+                "::2:0:40",
+                "::2:0:40",
+                "::2:0:40",
+                "::2:0:50",
+                "::2:0:50",
+                "::2:0:50",
+                "::2:0:58",
+                "::2:0:58",
+            ]
         }
         _ => {
-            ["1.1.1.1", "1.1.1.2", "1.1.1.2", "1.1.1.4", "1.1.1.4", "1.1.1.4", "1.1.1.4",
-             "1.1.1.8", "1.1.1.8", "1.1.1.8", "1.1.1.16", "1.1.1.16", "1.1.1.16"]
+            [
+                "1.1.1.1",
+                "1.1.1.2",
+                "1.1.1.2",
+                "1.1.1.4",
+                "1.1.1.4",
+                "1.1.1.4",
+                "1.1.1.4",
+                "1.1.1.8",
+                "1.1.1.8",
+                "1.1.1.8",
+                "1.1.1.16",
+                "1.1.1.16",
+                "1.1.1.16",
+            ]
         }
     };
 
@@ -207,9 +239,12 @@ fn check_ip(reader: &Reader, ip_version: usize) {
         match reader.lookup::<IpType>(ip) {
             Ok(v) => panic!("received an unexpected value: {:?}", v),
             Err(e) => {
-                assert_eq!(e,
-                           MaxMindDBError::AddressNotFoundError("Address not found in database"
-                                                                    .to_string()))
+                assert_eq!(
+                    e,
+                    MaxMindDBError::AddressNotFoundError(
+                        "Address not found in database".to_string()
+                    )
+                )
             }
         }
     }
