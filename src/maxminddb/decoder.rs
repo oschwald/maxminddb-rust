@@ -1,7 +1,7 @@
-extern crate rustc_serialize;
-
 use std::collections::BTreeMap;
 use std::string;
+
+use serde::de::{self, DeserializeSeed, Visitor, SeqAccess, MapAccess};
 
 use super::MaxMindDBError;
 use super::MaxMindDBError::DecodingError;
@@ -30,12 +30,6 @@ use self::DataRecord::{Array, Boolean, Byte, Double, Float, Int32, Map, Null, St
 
 
 macro_rules! expect(
-    ($e:expr, Null) => ({
-        match $e {
-            Null => Ok(()),
-            other => Err(DecodingError(format!("Error decoding Null as {:?}", other)))
-        }
-    });
     ($e:expr, $t:ident) => ({
         match $e {
             $t(v) => Ok(v),
@@ -65,264 +59,258 @@ impl Decoder {
 
 pub type DecodeResult<T> = Result<T, MaxMindDBError>;
 
-// Much of this code was borrowed from the Rust JSON library
-impl rustc_serialize::Decoder for Decoder {
+// Much of this code was borrowed from the Rust JSON library, Serde Deserializer example
+impl<'de, 'a> de::Deserializer<'de> for &'a mut Decoder {
     type Error = MaxMindDBError;
 
-    fn read_nil(&mut self) -> DecodeResult<()> {
-        debug!("read_nil");
-        expect!(self.pop(), Null)
+    fn deserialize_any<V>(self, _visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
+    {
+        unimplemented!()
     }
 
-    fn read_u64(&mut self) -> DecodeResult<u64> {
+    // Like `deserialize_any` but indicates to the `Deserializer` that it makes
+    // no difference which `Visitor` method is called because the data is
+    // ignored.
+    //
+    // Some deserializers are able to implement this more efficiently than
+    // `deserialize_any`, for example by rapidly skipping over matched
+    // delimiters without paying close attention to the data in between.
+    //
+    // Some formats are not able to implement this at all. Formats that can
+    // implement `deserialize_any` and `deserialize_ignored_any` are known as
+    // self-describing.
+    fn deserialize_ignored_any<V>(self, visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
+    {
+        self.deserialize_any(visitor)
+    }
+
+    fn deserialize_u64<V>(self, visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
+    {
         debug!("read_u64");
-        Ok(expect!(self.pop(), Uint64)?)
+        visitor.visit_u64(expect!(self.pop(), Uint64)?)
     }
 
-    fn read_u32(&mut self) -> DecodeResult<u32> {
+    fn deserialize_u32<V>(self, visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
+    {
         debug!("read_u32");
-        Ok(expect!(self.pop(), Uint32)?)
+        visitor.visit_u32(expect!(self.pop(), Uint32)?)
     }
 
-    fn read_u16(&mut self) -> DecodeResult<u16> {
+    fn deserialize_u16<V>(self, visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
+    {
         debug!("read_u16");
-        Ok(expect!(self.pop(), Uint16)?)
+        visitor.visit_u16(expect!(self.pop(), Uint16)?)
     }
 
-    fn read_u8(&mut self) -> DecodeResult<u8> {
+    fn deserialize_u8<V>(self, visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
+    {
         debug!("read_u8");
-        Ok(expect!(self.pop(), Byte)?)
+        visitor.visit_u8(expect!(self.pop(), Byte)?)
     }
 
-    fn read_usize(&mut self) -> DecodeResult<usize> {
-        debug!("read_usize");
-        Ok(expect!(self.pop(), Uint32)? as usize)
-    }
-
-    fn read_i64(&mut self) -> DecodeResult<i64> {
+    fn deserialize_i64<V>(self, visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
+    {
         debug!("read_i64");
-        Ok(self.read_i32()? as i64)
+        self.deserialize_i32(visitor)
     }
 
-    fn read_i32(&mut self) -> DecodeResult<i32> {
+    fn deserialize_i32<V>(self, visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
+    {
         debug!("read_i32");
-        Ok(expect!(self.pop(), Int32)?)
+        visitor.visit_i32(expect!(self.pop(), Int32)?)
     }
 
-    fn read_i16(&mut self) -> DecodeResult<i16> {
-        debug!("read_i16");
-        Err(DecodingError("i16 data not supported by MaxMind DB format".to_owned()))
+    fn deserialize_i16<V>(self, _visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
+    {
+        unimplemented!()
     }
 
-    fn read_i8(&mut self) -> DecodeResult<i8> {
-        debug!("read_i8");
-        Err(DecodingError("i8 data not supported by MaxMind DB format".to_owned()))
+    fn deserialize_i8<V>(self, _visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
+    {
+        unimplemented!()
     }
 
-    fn read_isize(&mut self) -> DecodeResult<isize> {
-        debug!("read_int");
-        Ok(self.read_i32()? as isize)
-    }
-
-    fn read_bool(&mut self) -> DecodeResult<bool> {
+    fn deserialize_bool<V>(self, visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
+    {
         debug!("read_bool");
-        Ok(expect!(self.pop(), Boolean)?)
+        visitor.visit_bool(expect!(self.pop(), Boolean)?)
     }
 
-    fn read_f64(&mut self) -> DecodeResult<f64> {
+    fn deserialize_f64<V>(self, visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
+    {
         debug!("read_f64");
-        Ok(expect!(self.pop(), Double)?)
+        visitor.visit_f64(expect!(self.pop(), Double)?)
     }
 
-    fn read_f32(&mut self) -> DecodeResult<f32> {
+    fn deserialize_f32<V>(self, visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
+    {
         debug!("read_f32");
-        Ok(expect!(self.pop(), Float)?)
+        visitor.visit_f32(expect!(self.pop(), Float)?)
     }
 
-    fn read_char(&mut self) -> DecodeResult<char> {
-        let s = self.read_str()?;
-        let mut it = s.chars();
-        if let (Some(c), None) = (it.next(), it.next()) {
-            Ok(c)
-        } else {
-            Err(DecodingError(format!("char {:?}", s)))
-        }
-    }
-
-    fn read_str(&mut self) -> DecodeResult<string::String> {
-        debug!("read_str");
-        Ok(expect!(self.pop(), String)?)
-    }
-
-    fn read_enum<T, F>(&mut self, name: &str, f: F) -> DecodeResult<T>
-        where F: FnOnce(&mut Decoder) -> DecodeResult<T>
+    fn deserialize_char<V>(self, _visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
     {
-        debug!("read_enum({:?})", name);
-        f(self)
+        unimplemented!()
     }
 
-    fn read_enum_variant<T, F>(&mut self, names: &[&str], f: F) -> DecodeResult<T>
-        where F: FnOnce(&mut Decoder, usize) -> DecodeResult<T>
+    fn deserialize_str<V>(self, visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
     {
-
-        debug!("read_enum_variant(names={:?})", names);
-        let name = match self.pop() {
-            String(s) => s,
-            Map(mut o) => {
-                let n = match o.remove(&"variant".to_owned()) {
-                    Some(String(s)) => s,
-                    Some(val) => return Err(DecodingError(format!("enum {:?}", val))),
-                    None => return Err(DecodingError("variant".to_owned())),
-                };
-                match o.remove(&"fields".to_owned()) {
-                    Some(Array(l)) => {
-                        for field in l.into_iter().rev() {
-                            self.stack.push(field.clone());
-                        }
-                    }
-                    Some(val) => return Err(DecodingError(format!("enum {:?}", val))),
-                    None => return Err(DecodingError("fields".to_owned())),
-                }
-                n
-            }
-            json => return Err(DecodingError(format!("enum {:?}", json))),
-        };
-        let idx = match names.iter().position(|n| *n == name) {
-            Some(idx) => idx,
-            None => return Err(DecodingError(name)),
-        };
-        f(self, idx)
+        let string = expect!(self.pop(), String)?;
+        debug!("read_str: {}", string);
+        visitor.visit_str(&string)
     }
 
-    fn read_enum_variant_arg<T, F>(&mut self, idx: usize, f: F) -> DecodeResult<T>
-        where F: FnOnce(&mut Decoder) -> DecodeResult<T>
+    fn deserialize_string<V>(self, visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
     {
-        debug!("read_enum_variant_arg(idx={:?})", idx);
-        f(self)
+        debug!("read_string");
+        self.deserialize_str(visitor)
     }
 
-    fn read_enum_struct_variant<T, F>(&mut self, names: &[&str], f: F) -> DecodeResult<T>
-        where F: FnMut(&mut Decoder, usize) -> DecodeResult<T>
+    fn deserialize_bytes<V>(self, _visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
     {
-        debug!("read_enum_struct_variant(names={:?})", names);
-        self.read_enum_variant(names, f)
+        unimplemented!()
     }
 
-
-    fn read_enum_struct_variant_field<T, F>(&mut self,
-                                            name: &str,
-                                            idx: usize,
-                                            f: F)
-                                            -> DecodeResult<T>
-        where F: FnOnce(&mut Decoder) -> DecodeResult<T>
+    fn deserialize_byte_buf<V>(self, _visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
     {
-        debug!("read_enum_struct_variant_field(name={:?}, idx={:?})",
-               name,
-               idx);
-        self.read_enum_variant_arg(idx, f)
+        unimplemented!()
     }
 
-    fn read_struct<T, F>(&mut self, name: &str, len: usize, f: F) -> DecodeResult<T>
-        where F: FnOnce(&mut Decoder) -> DecodeResult<T>
+    fn deserialize_enum<V>(self, _name: &'static str, _variants: &'static [&'static str], _visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
     {
-        debug!("read_struct(name={:?}, len={:?})", name, len);
-        let value = f(self)?;
-        self.pop();
-        Ok(value)
+        unimplemented!()
     }
 
-    fn read_struct_field<T, F>(&mut self, name: &str, idx: usize, f: F) -> DecodeResult<T>
-        where F: FnOnce(&mut Decoder) -> DecodeResult<T>
+    // Structs look just like maps in JSON.
+    //
+    // Notice the `fields` parameter - a "struct" in the Serde data model means
+    // that the `Deserialize` implementation is required to know what the fields
+    // are before even looking at the input data. Any key-value pairing in which
+    // the fields cannot be known ahead of time is probably a map.
+    fn deserialize_struct<V>(self, _name: &'static str, _fields: &'static [&'static str], visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
     {
-        debug!("read_struct_field(name={:?}, idx={:?})", name, idx);
-        let mut obj = expect!(self.pop(), Map)?;
-
-        let value = match obj.remove(&name.to_owned()) {
-            None => {
-                self.stack.push(Null);
-                match f(self) {
-                    Ok(v) => v,
-                    Err(_) => {
-                        return Err(DecodingError(format!("Unknown struct field {:?}",
-                                                         name.to_owned())))
-                    }
-                }
-            }
-            Some(record) => {
-                self.stack.push(record);
-                f(self)?
-            }
-        };
-        self.stack.push(Map(obj));
-        Ok(value)
+        self.deserialize_map(visitor)
     }
 
-    fn read_tuple<T, F>(&mut self, tuple_len: usize, f: F) -> DecodeResult<T>
-        where F: FnOnce(&mut Decoder) -> DecodeResult<T>
+    // Tuples look just like sequences in JSON. Some formats may be able to
+    // represent tuples more efficiently.
+    //
+    // As indicated by the length parameter, the `Deserialize` implementation
+    // for a tuple in the Serde data model is required to know the length of the
+    // tuple before even looking at the input data.
+    fn deserialize_tuple<V>(
+        self,
+        _len: usize,
+        visitor: V
+    ) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
     {
-        debug!("read_tuple()");
-        self.read_seq(move |d, len| if len == tuple_len {
-                          f(d)
-                      } else {
-                          Err(DecodingError(format!("Tuple{:?}", tuple_len)))
-                      })
+        self.deserialize_seq(visitor)
     }
 
-    fn read_tuple_arg<T, F>(&mut self, idx: usize, f: F) -> DecodeResult<T>
-        where F: FnOnce(&mut Decoder) -> DecodeResult<T>
+    // Tuple structs look just like sequences in JSON.
+    fn deserialize_tuple_struct<V>(
+        self,
+        _name: &'static str,
+        _len: usize,
+        visitor: V
+    ) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
     {
-        debug!("read_tuple_arg(idx={:?})", idx);
-        self.read_seq_elt(idx, f)
+        self.deserialize_seq(visitor)
     }
 
-    fn read_tuple_struct<T, F>(&mut self, name: &str, len: usize, f: F) -> DecodeResult<T>
-        where F: FnOnce(&mut Decoder) -> DecodeResult<T>
-    {
-        debug!("read_tuple_struct(name={:?})", name);
-        self.read_tuple(len, f)
-    }
-
-    fn read_tuple_struct_arg<T, F>(&mut self, idx: usize, f: F) -> DecodeResult<T>
-        where F: FnOnce(&mut Decoder) -> DecodeResult<T>
-    {
-        debug!("read_tuple_struct_arg(idx={:?})", idx);
-        self.read_tuple_arg(idx, f)
-    }
-
-    fn read_option<T, F>(&mut self, f: F) -> DecodeResult<T>
-        where F: FnOnce(&mut Decoder, bool) -> DecodeResult<T>
+    fn deserialize_option<V>(self, visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
     {
         debug!("read_option()");
         match self.pop() {
-            Null => f(self, false),
+            Null => visitor.visit_none(),
             value => {
                 self.stack.push(value);
-                f(self, true)
+                visitor.visit_some(self)
             }
         }
     }
 
-    fn read_seq<T, F>(&mut self, f: F) -> DecodeResult<T>
-        where F: FnOnce(&mut Decoder, usize) -> DecodeResult<T>
+    // In Serde, unit means an anonymous value containing no data.
+    fn deserialize_unit<V>(self, visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
+    {
+        debug!("read_nil");
+        match self.pop() {
+            Null => visitor.visit_unit(),
+            other => Err(DecodingError(format!("Error decoding Null as {:?}", other)))
+        }
+    }
+
+    // Unit struct means a named value containing no data.
+    fn deserialize_unit_struct<V>(self, _name: &'static str, visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
+    {
+        self.deserialize_unit(visitor)
+    }
+
+    // As is done here, serializers are encouraged to treat newtype structs as
+    // insignificant wrappers around the data they contain. That means not
+    // parsing anything other than the contained value.
+    fn deserialize_newtype_struct<V>(self, _name: &'static str, visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
+    {
+        visitor.visit_newtype_struct(self)
+    }
+
+    // An identifier in Serde is the type that identifies a field of a struct or
+    // the variant of an enum.
+    fn deserialize_identifier<V>(
+        self,
+        visitor: V
+    ) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
+    {
+        self.deserialize_str(visitor)
+    }
+
+    fn deserialize_seq<V>(mut self, visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
     {
         debug!("read_seq()");
         let list = expect!(self.pop(), Array)?;
         let len = list.len();
+
         for v in list.into_iter().rev() {
             self.stack.push(v);
         }
-        f(self, len)
+
+        let value = visitor.visit_seq(ArrayAccess::new(&mut self, len))?;
+        Ok(value)
     }
 
-    fn read_seq_elt<T, F>(&mut self, idx: usize, f: F) -> DecodeResult<T>
-        where F: FnOnce(&mut Decoder) -> DecodeResult<T>
-    {
-        debug!("read_seq_elt(idx={:?})", idx);
-        f(self)
-    }
-
-    fn read_map<T, F>(&mut self, f: F) -> DecodeResult<T>
-        where F: FnOnce(&mut Decoder, usize) -> DecodeResult<T>
+    // Much like `deserialize_seq` but calls the visitors `visit_map` method
+    // with a `MapAccess` implementation, rather than the visitor's `visit_seq`
+    // method with a `SeqAccess` implementation.
+    fn deserialize_map<V>(mut self, visitor: V) -> DecodeResult<V::Value>
+        where V: Visitor<'de>
     {
         debug!("read_map()");
         let obj = expect!(self.pop(), Map)?;
@@ -331,24 +319,81 @@ impl rustc_serialize::Decoder for Decoder {
             self.stack.push(value);
             self.stack.push(String(key));
         }
-        f(self, len)
-    }
 
-    fn read_map_elt_key<T, F>(&mut self, idx: usize, f: F) -> DecodeResult<T>
-        where F: FnOnce(&mut Decoder) -> DecodeResult<T>
+        let value = visitor.visit_map(MapAccessor::new(&mut self, len * 2))?;
+        Ok(value)
+    }
+}
+
+struct ArrayAccess<'a> {
+    de: &'a mut Decoder,
+    count: usize,
+}
+
+impl<'a> ArrayAccess<'a> {
+    fn new(de: &'a mut Decoder, count: usize) -> Self {
+        ArrayAccess { de: de, count: count }
+    }
+}
+
+// `SeqAccess` is provided to the `Visitor` to give it the ability to iterate
+// through elements of the sequence.
+impl<'de, 'a> SeqAccess<'de> for ArrayAccess<'a> {
+    type Error = MaxMindDBError;
+
+    fn next_element_seed<T>(&mut self, seed: T) -> DecodeResult<Option<T::Value>>
+        where T: DeserializeSeed<'de>
     {
-        debug!("read_map_elt_key(idx={:?})", idx);
-        f(self)
-    }
+        // Check if there are no more elements.
+        if self.count == 0 {
+            return Ok(None);
+        }
+        self.count -= 1;
 
-    fn read_map_elt_val<T, F>(&mut self, idx: usize, f: F) -> DecodeResult<T>
-        where F: FnOnce(&mut Decoder) -> DecodeResult<T>
+        // Deserialize an array element.
+        seed.deserialize(&mut *self.de).map(Some)
+    }
+}
+
+struct MapAccessor<'a> {
+    de: &'a mut Decoder,
+    count: usize,
+}
+
+impl<'a> MapAccessor<'a> {
+    fn new(de: &'a mut Decoder, count: usize) -> Self {
+        MapAccessor { de: de, count: count }
+    }
+}
+
+// `MapAccess` is provided to the `Visitor` to give it the ability to iterate
+// through entries of the map.
+impl<'de, 'a> MapAccess<'de> for MapAccessor<'a> {
+    type Error = MaxMindDBError;
+
+    fn next_key_seed<K>(&mut self, seed: K) -> DecodeResult<Option<K::Value>>
+        where K: DeserializeSeed<'de>
     {
-        debug!("read_map_elt_val(idx={:?})", idx);
-        f(self)
+        // Check if there are no more entries.
+        if self.count == 0 {
+            return Ok(None);
+        }
+        self.count -= 1;
+
+        // Deserialize a map key.
+        seed.deserialize(&mut *self.de).map(Some)
     }
 
-    fn error(&mut self, err: &str) -> MaxMindDBError {
-        DecodingError(err.to_owned())
+    fn next_value_seed<V>(&mut self, seed: V) -> DecodeResult<V::Value>
+        where V: DeserializeSeed<'de>
+    {
+        // Check if there are no more entries.
+        if self.count == 0 {
+            return Err(DecodingError("no more entries".to_owned()))
+        }
+        self.count -= 1;
+
+        // Deserialize a map key.
+        seed.deserialize(&mut *self.de)
     }
 }

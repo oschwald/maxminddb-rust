@@ -1,3 +1,5 @@
+extern crate env_logger;
+
 use super::{MaxMindDBError, Reader};
 
 use std::str::FromStr;
@@ -5,23 +7,24 @@ use std::net::IpAddr;
 
 #[test]
 fn test_decoder() {
+    let _ = env_logger::init();
 
     #[allow(non_snake_case)]
-    #[derive(RustcDecodable, Debug, Eq, PartialEq)]
+    #[derive(Deserialize, Debug, Eq, PartialEq)]
     struct MapXType {
-        arrayX: Vec<usize>,
+        arrayX: Vec<u32>,
         utf8_stringX: String,
     };
 
     #[allow(non_snake_case)]
-    #[derive(RustcDecodable, Debug, Eq, PartialEq)]
+    #[derive(Deserialize, Debug, Eq, PartialEq)]
     struct MapType {
         mapX: MapXType,
     };
 
-    #[derive(RustcDecodable, Debug)]
+    #[derive(Deserialize, Debug)]
     struct TestType {
-        array: Vec<usize>,
+        array: Vec<u32>,
         boolean: bool,
         bytes: Vec<u8>,
         double: f64,
@@ -35,13 +38,15 @@ fn test_decoder() {
         utf8_string: String,
     }
 
-    let r = Reader::open("test-data/test-data/MaxMind-DB-test-decoder.mmdb")
-        .ok()
-        .unwrap();
+    let r = Reader::open("test-data/test-data/MaxMind-DB-test-decoder.mmdb");
+    if let Err(err) = r {
+        panic!(format!("error opening mmdb: {:?}", err));
+    }
+    let r = r.unwrap();
     let ip: IpAddr = FromStr::from_str("1.1.1.0").unwrap();
     let result: TestType = r.lookup(ip).unwrap();
 
-    assert_eq!(result.array, vec![1usize, 2usize, 3usize]);
+    assert_eq!(result.array, vec![1u32, 2u32, 3u32]);
     assert_eq!(result.boolean, true);
     assert_eq!(result.bytes, vec![0u8, 0u8, 0u8, 42u8]);
     assert_eq!(result.double, 42.123456);
@@ -67,12 +72,14 @@ fn test_decoder() {
 
 #[test]
 fn test_broken_database() {
+    let _ = env_logger::init();
+
     let r = Reader::open("test-data/test-data/GeoIP2-City-Test-Broken-Double-Format.mmdb")
         .ok()
         .unwrap();
     let ip: IpAddr = FromStr::from_str("2001:220::").unwrap();
 
-    #[derive(RustcDecodable, Debug)]
+    #[derive(Deserialize, Debug)]
     struct TestType;
     match r.lookup::<TestType>(ip) {
         Err(e) => {
@@ -85,6 +92,8 @@ fn test_broken_database() {
 
 #[test]
 fn test_missing_database() {
+    let _ = env_logger::init();
+
     let r = Reader::open("file-does-not-exist.mmdb");
     match r {
         Ok(_) => panic!("Received Reader when opening non-existent file"),
@@ -95,6 +104,8 @@ fn test_missing_database() {
 
 #[test]
 fn test_non_database() {
+    let _ = env_logger::init();
+
     let r = Reader::open("README.md");
     match r {
         Ok(_) => panic!("Received Reader when opening a non-MMDB file"),
@@ -110,6 +121,8 @@ fn test_non_database() {
 
 #[test]
 fn test_reader() {
+    let _ = env_logger::init();
+
     let sizes = [24usize, 28, 32];
     for record_size in sizes.iter() {
         let versions = [4usize, 6];
@@ -175,7 +188,7 @@ fn check_ip(reader: &Reader, ip_version: usize) {
         }
     };
 
-    #[derive(RustcDecodable, Debug)]
+    #[derive(Deserialize, Debug)]
     struct IpType {
         ip: String,
     }

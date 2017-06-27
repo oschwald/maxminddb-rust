@@ -10,7 +10,8 @@
 extern crate log;
 
 extern crate serde;
-extern crate rustc_serialize;
+#[macro_use]
+extern crate serde_derive;
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -20,9 +21,9 @@ use std::error::Error;
 use std::mem;
 use std::net::IpAddr;
 use std::path::Path;
+use std::fmt::{self, Display, Formatter};
 
-use rustc_serialize::Decodable;
-use serde::Deserialize;
+use serde::{de, Deserialize};
 
 #[derive(Debug, PartialEq)]
 pub enum MaxMindDBError {
@@ -40,9 +41,28 @@ impl From<io::Error> for MaxMindDBError {
     }
 }
 
+
+impl Display for MaxMindDBError {
+    fn fmt(&self, fmt: &mut Formatter) -> Result<(), fmt::Error> {
+        std::error::Error::description(self).fmt(fmt)
+    }
+}
+
+impl std::error::Error for MaxMindDBError {
+    fn description(&self) -> &str {
+        "error while decoding value"
+    }
+}
+
+impl de::Error for MaxMindDBError {
+    fn custom<T: Display>(msg: T) -> Self {
+        MaxMindDBError::DecodingError(format!("{}", msg))
+    }
+}
+
 type BinaryDecodeResult<T> = (Result<T, MaxMindDBError>, usize);
 
-#[derive(RustcDecodable, Debug)]
+#[derive(Deserialize, Debug)]
 pub struct Metadata {
     pub binary_format_major_version: u16,
     pub binary_format_minor_version: u16,
@@ -51,7 +71,7 @@ pub struct Metadata {
     pub description: BTreeMap<String, String>,
     pub ip_version: u16,
     pub languages: Vec<String>,
-    pub node_count: usize,
+    pub node_count: u32,
     pub record_size: u16,
 }
 
@@ -321,7 +341,7 @@ pub struct Reader {
     ipv4_start: usize,
 }
 
-impl Reader {
+impl<'de> Reader {
     /// Open a MaxMind DB database file.
     ///
     /// # Example
@@ -355,9 +375,9 @@ impl Reader {
         };
 
         let mut type_decoder = decoder::Decoder::new(raw_metadata);
-        let metadata: Metadata = Decodable::decode(&mut type_decoder)?;
+        let metadata = Metadata::deserialize(&mut type_decoder)?;
 
-        let search_tree_size = metadata.node_count * (metadata.record_size as usize) / 4;
+        let search_tree_size = (metadata.node_count as usize) * (metadata.record_size as usize) / 4;
         let decoder = BinaryDecoder {
             buf: metadata_decoder.buf,
             pointer_base: search_tree_size + data_section_separator_size,
@@ -393,7 +413,9 @@ impl Reader {
     /// Note that SocketAddr requires a port, which is not needed to look up
     /// the address in the database. This library will likely switch to IpAddr
     /// if the feature gate for that is removed.
-    pub fn lookup<T: Decodable>(&self, address: IpAddr) -> Result<T, MaxMindDBError> {
+    pub fn lookup<T>(&self, address: IpAddr) -> Result<T, MaxMindDBError>
+        where T: Deserialize<'de>
+    {
         let ip_bytes = ip_to_bytes(address);
         let pointer = self.find_address_in_tree(ip_bytes)?;
         if pointer == 0 {
@@ -402,24 +424,27 @@ impl Reader {
         }
         let rec = self.resolve_data_pointer(pointer)?;
         let mut decoder = decoder::Decoder::new(rec);
-        Decodable::decode(&mut decoder)
+
+        T::deserialize(&mut decoder)
     }
 
     fn find_address_in_tree(&self, ip_address: Vec<u8>) -> Result<usize, MaxMindDBError> {
         let bit_count = ip_address.len() * 8;
         let mut node = self.start_node(bit_count)?;
 
+        let node_count = self.metadata.node_count as usize;
+
         for i in 0..bit_count {
-            if node >= self.metadata.node_count {
+            if node >= node_count {
                 break;
             }
             let bit = 1 & (ip_address[i >> 3] >> (7 - (i % 8)));
 
             node = self.read_node(node, bit as usize)?;
         }
-        if node == self.metadata.node_count {
+        if node == node_count {
             Ok(0)
-        } else if node > self.metadata.node_count {
+        } else if node > node_count {
             Ok(node)
         } else {
             Err(MaxMindDBError::InvalidDatabaseError("invalid node in search tree".to_owned()))
@@ -443,7 +468,7 @@ impl Reader {
         // first 96 nodes.
         let mut node: usize = 0usize;
         for _ in 0u8..96 {
-            if node >= self.metadata.node_count {
+            if node >= self.metadata.node_count as usize {
                 break;
             }
             node = self.read_node(node, 0)?;
@@ -484,9 +509,9 @@ impl Reader {
     }
 
     fn resolve_data_pointer(&self, pointer: usize) -> Result<decoder::DataRecord, MaxMindDBError> {
-        let search_tree_size = (self.metadata.record_size as usize) * self.metadata.node_count / 4;
+        let search_tree_size = (self.metadata.record_size as usize) * (self.metadata.node_count as usize) / 4;
 
-        let resolved = pointer - self.metadata.node_count + search_tree_size;
+        let resolved = pointer -  (self.metadata.node_count as usize) + search_tree_size;
 
         if resolved > self.decoder.buf.len() {
             return Err(MaxMindDBError::InvalidDatabaseError("the MaxMind DB file's search tree \
