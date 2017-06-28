@@ -63,11 +63,25 @@ pub type DecodeResult<T> = Result<T, MaxMindDBError>;
 impl<'de, 'a> de::Deserializer<'de> for &'a mut Decoder {
     type Error = MaxMindDBError;
 
-    fn deserialize_any<V>(self, _visitor: V) -> DecodeResult<V::Value>
+    fn deserialize_any<V>(self, visitor: V) -> DecodeResult<V::Value>
     where
         V: Visitor<'de>,
     {
-        unimplemented!()
+        debug!("deserialize_any");
+        match self.pop() {
+            String(ref value) => visitor.visit_str(value),
+            Double(value) => visitor.visit_f64(value),
+            Byte(value) => visitor.visit_u8(value),
+            Uint16(value) => visitor.visit_u16(value),
+            Uint32(value) => visitor.visit_u32(value),
+            Map(_) => unimplemented!(),
+            Int32(value) => visitor.visit_i32(value),
+            Uint64(value) => visitor.visit_u64(value),
+            Boolean(value) => visitor.visit_bool(value),
+            Array(_) => unimplemented!(),
+            Float(value) => visitor.visit_f32(value),
+            Null => visitor.visit_unit(),
+        }
     }
 
     // Like `deserialize_any` but indicates to the `Deserializer` that it makes
@@ -438,7 +452,7 @@ impl<'de, 'a> MapAccess<'de> for MapAccessor<'a> {
         }
         self.count -= 1;
 
-        // Deserialize a map key.
+        // Deserialize a map value.
         seed.deserialize(&mut *self.de)
     }
 }

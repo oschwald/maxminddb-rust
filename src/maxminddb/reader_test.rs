@@ -151,6 +151,23 @@ fn test_reader() {
     }
 }
 
+#[test]
+fn test_lookup_city() {
+    use super::geoip2::City;
+    let _ = env_logger::init();
+
+    let filename = "test-data/test-data/GeoIP2-City-Test.mmdb";
+
+    let reader = Reader::open(filename).unwrap();
+
+    let ip: IpAddr = FromStr::from_str("89.160.20.112").unwrap();
+    let city: City = reader.lookup(ip).unwrap();
+
+    let iso_code = city.country.and_then(|cy| cy.iso_code);
+
+    assert_eq!(iso_code, Some("SE".to_owned()));
+}
+
 fn check_metadata(reader: &Reader, ip_version: usize, record_size: usize) {
     let metadata = &reader.metadata;
 
