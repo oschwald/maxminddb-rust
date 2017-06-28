@@ -55,6 +55,10 @@ impl Decoder {
     fn pop(&mut self) -> DataRecord {
         self.stack.pop().unwrap()
     }
+
+    fn peek(&self) -> Option<&DataRecord> {
+        self.stack.get(self.stack.len() - 1)
+    }
 }
 
 pub type DecodeResult<T> = Result<T, MaxMindDBError>;
@@ -68,19 +72,20 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Decoder {
         V: Visitor<'de>,
     {
         debug!("deserialize_any");
-        match self.pop() {
-            String(ref value) => visitor.visit_str(value),
-            Double(value) => visitor.visit_f64(value),
-            Byte(value) => visitor.visit_u8(value),
-            Uint16(value) => visitor.visit_u16(value),
-            Uint32(value) => visitor.visit_u32(value),
-            Map(_) => unimplemented!(),
-            Int32(value) => visitor.visit_i32(value),
-            Uint64(value) => visitor.visit_u64(value),
-            Boolean(value) => visitor.visit_bool(value),
-            Array(_) => unimplemented!(),
-            Float(value) => visitor.visit_f32(value),
-            Null => visitor.visit_unit(),
+        match self.peek() {
+            Some(&String(_)) => self.deserialize_str(visitor),
+            Some(&Double(_)) => self.deserialize_f64(visitor),
+            Some(&Byte(_)) => self.deserialize_u8(visitor),
+            Some(&Uint16(_)) => self.deserialize_u16(visitor),
+            Some(&Uint32(_)) => self.deserialize_u32(visitor),
+            Some(&Map(_)) => self.deserialize_map(visitor),
+            Some(&Int32(_)) => self.deserialize_i32(visitor),
+            Some(&Uint64(_)) => self.deserialize_u64(visitor),
+            Some(&Boolean(_)) => self.deserialize_bool(visitor),
+            Some(&Array(_)) => self.deserialize_seq(visitor),
+            Some(&Float(_)) => self.deserialize_f32(visitor),
+            Some(&Null) => self.deserialize_unit(visitor),
+            None => Err(DecodingError("nothing left to deserialize".to_owned())),
         }
     }
 
