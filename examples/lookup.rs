@@ -1,5 +1,4 @@
 extern crate maxminddb;
-extern crate rustc_serialize;
 
 use std::net::IpAddr;
 use std::str::FromStr;
