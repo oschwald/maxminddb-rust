@@ -1,5 +1,11 @@
 # Change Log #
 
+## 0.8.0 - 2017-06-28
+
+* API CHANGE: Switch to Serde for deserialization. Data structures being
+  deserialized to must implement the `Deserialize` trait. Pull request by
+  Wesley Moore. GitHub #5.
+
 ## 0.7.2 - 2017-04-16
 
 * Update `log` to 0.3.7 and `rustc-serialize` to 0.3.23.

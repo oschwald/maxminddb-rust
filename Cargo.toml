@@ -1,6 +1,6 @@
 [package]
 name = "maxminddb"
-version = "0.7.2"
+version = "0.8.0"
 description = "Library for reading MaxMind DB format used by GeoIP2"
 documentation = "http://oschwald.github.io/maxminddb-rust/maxminddb/struct.Reader.html"
 readme = "README.md"
@@ -16,7 +16,7 @@ crate_type = ["lib", "dylib", "staticlib"]
 path = "src/maxminddb/lib.rs"
 
 [dependencies]
-log = "0.3.7"
+log = "0.3.8"
 serde = "1.0.8"
 serde_derive = "1.0.8"
 
