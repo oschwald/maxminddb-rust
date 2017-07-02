@@ -122,7 +122,7 @@ fn test_non_database() {
                 MaxMindDBError::InvalidDatabaseError(
                     "Could not find MaxMind DB metadata \
                      in file."
-                        .to_string()
+                        .to_string(),
                 )
             )
         }
@@ -258,9 +258,7 @@ fn check_ip(reader: &Reader, ip_version: usize) {
             Err(e) => {
                 assert_eq!(
                     e,
-                    MaxMindDBError::AddressNotFoundError(
-                        "Address not found in database".to_string()
-                    )
+                    MaxMindDBError::AddressNotFoundError("Address not found in database".to_string())
                 )
             }
         }

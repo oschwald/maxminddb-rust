@@ -9,7 +9,9 @@
 #[macro_use]
 extern crate log;
 
+#[macro_use]
 extern crate serde;
+
 #[macro_use]
 extern crate serde_derive;
 
@@ -125,9 +127,9 @@ impl BinaryDecoder {
             4 => {
                 let new_offset = offset + size;
 
-                let value = self.buf[offset..new_offset]
-                    .iter()
-                    .fold(0u32, |acc, &b| (acc << 8) | b as u32);
+                let value = self.buf[offset..new_offset].iter().fold(0u32, |acc, &b| {
+                    (acc << 8) | b as u32
+                });
                 let float_value: f32 = unsafe { mem::transmute(value) };
                 (Ok(decoder::DataRecord::Float(float_value)), new_offset)
             }
@@ -145,9 +147,9 @@ impl BinaryDecoder {
             8 => {
                 let new_offset = offset + size;
 
-                let value = self.buf[offset..new_offset]
-                    .iter()
-                    .fold(0u64, |acc, &b| (acc << 8) | b as u64);
+                let value = self.buf[offset..new_offset].iter().fold(0u64, |acc, &b| {
+                    (acc << 8) | b as u64
+                });
                 let float_value: f64 = unsafe { mem::transmute(value) };
                 (Ok(decoder::DataRecord::Double(float_value)), new_offset)
             }
@@ -165,9 +167,9 @@ impl BinaryDecoder {
             s if s <= 8 => {
                 let new_offset = offset + size;
 
-                let value = self.buf[offset..new_offset]
-                    .iter()
-                    .fold(0u64, |acc, &b| (acc << 8) | b as u64);
+                let value = self.buf[offset..new_offset].iter().fold(0u64, |acc, &b| {
+                    (acc << 8) | b as u64
+                });
                 (Ok(decoder::DataRecord::Uint64(value)), new_offset)
             }
             s => (
@@ -222,9 +224,9 @@ impl BinaryDecoder {
             s if s <= 4 => {
                 let new_offset = offset + size;
 
-                let value = self.buf[offset..new_offset]
-                    .iter()
-                    .fold(0i32, |acc, &b| (acc << 8) | b as i32);
+                let value = self.buf[offset..new_offset].iter().fold(0i32, |acc, &b| {
+                    (acc << 8) | b as i32
+                });
                 (Ok(decoder::DataRecord::Int32(value)), new_offset)
             }
             s => (
@@ -587,9 +589,10 @@ impl<'de> Reader {
 // I haven't moved all patterns of this form to a generic function as
 // the FromPrimitive trait is unstable
 fn to_usize(base: u8, bytes: &[u8]) -> usize {
-    bytes
-        .iter()
-        .fold(base as usize, |acc, &b| (acc << 8) | b as usize)
+    bytes.iter().fold(
+        base as usize,
+        |acc, &b| (acc << 8) | b as usize,
+    )
 }
 
 fn ip_to_bytes(address: IpAddr) -> Vec<u8> {
