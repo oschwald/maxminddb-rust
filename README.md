@@ -10,7 +10,7 @@ databases.
 To build everything:
 
 ```
-make all check
+cargo build
 ```
 
 ## Usage ##
@@ -19,7 +19,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-maxminddb = "0.7.2"
+maxminddb = "0.8.1"
 ```
 
 and this to your crate root:
@@ -34,7 +34,7 @@ The API docs are on [GitHub Pages](http://oschwald.github.io/maxminddb-rust/maxm
 
 ## Example ##
 
-See `example/lookup.rs` for a basic example.
+See [`examples/lookup.rs`](https://github.com/oschwald/maxminddb-rust/blob/master/examples/lookup.rs) for a basic example.
 
 ## Contributing ##
 
