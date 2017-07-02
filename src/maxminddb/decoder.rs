@@ -3,6 +3,7 @@ use std::string;
 
 use serde::de::{self, DeserializeSeed, Visitor, SeqAccess, MapAccess};
 
+
 use super::MaxMindDBError;
 use super::MaxMindDBError::DecodingError;
 
@@ -67,6 +68,7 @@ pub type DecodeResult<T> = Result<T, MaxMindDBError>;
 impl<'de, 'a> de::Deserializer<'de> for &'a mut Decoder {
     type Error = MaxMindDBError;
 
+    #[inline]
     fn deserialize_any<V>(self, visitor: V) -> DecodeResult<V::Value>
     where
         V: Visitor<'de>,
@@ -87,24 +89,6 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Decoder {
             Some(&Null) => self.deserialize_unit(visitor),
             None => Err(DecodingError("nothing left to deserialize".to_owned())),
         }
-    }
-
-    // Like `deserialize_any` but indicates to the `Deserializer` that it makes
-    // no difference which `Visitor` method is called because the data is
-    // ignored.
-    //
-    // Some deserializers are able to implement this more efficiently than
-    // `deserialize_any`, for example by rapidly skipping over matched
-    // delimiters without paying close attention to the data in between.
-    //
-    // Some formats are not able to implement this at all. Formats that can
-    // implement `deserialize_any` and `deserialize_ignored_any` are known as
-    // self-describing.
-    fn deserialize_ignored_any<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        self.deserialize_any(visitor)
     }
 
     fn deserialize_u64<V>(self, visitor: V) -> DecodeResult<V::Value>
@@ -155,20 +139,6 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Decoder {
         visitor.visit_i32(expect!(self.pop(), Int32)?)
     }
 
-    fn deserialize_i16<V>(self, _visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        unimplemented!()
-    }
-
-    fn deserialize_i8<V>(self, _visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        unimplemented!()
-    }
-
     fn deserialize_bool<V>(self, visitor: V) -> DecodeResult<V::Value>
     where
         V: Visitor<'de>,
@@ -193,13 +163,6 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Decoder {
         visitor.visit_f32(expect!(self.pop(), Float)?)
     }
 
-    fn deserialize_char<V>(self, _visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        unimplemented!()
-    }
-
     fn deserialize_str<V>(self, visitor: V) -> DecodeResult<V::Value>
     where
         V: Visitor<'de>,
@@ -215,32 +178,6 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Decoder {
     {
         debug!("read_string");
         self.deserialize_str(visitor)
-    }
-
-    fn deserialize_bytes<V>(self, _visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        unimplemented!()
-    }
-
-    fn deserialize_byte_buf<V>(self, _visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        unimplemented!()
-    }
-
-    fn deserialize_enum<V>(
-        self,
-        _name: &'static str,
-        _variants: &'static [&'static str],
-        _visitor: V,
-    ) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        unimplemented!()
     }
 
     // Structs look just like maps in JSON.
@@ -377,6 +314,10 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Decoder {
 
         let value = visitor.visit_map(MapAccessor::new(&mut self, len * 2))?;
         Ok(value)
+    }
+
+    forward_to_deserialize_any! {
+        bytes byte_buf char enum i8 i16 ignored_any
     }
 }
 
