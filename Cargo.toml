@@ -2,9 +2,9 @@
 name = "maxminddb"
 version = "0.8.1"
 authors = [ "Gregory J. Oschwald <oschwald@gmail.com>" ]
-description = "Library for reading MaxMind DB format used by GeoIP2"
+description = "Library for reading MaxMind DB format used by GeoIP2 and GeoLite2"
 readme = "README.md"
-keywords = ["MaxMind", "GeoIP2", "GeoIP", "GeoLite2", "GeoLite", "geolocation", "ip"]
+keywords = ["MaxMind", "GeoIP2", "GeoIP", "geolocation", "ip"]
 categories = ["database", "network-programming"]
 homepage = "https://github.com/oschwald/maxminddb-rust"
 documentation = "http://oschwald.github.io/maxminddb-rust/maxminddb/struct.Reader.html"
