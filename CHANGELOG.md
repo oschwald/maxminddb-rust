@@ -1,5 +1,9 @@
 # Change Log #
 
+## 0.8.1 - 2017-07-02
+
+* Implement unimplemented deserialize methods.
+
 ## 0.8.0 - 2017-06-28
 
 * API CHANGE: Switch to Serde for deserialization. Data structures being
