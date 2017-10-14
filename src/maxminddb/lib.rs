@@ -1,10 +1,7 @@
 #![crate_name = "maxminddb"]
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
-
-#![deny(trivial_casts, trivial_numeric_casts,
-        unstable_features,
-        unused_import_braces)]
+#![deny(trivial_casts, trivial_numeric_casts, unstable_features, unused_import_braces)]
 
 #[macro_use]
 extern crate log;
@@ -127,9 +124,9 @@ impl BinaryDecoder {
             4 => {
                 let new_offset = offset + size;
 
-                let value = self.buf[offset..new_offset].iter().fold(0u32, |acc, &b| {
-                    (acc << 8) | b as u32
-                });
+                let value = self.buf[offset..new_offset]
+                    .iter()
+                    .fold(0u32, |acc, &b| (acc << 8) | b as u32);
                 let float_value: f32 = unsafe { mem::transmute(value) };
                 (Ok(decoder::DataRecord::Float(float_value)), new_offset)
             }
@@ -147,9 +144,9 @@ impl BinaryDecoder {
             8 => {
                 let new_offset = offset + size;
 
-                let value = self.buf[offset..new_offset].iter().fold(0u64, |acc, &b| {
-                    (acc << 8) | b as u64
-                });
+                let value = self.buf[offset..new_offset]
+                    .iter()
+                    .fold(0u64, |acc, &b| (acc << 8) | b as u64);
                 let float_value: f64 = unsafe { mem::transmute(value) };
                 (Ok(decoder::DataRecord::Double(float_value)), new_offset)
             }
@@ -167,9 +164,9 @@ impl BinaryDecoder {
             s if s <= 8 => {
                 let new_offset = offset + size;
 
-                let value = self.buf[offset..new_offset].iter().fold(0u64, |acc, &b| {
-                    (acc << 8) | b as u64
-                });
+                let value = self.buf[offset..new_offset]
+                    .iter()
+                    .fold(0u64, |acc, &b| (acc << 8) | b as u64);
                 (Ok(decoder::DataRecord::Uint64(value)), new_offset)
             }
             s => (
@@ -183,14 +180,12 @@ impl BinaryDecoder {
 
     fn decode_uint32(&self, size: usize, offset: usize) -> BinaryDecodeResult<decoder::DataRecord> {
         match size {
-            s if s <= 4 => {
-                match self.decode_uint64(size, offset) {
-                    (Ok(decoder::DataRecord::Uint64(u)), o) => {
-                        (Ok(decoder::DataRecord::Uint32(u as u32)), o)
-                    }
-                    e => e,
+            s if s <= 4 => match self.decode_uint64(size, offset) {
+                (Ok(decoder::DataRecord::Uint64(u)), o) => {
+                    (Ok(decoder::DataRecord::Uint32(u as u32)), o)
                 }
-            }
+                e => e,
+            },
             s => (
                 Err(MaxMindDBError::InvalidDatabaseError(
                     format!("u32 of size {:?}", s),
@@ -202,14 +197,12 @@ impl BinaryDecoder {
 
     fn decode_uint16(&self, size: usize, offset: usize) -> BinaryDecodeResult<decoder::DataRecord> {
         match size {
-            s if s <= 4 => {
-                match self.decode_uint64(size, offset) {
-                    (Ok(decoder::DataRecord::Uint64(u)), o) => {
-                        (Ok(decoder::DataRecord::Uint16(u as u16)), o)
-                    }
-                    e => e,
+            s if s <= 4 => match self.decode_uint64(size, offset) {
+                (Ok(decoder::DataRecord::Uint64(u)), o) => {
+                    (Ok(decoder::DataRecord::Uint16(u as u16)), o)
                 }
-            }
+                e => e,
+            },
             s => (
                 Err(MaxMindDBError::InvalidDatabaseError(
                     format!("u16 of size {:?}", s),
@@ -224,9 +217,9 @@ impl BinaryDecoder {
             s if s <= 4 => {
                 let new_offset = offset + size;
 
-                let value = self.buf[offset..new_offset].iter().fold(0i32, |acc, &b| {
-                    (acc << 8) | b as i32
-                });
+                let value = self.buf[offset..new_offset]
+                    .iter()
+                    .fold(0i32, |acc, &b| (acc << 8) | b as i32);
                 (Ok(decoder::DataRecord::Int32(value)), new_offset)
             }
             s => (
@@ -302,14 +295,12 @@ impl BinaryDecoder {
         let bytes = &self.buf[offset..new_offset];
         match from_utf8(bytes) {
             Ok(v) => (Ok(decoder::DataRecord::String(v.to_owned())), new_offset),
-            Err(_) => {
-                (
-                    Err(MaxMindDBError::InvalidDatabaseError(
-                        "error decoding string".to_owned(),
-                    )),
-                    new_offset,
-                )
-            }
+            Err(_) => (
+                Err(MaxMindDBError::InvalidDatabaseError(
+                    "error decoding string".to_owned(),
+                )),
+                new_offset,
+            ),
         }
     }
 
@@ -330,7 +321,6 @@ impl BinaryDecoder {
     }
 
     fn size_from_ctrl_byte(&self, ctrl_byte: u8, offset: usize, type_num: u8) -> (usize, usize) {
-
         let mut size = (ctrl_byte & 0x1f) as usize;
         // extended
         if type_num == 0 {
@@ -372,14 +362,12 @@ impl BinaryDecoder {
             11 => self.decode_array(size, offset),
             14 => self.decode_bool(size, offset),
             15 => self.decode_float(size, offset),
-            u => {
-                (
-                    Err(MaxMindDBError::InvalidDatabaseError(
-                        format!("Unknown data type: {:?}", u),
-                    )),
-                    offset,
-                )
-            }
+            u => (
+                Err(MaxMindDBError::InvalidDatabaseError(
+                    format!("Unknown data type: {:?}", u),
+                )),
+                offset,
+            ),
         }
     }
 }
@@ -568,8 +556,8 @@ impl<'de> Reader {
     }
 
     fn resolve_data_pointer(&self, pointer: usize) -> Result<decoder::DataRecord, MaxMindDBError> {
-        let search_tree_size = (self.metadata.record_size as usize) *
-            (self.metadata.node_count as usize) / 4;
+        let search_tree_size =
+            (self.metadata.record_size as usize) * (self.metadata.node_count as usize) / 4;
 
         let resolved = pointer - (self.metadata.node_count as usize) + search_tree_size;
 
@@ -589,10 +577,9 @@ impl<'de> Reader {
 // I haven't moved all patterns of this form to a generic function as
 // the FromPrimitive trait is unstable
 fn to_usize(base: u8, bytes: &[u8]) -> usize {
-    bytes.iter().fold(
-        base as usize,
-        |acc, &b| (acc << 8) | b as usize,
-    )
+    bytes
+        .iter()
+        .fold(base as usize, |acc, &b| (acc << 8) | b as usize)
 }
 
 fn ip_to_bytes(address: IpAddr) -> Vec<u8> {

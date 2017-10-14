@@ -78,21 +78,18 @@ fn test_decoder() {
 fn test_broken_database() {
     let _ = env_logger::init();
 
-    let r = Reader::open(
-        "test-data/test-data/GeoIP2-City-Test-Broken-Double-Format.mmdb",
-    ).ok()
+    let r = Reader::open("test-data/test-data/GeoIP2-City-Test-Broken-Double-Format.mmdb")
+        .ok()
         .unwrap();
     let ip: IpAddr = FromStr::from_str("2001:220::").unwrap();
 
     #[derive(Deserialize, Debug)]
     struct TestType;
     match r.lookup::<TestType>(ip) {
-        Err(e) => {
-            assert_eq!(
-                e,
-                MaxMindDBError::InvalidDatabaseError("double of size 2".to_string())
-            )
-        }
+        Err(e) => assert_eq!(
+            e,
+            MaxMindDBError::InvalidDatabaseError("double of size 2".to_string())
+        ),
         Ok(_) => panic!("Error expected"),
     }
 }
@@ -116,17 +113,14 @@ fn test_non_database() {
     let r = Reader::open("README.md");
     match r {
         Ok(_) => panic!("Received Reader when opening a non-MMDB file"),
-        Err(e) => {
-            assert_eq!(
-                e,
-                MaxMindDBError::InvalidDatabaseError(
-                    "Could not find MaxMind DB metadata \
-                     in file."
-                        .to_string(),
-                )
+        Err(e) => assert_eq!(
+            e,
+            MaxMindDBError::InvalidDatabaseError(
+                "Could not find MaxMind DB metadata \
+                 in file."
+                    .to_string(),
             )
-        }
-
+        ),
     }
 }
 
@@ -199,42 +193,37 @@ fn check_metadata(reader: &Reader, ip_version: usize, record_size: usize) {
 }
 
 fn check_ip(reader: &Reader, ip_version: usize) {
-
     let subnets = match ip_version {
-        6 => {
-            [
-                "::1:ffff:ffff",
-                "::2:0:0",
-                "::2:0:0",
-                "::2:0:0",
-                "::2:0:0",
-                "::2:0:40",
-                "::2:0:40",
-                "::2:0:40",
-                "::2:0:50",
-                "::2:0:50",
-                "::2:0:50",
-                "::2:0:58",
-                "::2:0:58",
-            ]
-        }
-        _ => {
-            [
-                "1.1.1.1",
-                "1.1.1.2",
-                "1.1.1.2",
-                "1.1.1.4",
-                "1.1.1.4",
-                "1.1.1.4",
-                "1.1.1.4",
-                "1.1.1.8",
-                "1.1.1.8",
-                "1.1.1.8",
-                "1.1.1.16",
-                "1.1.1.16",
-                "1.1.1.16",
-            ]
-        }
+        6 => [
+            "::1:ffff:ffff",
+            "::2:0:0",
+            "::2:0:0",
+            "::2:0:0",
+            "::2:0:0",
+            "::2:0:40",
+            "::2:0:40",
+            "::2:0:40",
+            "::2:0:50",
+            "::2:0:50",
+            "::2:0:50",
+            "::2:0:58",
+            "::2:0:58",
+        ],
+        _ => [
+            "1.1.1.1",
+            "1.1.1.2",
+            "1.1.1.2",
+            "1.1.1.4",
+            "1.1.1.4",
+            "1.1.1.4",
+            "1.1.1.4",
+            "1.1.1.8",
+            "1.1.1.8",
+            "1.1.1.8",
+            "1.1.1.16",
+            "1.1.1.16",
+            "1.1.1.16",
+        ],
     };
 
     #[derive(Deserialize, Debug)]
@@ -255,12 +244,10 @@ fn check_ip(reader: &Reader, ip_version: usize) {
         let ip: IpAddr = FromStr::from_str(address).unwrap();
         match reader.lookup::<IpType>(ip) {
             Ok(v) => panic!("received an unexpected value: {:?}", v),
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MaxMindDBError::AddressNotFoundError("Address not found in database".to_string())
-                )
-            }
+            Err(e) => assert_eq!(
+                e,
+                MaxMindDBError::AddressNotFoundError("Address not found in database".to_string())
+            ),
         }
     }
 }

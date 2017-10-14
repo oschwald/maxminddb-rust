@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::string;
 
-use serde::de::{self, DeserializeSeed, Visitor, SeqAccess, MapAccess};
+use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 
 
 use super::MaxMindDBError;
@@ -48,7 +48,9 @@ pub struct Decoder {
 impl Decoder {
     /// Creates a new decoder instance for decoding the specified JSON value.
     pub fn new(record: DataRecord) -> Decoder {
-        Decoder { stack: vec![record] }
+        Decoder {
+            stack: vec![record],
+        }
     }
 }
 
