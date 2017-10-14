@@ -126,7 +126,7 @@ impl BinaryDecoder {
 
                 let value = self.buf[offset..new_offset]
                     .iter()
-                    .fold(0u32, |acc, &b| (acc << 8) | b as u32);
+                    .fold(0u32, |acc, &b| (acc << 8) | u32::from(b));
                 let float_value: f32 = unsafe { mem::transmute(value) };
                 (Ok(decoder::DataRecord::Float(float_value)), new_offset)
             }
@@ -146,7 +146,7 @@ impl BinaryDecoder {
 
                 let value = self.buf[offset..new_offset]
                     .iter()
-                    .fold(0u64, |acc, &b| (acc << 8) | b as u64);
+                    .fold(0u64, |acc, &b| (acc << 8) | u64::from(b));
                 let float_value: f64 = unsafe { mem::transmute(value) };
                 (Ok(decoder::DataRecord::Double(float_value)), new_offset)
             }
@@ -166,7 +166,7 @@ impl BinaryDecoder {
 
                 let value = self.buf[offset..new_offset]
                     .iter()
-                    .fold(0u64, |acc, &b| (acc << 8) | b as u64);
+                    .fold(0u64, |acc, &b| (acc << 8) | u64::from(b));
                 (Ok(decoder::DataRecord::Uint64(value)), new_offset)
             }
             s => (
@@ -219,7 +219,7 @@ impl BinaryDecoder {
 
                 let value = self.buf[offset..new_offset]
                     .iter()
-                    .fold(0i32, |acc, &b| (acc << 8) | b as i32);
+                    .fold(0i32, |acc, &b| (acc << 8) | i32::from(b));
                 (Ok(decoder::DataRecord::Int32(value)), new_offset)
             }
             s => (
@@ -270,7 +270,7 @@ impl BinaryDecoder {
         size: usize,
         offset: usize,
     ) -> BinaryDecodeResult<decoder::DataRecord> {
-        let pointer_value_offset = [0, 0, 2048, 526336, 0];
+        let pointer_value_offset = [0, 0, 2048, 526_336, 0];
         let pointer_size = ((size >> 3) & 0x3) + 1;
         let new_offset = offset + pointer_size;
         let pointer_bytes = &self.buf[offset..new_offset];
@@ -336,7 +336,7 @@ impl BinaryDecoder {
             s if s < 29 => s,
             29 => 29usize + size_bytes[0] as usize,
             30 => 285usize + to_usize(0, size_bytes),
-            _ => 65821usize + to_usize(0, size_bytes),
+            _ => 65_821usize + to_usize(0, size_bytes),
         };
         (size, new_offset)
     }
