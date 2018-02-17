@@ -7,7 +7,7 @@ use std::net::IpAddr;
 
 #[test]
 fn test_decoder() {
-    let _ = env_logger::init();
+    let _ = env_logger::try_init();
 
     #[allow(non_snake_case)]
     #[derive(Deserialize, Debug, Eq, PartialEq)]
@@ -76,7 +76,7 @@ fn test_decoder() {
 
 #[test]
 fn test_broken_database() {
-    let _ = env_logger::init();
+    let _ = env_logger::try_init();
 
     let r = Reader::open("test-data/test-data/GeoIP2-City-Test-Broken-Double-Format.mmdb")
         .ok()
@@ -96,7 +96,7 @@ fn test_broken_database() {
 
 #[test]
 fn test_missing_database() {
-    let _ = env_logger::init();
+    let _ = env_logger::try_init();
 
     let r = Reader::open("file-does-not-exist.mmdb");
     match r {
@@ -108,7 +108,7 @@ fn test_missing_database() {
 
 #[test]
 fn test_non_database() {
-    let _ = env_logger::init();
+    let _ = env_logger::try_init();
 
     let r = Reader::open("README.md");
     match r {
@@ -126,7 +126,7 @@ fn test_non_database() {
 
 #[test]
 fn test_reader() {
-    let _ = env_logger::init();
+    let _ = env_logger::try_init();
 
     let sizes = [24usize, 28, 32];
     for record_size in sizes.iter() {
@@ -147,7 +147,7 @@ fn test_reader() {
 #[test]
 fn test_lookup_city() {
     use super::geoip2::City;
-    let _ = env_logger::init();
+    let _ = env_logger::try_init();
 
     let filename = "test-data/test-data/GeoIP2-City-Test.mmdb";
 
