@@ -1,5 +1,9 @@
 # Change Log #
 
+## 0.9.0 - 2018-02-16
+
+* Update logger to 0.4 and env_logger to 0.5.
+
 ## 0.8.1 - 2017-07-02
 
 * Implement unimplemented deserialize methods.
