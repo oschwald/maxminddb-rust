@@ -40,7 +40,6 @@ impl From<io::Error> for MaxMindDBError {
     }
 }
 
-
 impl Display for MaxMindDBError {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), fmt::Error> {
         std::error::Error::description(self).fmt(fmt)
@@ -99,9 +98,10 @@ impl BinaryDecoder {
         match size {
             0 | 1 => (Ok(decoder::DataRecord::Boolean(size != 0)), offset),
             s => (
-                Err(MaxMindDBError::InvalidDatabaseError(
-                    format!("float of size {:?}", s),
-                )),
+                Err(MaxMindDBError::InvalidDatabaseError(format!(
+                    "float of size {:?}",
+                    s
+                ))),
                 0,
             ),
         }
@@ -131,9 +131,10 @@ impl BinaryDecoder {
                 (Ok(decoder::DataRecord::Float(float_value)), new_offset)
             }
             s => (
-                Err(MaxMindDBError::InvalidDatabaseError(
-                    format!("float of size {:?}", s),
-                )),
+                Err(MaxMindDBError::InvalidDatabaseError(format!(
+                    "float of size {:?}",
+                    s
+                ))),
                 0,
             ),
         }
@@ -151,9 +152,10 @@ impl BinaryDecoder {
                 (Ok(decoder::DataRecord::Double(float_value)), new_offset)
             }
             s => (
-                Err(MaxMindDBError::InvalidDatabaseError(
-                    format!("double of size {:?}", s),
-                )),
+                Err(MaxMindDBError::InvalidDatabaseError(format!(
+                    "double of size {:?}",
+                    s
+                ))),
                 0,
             ),
         }
@@ -170,9 +172,10 @@ impl BinaryDecoder {
                 (Ok(decoder::DataRecord::Uint64(value)), new_offset)
             }
             s => (
-                Err(MaxMindDBError::InvalidDatabaseError(
-                    format!("u64 of size {:?}", s),
-                )),
+                Err(MaxMindDBError::InvalidDatabaseError(format!(
+                    "u64 of size {:?}",
+                    s
+                ))),
                 0,
             ),
         }
@@ -187,9 +190,10 @@ impl BinaryDecoder {
                 e => e,
             },
             s => (
-                Err(MaxMindDBError::InvalidDatabaseError(
-                    format!("u32 of size {:?}", s),
-                )),
+                Err(MaxMindDBError::InvalidDatabaseError(format!(
+                    "u32 of size {:?}",
+                    s
+                ))),
                 0,
             ),
         }
@@ -204,9 +208,10 @@ impl BinaryDecoder {
                 e => e,
             },
             s => (
-                Err(MaxMindDBError::InvalidDatabaseError(
-                    format!("u16 of size {:?}", s),
-                )),
+                Err(MaxMindDBError::InvalidDatabaseError(format!(
+                    "u16 of size {:?}",
+                    s
+                ))),
                 0,
             ),
         }
@@ -223,9 +228,10 @@ impl BinaryDecoder {
                 (Ok(decoder::DataRecord::Int32(value)), new_offset)
             }
             s => (
-                Err(MaxMindDBError::InvalidDatabaseError(
-                    format!("int32 of size {:?}", s),
-                )),
+                Err(MaxMindDBError::InvalidDatabaseError(format!(
+                    "int32 of size {:?}",
+                    s
+                ))),
                 0,
             ),
         }
@@ -263,7 +269,6 @@ impl BinaryDecoder {
         }
         (Ok(decoder::DataRecord::Map(values)), new_offset)
     }
-
 
     fn decode_pointer(
         &self,
@@ -363,15 +368,15 @@ impl BinaryDecoder {
             14 => self.decode_bool(size, offset),
             15 => self.decode_float(size, offset),
             u => (
-                Err(MaxMindDBError::InvalidDatabaseError(
-                    format!("Unknown data type: {:?}", u),
-                )),
+                Err(MaxMindDBError::InvalidDatabaseError(format!(
+                    "Unknown data type: {:?}",
+                    u
+                ))),
                 offset,
             ),
         }
     }
 }
-
 
 /// A reader for the MaxMind DB format
 pub struct Reader {
@@ -433,7 +438,6 @@ impl<'de> Reader {
 
         Ok(reader)
     }
-
 
     /// Lookup the socket address in the opened MaxMind DB
     ///
@@ -521,7 +525,6 @@ impl<'de> Reader {
         Ok(node)
     }
 
-
     fn read_node(&self, node_number: usize, index: usize) -> Result<usize, MaxMindDBError> {
         let base_offset = node_number * (self.metadata.record_size as usize) / 4;
 
@@ -589,24 +592,10 @@ fn ip_to_bytes(address: IpAddr) -> Vec<u8> {
     }
 }
 
-
 fn find_metadata_start(buf: &[u8]) -> Result<usize, MaxMindDBError> {
     // This is reversed to make the loop below a bit simpler
     let metadata_start_marker: [u8; 14] = [
-        0x6d,
-        0x6f,
-        0x63,
-        0x2e,
-        0x64,
-        0x6e,
-        0x69,
-        0x4d,
-        0x78,
-        0x61,
-        0x4d,
-        0xEF,
-        0xCD,
-        0xAB,
+        0x6d, 0x6f, 0x63, 0x2e, 0x64, 0x6e, 0x69, 0x4d, 0x78, 0x61, 0x4d, 0xEF, 0xCD, 0xAB
     ];
     let marker_length = metadata_start_marker.len();
 

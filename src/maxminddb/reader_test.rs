@@ -134,8 +134,7 @@ fn test_reader() {
         for ip_version in versions.iter() {
             let filename = format!(
                 "test-data/test-data/MaxMind-DB-test-ipv{}-{}.mmdb",
-                ip_version,
-                record_size
+                ip_version, record_size
             );
             let reader = Reader::open(filename.as_ref()).ok().unwrap();
 
@@ -210,19 +209,8 @@ fn check_ip(reader: &Reader, ip_version: usize) {
             "::2:0:58",
         ],
         _ => [
-            "1.1.1.1",
-            "1.1.1.2",
-            "1.1.1.2",
-            "1.1.1.4",
-            "1.1.1.4",
-            "1.1.1.4",
-            "1.1.1.4",
-            "1.1.1.8",
-            "1.1.1.8",
-            "1.1.1.8",
-            "1.1.1.16",
-            "1.1.1.16",
-            "1.1.1.16",
+            "1.1.1.1", "1.1.1.2", "1.1.1.2", "1.1.1.4", "1.1.1.4", "1.1.1.4", "1.1.1.4", "1.1.1.8",
+            "1.1.1.8", "1.1.1.8", "1.1.1.16", "1.1.1.16", "1.1.1.16",
         ],
     };
 

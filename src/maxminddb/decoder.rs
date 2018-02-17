@@ -3,7 +3,6 @@ use std::string;
 
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 
-
 use super::MaxMindDBError;
 use super::MaxMindDBError::DecodingError;
 
@@ -28,7 +27,6 @@ pub enum DataRecord {
 
 use self::DataRecord::{Array, Boolean, Byte, Double, Float, Int32, Map, Null, String, Uint16,
                        Uint32, Uint64};
-
 
 macro_rules! expect(
     ($e:expr, $t:ident) => ({
