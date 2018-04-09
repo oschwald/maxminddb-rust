@@ -15,8 +15,8 @@ cargo build
 
 ## Testing ##
 
-This crate manages its tests data as a git submodule.
-To run the tests you will first need to run the following command.
+This crate manages its test data within a git submodule.
+To run the tests, you will first need to run the following command.
 
 ```bash
 git submodule update --init
