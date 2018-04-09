@@ -454,10 +454,6 @@ impl<'de> Reader {
     /// let city: geoip2::City = reader.lookup(ip).unwrap();
     /// print!("{:?}", city);
     /// ```
-    ///
-    /// Note that SocketAddr requires a port, which is not needed to look up
-    /// the address in the database. This library will likely switch to IpAddr
-    /// if the feature gate for that is removed.
     pub fn lookup<T>(&self, address: IpAddr) -> Result<T, MaxMindDBError>
     where
         T: Deserialize<'de>,
