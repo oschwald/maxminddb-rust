@@ -13,6 +13,15 @@ To build everything:
 cargo build
 ```
 
+## Testing ##
+
+This crate manages its test data within a git submodule.
+To run the tests, you will first need to run the following command.
+
+```bash
+git submodule update --init
+```
+
 ## Usage ##
 
 Add this to your `Cargo.toml`:
