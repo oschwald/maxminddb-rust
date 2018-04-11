@@ -1,6 +1,6 @@
 # Rust MaxMind DB Reader #
 
-[![Build Status](https://travis-ci.org/oschwald/maxminddb-rust.svg?branch=master)](https://travis-ci.org/oschwald/maxminddb-rust)
+[![Build Status](https://travis-ci.org/oschwald/maxminddb-rust.svg?branch=master)](https://travis-ci.org/oschwald/maxminddb-rust) [![crates.io](	https://img.shields.io/crates/v/maxminddb.svg)](https://crates.io/crates/maxminddb) [![Released API docs](https://docs.rs/maxminddb/badge.svg)](http://docs.rs/maxminddb) [![Master API docs](https://img.shields.io/badge/docs-master-green.svg)](https://oschwald.github.io/maxminddb-rust/)
 
 This library reads the MaxMind DB format, including the GeoIP2 and GeoLite2
 databases.
