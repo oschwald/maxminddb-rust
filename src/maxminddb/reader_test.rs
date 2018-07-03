@@ -136,7 +136,7 @@ fn test_reader() {
                 "test-data/test-data/MaxMind-DB-test-ipv{}-{}.mmdb",
                 ip_version, record_size
             );
-            let reader = Reader::open(filename.as_ref()).ok().unwrap();
+            let reader = Reader::open(filename).ok().unwrap();
 
             check_metadata(&reader, *ip_version, *record_size);
             check_ip(&reader, *ip_version);

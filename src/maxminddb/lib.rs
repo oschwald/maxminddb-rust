@@ -393,10 +393,12 @@ impl<'de> Reader {
     /// ```
     /// let reader = maxminddb::Reader::open("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
     /// ```
-    pub fn open(database: &str) -> Result<Reader, MaxMindDBError> {
-        let data_section_separator_size = 16;
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Reader, MaxMindDBError> {
+        Reader::open_(path.as_ref())
+    }
+    fn open_(path: &Path) -> Result<Reader, MaxMindDBError> {
 
-        let path = Path::new(database);
+        let data_section_separator_size = 16;
 
         let mut f = File::open(&path)?;
 
