@@ -10,7 +10,7 @@ homepage = "https://github.com/oschwald/maxminddb-rust"
 documentation = "http://oschwald.github.io/maxminddb-rust/maxminddb/struct.Reader.html"
 repository = "https://github.com/oschwald/maxminddb-rust"
 license = "ISC"
-include = ["Cargo.toml", "src/**/*.rs", "README.md", "LICENSE"]
+include = ["/Cargo.toml", "/src/**/*.rs", "/README.md", "/LICENSE"]
 
 [lib]
 name ="maxminddb"
