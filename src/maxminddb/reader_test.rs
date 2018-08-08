@@ -183,9 +183,9 @@ fn check_metadata(reader: &Reader, ip_version: usize, record_size: usize) {
     assert_eq!(metadata.languages, vec!["en".to_string(), "zh".to_string()]);
 
     if ip_version == 4 {
-        assert_eq!(metadata.node_count, 37)
+        assert_eq!(metadata.node_count, 164)
     } else {
-        assert_eq!(metadata.node_count, 160)
+        assert_eq!(metadata.node_count, 416)
     }
 
     assert_eq!(metadata.record_size, record_size as u16)
