@@ -1,5 +1,10 @@
 # Change Log #
 
+## 0.10.0 - 2018-08-07
+
+* Derive `Serialize` for GeoIP2 models. Pull request by Bryan Gilbert.
+  GitHub #11.
+
 ## 0.9.0 - 2018-02-16
 
 * Update logger to 0.4 and env_logger to 0.5.
