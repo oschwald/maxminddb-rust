@@ -405,7 +405,7 @@ impl<'de> Reader {
         let metadata_start = find_metadata_start(&buf)?;
 
         let metadata_decoder = BinaryDecoder {
-            buf: buf,
+            buf,
             pointer_base: metadata_start,
         };
 
@@ -430,8 +430,8 @@ impl<'de> Reader {
         };
 
         let mut reader = Reader {
-            decoder: decoder,
-            metadata: metadata,
+            decoder,
+            metadata,
             ipv4_start: 0,
         };
         reader.ipv4_start = reader.find_ipv4_start()?;

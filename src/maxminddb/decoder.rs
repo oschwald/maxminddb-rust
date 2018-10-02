@@ -329,8 +329,8 @@ struct ArrayAccess<'a> {
 impl<'a> ArrayAccess<'a> {
     fn new(de: &'a mut Decoder, count: usize) -> Self {
         ArrayAccess {
-            de: de,
-            count: count,
+            de,
+            count,
         }
     }
 }
@@ -363,8 +363,8 @@ struct MapAccessor<'a> {
 impl<'a> MapAccessor<'a> {
     fn new(de: &'a mut Decoder, count: usize) -> Self {
         MapAccessor {
-            de: de,
-            count: count,
+            de,
+            count,
         }
     }
 }
