@@ -3,13 +3,13 @@ language: rust
 sudo: required
 
 rust:
-- stable
-- beta
-- nightly
+  - stable
+  - beta
+  - nightly
 
 matrix:
   allow_failures:
-  - rust: nightly
+    - rust: nightly
 
 before_script:
   - export PATH=$HOME/.cargo/bin:$PATH
@@ -29,11 +29,11 @@ script:
 addons:
   apt:
     packages:
-    - libcurl4-openssl-dev
-    - libelf-dev
-    - libdw-dev
-    - binutils-dev
-    - cmake # also required for cargo-update
+      - libcurl4-openssl-dev
+      - libelf-dev
+      - libdw-dev
+      - binutils-dev
+      - cmake # also required for cargo-update
     sources:
       - kalakris-cmake
 
@@ -41,7 +41,7 @@ after_success:
 # measure code coverage and upload to coveralls.io
   - cargo coveralls
 # upload documentation to github.io (gh-pages branch)
-  - [[ ${TRAVIS_RUST_VERSION} == "stable" ]] && cargo doc-upload
+  - "[[ ${TRAVIS_RUST_VERSION} == 'stable' ]] && cargo doc-upload"
 
 # Cache cargo symbols for faster build
 cache: cargo
@@ -51,4 +51,4 @@ before_cache:
 
 env:
   global:
-  - secure: 'UyykC+mqODFE5o2+iQKyWjNWXcien+eOEmZz5arWpPBbU2BG3C04MHX6plADilZkSOqmznVPYuTGnoECoi/r37r2uWgVJ9O+nCUi504q5lpU+XolqqG9ryeke1JaDmWeLMKc+bVUxA51OlX9uR90r7Im8kQfDf1yrKfVK66MQAw='
+    - secure: 'UyykC+mqODFE5o2+iQKyWjNWXcien+eOEmZz5arWpPBbU2BG3C04MHX6plADilZkSOqmznVPYuTGnoECoi/r37r2uWgVJ9O+nCUi504q5lpU+XolqqG9ryeke1JaDmWeLMKc+bVUxA51OlX9uR90r7Im8kQfDf1yrKfVK66MQAw='
