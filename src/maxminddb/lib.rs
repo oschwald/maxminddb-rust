@@ -458,7 +458,7 @@ impl<'de> Reader {
         T: Deserialize<'de>,
     {
         let ip_bytes = ip_to_bytes(address);
-        let pointer = self.find_address_in_tree(ip_bytes)?;
+        let pointer = self.find_address_in_tree(&ip_bytes)?;
         if pointer == 0 {
             return Err(MaxMindDBError::AddressNotFoundError(
                 "Address not found in database".to_owned(),
@@ -470,7 +470,7 @@ impl<'de> Reader {
         T::deserialize(&mut decoder)
     }
 
-    fn find_address_in_tree(&self, ip_address: Vec<u8>) -> Result<usize, MaxMindDBError> {
+    fn find_address_in_tree(&self, ip_address: &[u8]) -> Result<usize, MaxMindDBError> {
         let bit_count = ip_address.len() * 8;
         let mut node = self.start_node(bit_count)?;
 
