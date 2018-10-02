@@ -1,0 +1,10 @@
+var ALIASES = {};
+ALIASES['cfg_if'] = {};
+ALIASES['log'] = {};
+ALIASES['maxminddb'] = {};
+ALIASES['proc_macro2'] = {};
+ALIASES['quote'] = {};
+ALIASES['serde'] = {};
+ALIASES['serde_derive'] = {};
+ALIASES['syn'] = {};
+ALIASES['unicode_xid'] = {};
