@@ -2,8 +2,8 @@ extern crate env_logger;
 
 use super::{MaxMindDBError, Reader};
 
-use std::str::FromStr;
 use std::net::IpAddr;
+use std::str::FromStr;
 
 #[test]
 fn test_decoder() {

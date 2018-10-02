@@ -1,7 +1,13 @@
 #![crate_name = "maxminddb"]
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
-#![deny(trivial_casts, trivial_numeric_casts, unstable_features, unused_import_braces, unsafe_code)]
+#![deny(
+    trivial_casts,
+    trivial_numeric_casts,
+    unstable_features,
+    unused_import_braces,
+    unsafe_code
+)]
 
 #[macro_use]
 extern crate log;
@@ -13,13 +19,13 @@ extern crate serde;
 extern crate serde_derive;
 
 use std::collections::BTreeMap;
-use std::fs::File;
-use std::io::prelude::*;
-use std::io;
 use std::error::Error;
+use std::fmt::{self, Display, Formatter};
+use std::fs::File;
+use std::io;
+use std::io::prelude::*;
 use std::net::IpAddr;
 use std::path::Path;
-use std::fmt::{self, Display, Formatter};
 
 use serde::{de, Deserialize};
 
@@ -590,7 +596,7 @@ fn ip_to_bytes(address: IpAddr) -> Vec<u8> {
 fn find_metadata_start(buf: &[u8]) -> Result<usize, MaxMindDBError> {
     // This is reversed to make the loop below a bit simpler
     let metadata_start_marker: [u8; 14] = [
-        0x6d, 0x6f, 0x63, 0x2e, 0x64, 0x6e, 0x69, 0x4d, 0x78, 0x61, 0x4d, 0xEF, 0xCD, 0xAB
+        0x6d, 0x6f, 0x63, 0x2e, 0x64, 0x6e, 0x69, 0x4d, 0x78, 0x61, 0x4d, 0xEF, 0xCD, 0xAB,
     ];
     let marker_length = metadata_start_marker.len();
 
