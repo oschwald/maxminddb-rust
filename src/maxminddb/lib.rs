@@ -1,7 +1,7 @@
 #![crate_name = "maxminddb"]
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
-#![deny(trivial_casts, trivial_numeric_casts, unstable_features, unused_import_braces)]
+#![deny(trivial_casts, trivial_numeric_casts, unstable_features, unused_import_braces, unsafe_code)]
 
 #[macro_use]
 extern crate log;
@@ -17,7 +17,6 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io;
 use std::error::Error;
-use std::mem;
 use std::net::IpAddr;
 use std::path::Path;
 use std::fmt::{self, Display, Formatter};
@@ -127,7 +126,7 @@ impl BinaryDecoder {
                 let value = self.buf[offset..new_offset]
                     .iter()
                     .fold(0u32, |acc, &b| (acc << 8) | u32::from(b));
-                let float_value: f32 = unsafe { mem::transmute(value) };
+                let float_value: f32 = f32::from_bits(value);
                 (Ok(decoder::DataRecord::Float(float_value)), new_offset)
             }
             s => (
@@ -148,7 +147,7 @@ impl BinaryDecoder {
                 let value = self.buf[offset..new_offset]
                     .iter()
                     .fold(0u64, |acc, &b| (acc << 8) | u64::from(b));
-                let float_value: f64 = unsafe { mem::transmute(value) };
+                let float_value: f64 = f64::from_bits(value);
                 (Ok(decoder::DataRecord::Double(float_value)), new_offset)
             }
             s => (
