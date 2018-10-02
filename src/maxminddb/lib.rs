@@ -1,7 +1,13 @@
 #![crate_name = "maxminddb"]
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
-#![deny(trivial_casts, trivial_numeric_casts, unstable_features, unused_import_braces)]
+#![deny(
+    trivial_casts,
+    trivial_numeric_casts,
+    unstable_features,
+    unused_import_braces,
+    unsafe_code
+)]
 
 #[macro_use]
 extern crate log;
@@ -13,14 +19,13 @@ extern crate serde;
 extern crate serde_derive;
 
 use std::collections::BTreeMap;
-use std::fs::File;
-use std::io::prelude::*;
-use std::io;
 use std::error::Error;
-use std::mem;
+use std::fmt::{self, Display, Formatter};
+use std::fs::File;
+use std::io;
+use std::io::prelude::*;
 use std::net::IpAddr;
 use std::path::Path;
-use std::fmt::{self, Display, Formatter};
 
 use serde::{de, Deserialize};
 
@@ -127,7 +132,7 @@ impl BinaryDecoder {
                 let value = self.buf[offset..new_offset]
                     .iter()
                     .fold(0u32, |acc, &b| (acc << 8) | u32::from(b));
-                let float_value: f32 = unsafe { mem::transmute(value) };
+                let float_value: f32 = f32::from_bits(value);
                 (Ok(decoder::DataRecord::Float(float_value)), new_offset)
             }
             s => (
@@ -148,7 +153,7 @@ impl BinaryDecoder {
                 let value = self.buf[offset..new_offset]
                     .iter()
                     .fold(0u64, |acc, &b| (acc << 8) | u64::from(b));
-                let float_value: f64 = unsafe { mem::transmute(value) };
+                let float_value: f64 = f64::from_bits(value);
                 (Ok(decoder::DataRecord::Double(float_value)), new_offset)
             }
             s => (
@@ -405,7 +410,7 @@ impl<'de> Reader {
         let metadata_start = find_metadata_start(&buf)?;
 
         let metadata_decoder = BinaryDecoder {
-            buf: buf,
+            buf,
             pointer_base: metadata_start,
         };
 
@@ -430,8 +435,8 @@ impl<'de> Reader {
         };
 
         let mut reader = Reader {
-            decoder: decoder,
-            metadata: metadata,
+            decoder,
+            metadata,
             ipv4_start: 0,
         };
         reader.ipv4_start = reader.find_ipv4_start()?;
@@ -459,7 +464,7 @@ impl<'de> Reader {
         T: Deserialize<'de>,
     {
         let ip_bytes = ip_to_bytes(address);
-        let pointer = self.find_address_in_tree(ip_bytes)?;
+        let pointer = self.find_address_in_tree(&ip_bytes)?;
         if pointer == 0 {
             return Err(MaxMindDBError::AddressNotFoundError(
                 "Address not found in database".to_owned(),
@@ -471,7 +476,7 @@ impl<'de> Reader {
         T::deserialize(&mut decoder)
     }
 
-    fn find_address_in_tree(&self, ip_address: Vec<u8>) -> Result<usize, MaxMindDBError> {
+    fn find_address_in_tree(&self, ip_address: &[u8]) -> Result<usize, MaxMindDBError> {
         let bit_count = ip_address.len() * 8;
         let mut node = self.start_node(bit_count)?;
 
@@ -591,7 +596,7 @@ fn ip_to_bytes(address: IpAddr) -> Vec<u8> {
 fn find_metadata_start(buf: &[u8]) -> Result<usize, MaxMindDBError> {
     // This is reversed to make the loop below a bit simpler
     let metadata_start_marker: [u8; 14] = [
-        0x6d, 0x6f, 0x63, 0x2e, 0x64, 0x6e, 0x69, 0x4d, 0x78, 0x61, 0x4d, 0xEF, 0xCD, 0xAB
+        0x6d, 0x6f, 0x63, 0x2e, 0x64, 0x6e, 0x69, 0x4d, 0x78, 0x61, 0x4d, 0xEF, 0xCD, 0xAB,
     ];
     let marker_length = metadata_start_marker.len();
 
