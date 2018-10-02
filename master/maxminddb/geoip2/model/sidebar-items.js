@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["City",""],["Continent",""],["Country",""],["Location",""],["Postal",""],["RepresentedCountry",""],["Subdivision",""],["Traits",""]]});
