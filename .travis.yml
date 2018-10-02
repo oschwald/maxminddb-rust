@@ -1,6 +1,6 @@
 language: rust
 
-sudo: false
+sudo: required
 
 rust:
 - stable
@@ -12,25 +12,40 @@ matrix:
   - rust: nightly
 
 before_script:
-- pip install 'travis-cargo<0.2' --user
-- export PATH=$HOME/.local/bin:$PATH
+  - export PATH=$HOME/.cargo/bin:$PATH
+  - cargo install cargo-update || echo "cargo-update already installed"
+  - cargo install cargo-travis || echo "cargo-travis already installed"
+  - cargo install-update -a # update outdated cached binaries
 
+# the main build
 script:
-- travis-cargo build
-- travis-cargo test
-- travis-cargo bench
-- travis-cargo --only stable doc
+  - |
+      cargo build &&
+      cargo test &&
+      cargo bench &&
+      cargo doc
 
+# Dependencies of kcov, used by coverage
 addons:
   apt:
     packages:
     - libcurl4-openssl-dev
     - libelf-dev
     - libdw-dev
+    - binutils-dev
+    - cmake # also required for cargo-update
+    sources:
+      - kalakris-cmake
+
 after_success:
-- travis-cargo --only stable doc-upload
-- travis-cargo coveralls --no-sudo
+# measure code coverage and upload to coveralls.io
+  - cargo coveralls
+# upload documentation to github.io (gh-pages branch)
+  - [[ ${TRAVIS_RUST_VERSION} == "stable" ]] && cargo doc-upload
+
+# Cache cargo symbols for faster build
+cache: cargo
+
 env:
   global:
-  - TRAVIS_CARGO_NIGHTLY_FEATURE=""
   - secure: 'UyykC+mqODFE5o2+iQKyWjNWXcien+eOEmZz5arWpPBbU2BG3C04MHX6plADilZkSOqmznVPYuTGnoECoi/r37r2uWgVJ9O+nCUi504q5lpU+XolqqG9ryeke1JaDmWeLMKc+bVUxA51OlX9uR90r7Im8kQfDf1yrKfVK66MQAw='
