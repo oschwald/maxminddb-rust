@@ -45,6 +45,9 @@ after_success:
 
 # Cache cargo symbols for faster build
 cache: cargo
+before_cache:
+  # Travis can't cache files that are not readable by "others"
+  - chmod -R a+r $HOME/.cargo
 
 env:
   global:
