@@ -21,9 +21,8 @@ extern crate serde_derive;
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
-use std::fs::File;
+use std::fs;
 use std::io;
-use std::io::prelude::*;
 use std::net::IpAddr;
 use std::path::Path;
 
@@ -399,14 +398,23 @@ impl<'de> Reader {
     /// let reader = maxminddb::Reader::open("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
     /// ```
     pub fn open(database: &str) -> Result<Reader, MaxMindDBError> {
+        let path = Path::new(database);
+        let buf = fs::read(&path)?;
+        Reader::from_buf(buf)
+    }
+
+    /// Open a MaxMind DB database file in memory
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::fs;
+    /// let buf = fs::read("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    /// let reader = maxminddb::Reader::from_buf(buf).unwrap();
+    /// ```
+    pub fn from_buf(buf: Vec<u8>) -> Result<Reader, MaxMindDBError> {
         let data_section_separator_size = 16;
 
-        let path = Path::new(database);
-
-        let mut f = File::open(&path)?;
-
-        let mut buf = Vec::new();
-        f.read_to_end(&mut buf)?;
         let metadata_start = find_metadata_start(&buf)?;
 
         let metadata_decoder = BinaryDecoder {
