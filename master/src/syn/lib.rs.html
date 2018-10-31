@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source to the Rust file `/home/travis/.cargo/registry/src/github.com-1ecc6299db9ec823/syn-0.15.15/src/lib.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>lib.rs.html -- source</title><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../dark.css"><link rel="stylesheet" type="text/css" href="../../light.css" id="themeStyle"><script src="../../storage.js"></script></head><body class="rustdoc source"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../../theme.js"></script><nav class="sub"><form class="search-form js-only"><div class="search-container"><input class="search-input" name="search" autocomplete="off" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><a id="settings-menu" href="../../settings.html"><img src="../../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><pre class="line-numbers"><span id="1">  1</span>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source to the Rust file `/home/travis/.cargo/registry/src/github.com-1ecc6299db9ec823/syn-0.15.16/src/lib.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>lib.rs.html -- source</title><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../dark.css"><link rel="stylesheet" type="text/css" href="../../light.css" id="themeStyle"><script src="../../storage.js"></script></head><body class="rustdoc source"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../../theme.js"></script><nav class="sub"><form class="search-form js-only"><div class="search-container"><input class="search-input" name="search" autocomplete="off" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><a id="settings-menu" href="../../settings.html"><img src="../../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><pre class="line-numbers"><span id="1">  1</span>
 <span id="2">  2</span>
 <span id="3">  3</span>
 <span id="4">  4</span>
@@ -746,25 +746,6 @@
 <span id="746">746</span>
 <span id="747">747</span>
 <span id="748">748</span>
-<span id="749">749</span>
-<span id="750">750</span>
-<span id="751">751</span>
-<span id="752">752</span>
-<span id="753">753</span>
-<span id="754">754</span>
-<span id="755">755</span>
-<span id="756">756</span>
-<span id="757">757</span>
-<span id="758">758</span>
-<span id="759">759</span>
-<span id="760">760</span>
-<span id="761">761</span>
-<span id="762">762</span>
-<span id="763">763</span>
-<span id="764">764</span>
-<span id="765">765</span>
-<span id="766">766</span>
-<span id="767">767</span>
 </pre><pre class="rust ">
 <span class="comment">// Copyright 2018 Syn Developers</span>
 <span class="comment">//</span>
@@ -871,7 +852,7 @@
 <span class="doccomment">//! ```</span>
 <span class="doccomment">//!</span>
 <span class="doccomment">//! The [`heapsize`] example directory shows a complete working Macros 1.1</span>
-<span class="doccomment">//! implementation of a custom derive. It works on any Rust compiler \&gt;=1.15.0.</span>
+<span class="doccomment">//! implementation of a custom derive. It works on any Rust compiler 1.15+.</span>
 <span class="doccomment">//! The example derives a `HeapSize` trait which computes an estimate of the</span>
 <span class="doccomment">//! amount of heap memory owned by a value.</span>
 <span class="doccomment">//!</span>
@@ -901,13 +882,6 @@
 <span class="doccomment">//!</span>
 <span class="doccomment">//! ## Spans and error reporting</span>
 <span class="doccomment">//!</span>
-<span class="doccomment">//! The [`heapsize2`] example directory is an extension of the `heapsize`</span>
-<span class="doccomment">//! example that demonstrates some of the hygiene and error reporting properties</span>
-<span class="doccomment">//! of Macros 2.0. This example currently requires a nightly Rust compiler</span>
-<span class="doccomment">//! \&gt;=1.24.0-nightly but we are working to stabilize all of the APIs involved.</span>
-<span class="doccomment">//!</span>
-<span class="doccomment">//! [`heapsize2`]: https://github.com/dtolnay/syn/tree/master/examples/heapsize2</span>
-<span class="doccomment">//!</span>
 <span class="doccomment">//! The token-based procedural macro API provides great control over where the</span>
 <span class="doccomment">//! compiler&#39;s error messages are displayed in user code. Consider the error the</span>
 <span class="doccomment">//! user sees if one of their field types does not implement `HeapSize`.</span>
@@ -922,20 +896,8 @@
 <span class="doccomment">//! }</span>
 <span class="doccomment">//! ```</span>
 <span class="doccomment">//!</span>
-<span class="doccomment">//! In the Macros 1.1 string-based procedural macro world, the resulting error</span>
-<span class="doccomment">//! would point unhelpfully to the invocation of the derive macro and not to the</span>
-<span class="doccomment">//! actual problematic field.</span>
-<span class="doccomment">//!</span>
-<span class="doccomment">//! ```text</span>
-<span class="doccomment">//! error[E0599]: no method named `heap_size_of_children` found for type `std::thread::Thread` in the current scope</span>
-<span class="doccomment">//!  --&gt; src/main.rs:4:10</span>
-<span class="doccomment">//!   |</span>
-<span class="doccomment">//! 4 | #[derive(HeapSize)]</span>
-<span class="doccomment">//!   |          ^^^^^^^^</span>
-<span class="doccomment">//! ```</span>
-<span class="doccomment">//!</span>
 <span class="doccomment">//! By tracking span information all the way through the expansion of a</span>
-<span class="doccomment">//! procedural macro as shown in the `heapsize2` example, token-based macros in</span>
+<span class="doccomment">//! procedural macro as shown in the `heapsize` example, token-based macros in</span>
 <span class="doccomment">//! Syn are able to trigger errors that directly pinpoint the source of the</span>
 <span class="doccomment">//! problem.</span>
 <span class="doccomment">//!</span>
@@ -1023,7 +985,7 @@
 <span class="doccomment">//!   dynamic library libproc_macro from rustc toolchain.</span>
 
 <span class="comment">// Syn types in rustdoc of other crates get linked to here.</span>
-<span class="attribute">#![<span class="ident">doc</span>(<span class="ident">html_root_url</span> <span class="op">=</span> <span class="string">&quot;https://docs.rs/syn/0.15.15&quot;</span>)]</span>
+<span class="attribute">#![<span class="ident">doc</span>(<span class="ident">html_root_url</span> <span class="op">=</span> <span class="string">&quot;https://docs.rs/syn/0.15.16&quot;</span>)]</span>
 <span class="attribute">#![<span class="ident">cfg_attr</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;cargo-clippy&quot;</span>, <span class="ident">allow</span>(<span class="ident">renamed_and_removed_lints</span>))]</span>
 <span class="attribute">#![<span class="ident">cfg_attr</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;cargo-clippy&quot;</span>, <span class="ident">deny</span>(<span class="ident">clippy</span>, <span class="ident">clippy_pedantic</span>))]</span>
 <span class="comment">// Ignored clippy lints.</span>
