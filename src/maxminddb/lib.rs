@@ -524,7 +524,7 @@ impl<'de, 'data> Reader<'data> {
     /// ```
     /// use std::fs;
     /// let buf = fs::read("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
-    /// let reader = maxminddb::Reader::from_buf(buf).unwrap();
+    /// let reader = maxminddb::Reader::from_buf(&buf).unwrap();
     /// ```
     pub fn from_buf<'buf>(buf: &'buf [u8]) -> Result<Reader<'buf>, MaxMindDBError> {
         let data_section_separator_size = 16;
