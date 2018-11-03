@@ -6,11 +6,14 @@
     trivial_numeric_casts,
     unstable_features,
     unused_import_braces,
-    unsafe_code
+    //unsafe_code
 )]
 
 #[macro_use]
 extern crate log;
+
+#[cfg(feature = "mmap")]
+extern crate memmap;
 
 #[macro_use]
 extern crate serde;
@@ -21,12 +24,17 @@ extern crate serde_derive;
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
-use std::fs;
 use std::io;
 use std::net::IpAddr;
-use std::path::Path;
 
+#[cfg(feature = "mmap")]
+use memmap::Mmap;
+#[cfg(feature = "mmap")]
+use memmap::MmapOptions;
 use serde::{de, Deserialize};
+#[cfg(feature = "mmap")]
+use std::fs::File;
+use std::ops::Deref;
 
 #[derive(Debug, PartialEq)]
 pub enum MaxMindDBError {
@@ -77,12 +85,12 @@ pub struct Metadata {
     pub record_size: u16,
 }
 
-struct BinaryDecoder {
-    buf: Vec<u8>,
+struct BinaryDecoder<'data> {
+    buf: &'data [u8],
     pointer_base: usize,
 }
 
-impl BinaryDecoder {
+impl<'data> BinaryDecoder<'data> {
     fn decode_array(&self, size: usize, offset: usize) -> BinaryDecodeResult<decoder::DataRecord> {
         let mut array = Vec::new();
         let mut new_offset = offset;
@@ -382,14 +390,43 @@ impl BinaryDecoder {
     }
 }
 
-/// A reader for the MaxMind DB format
-pub struct Reader {
-    decoder: BinaryDecoder,
+/// A reader for the MaxMind DB format using `mmap` internally to only cause a minimal set of IO operations to happen, instead of reading the entire database (potentially 100s of MiB) into memory.
+#[cfg(feature = "mmap")]
+#[allow(dead_code)]
+pub struct OwnedReader<'data> {
+    data: Mmap,
+    inner: Reader<'data>,
+}
+
+/// A type definition substituting `OwnedReader<'data>` with `OwnedReaderFile<'data>`, used if the feature `mmap` is not active.
+#[cfg(not(feature = "mmap"))]
+pub type OwnedReader<'data> = OwnedReaderFile<'data>;
+
+/// A reader for the MaxMind DB format using a `Vec<u8>` internally to hold a complete copy of the database.
+#[allow(dead_code)]
+pub struct OwnedReaderFile<'data> {
+    data: Vec<u8>,
+    inner: Reader<'data>,
+}
+
+/// Allows to use OwnedReader as a drop-in replacement for a `Reader<'data>`.
+impl<'data> Deref for OwnedReader<'data> {
+    type Target = Reader<'data>;
+
+    fn deref(&self) -> &<Self as Deref>::Target {
+        &self.inner
+    }
+}
+
+/// A reader for the MaxMind DB format. The lifetime `'data` is tied to the lifetime of the underlying buffer holding the contents of the database file.
+pub struct Reader<'data> {
+    decoder: BinaryDecoder<'data>,
     pub metadata: Metadata,
     ipv4_start: usize,
 }
 
-impl<'de> Reader {
+#[cfg(feature = "mmap")]
+impl<'de, 'data> Reader<'data> {
     /// Open a MaxMind DB database file.
     ///
     /// # Example
@@ -397,10 +434,87 @@ impl<'de> Reader {
     /// ```
     /// let reader = maxminddb::Reader::open("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
     /// ```
-    pub fn open(database: &str) -> Result<Reader, MaxMindDBError> {
+    pub fn open(database: &str) -> Result<OwnedReader<'static>, MaxMindDBError> {
+        Self::open_mmap(database)
+    }
+
+    pub fn open_mmap(database: &str) -> Result<OwnedReader<'static>, MaxMindDBError> {
+        //let path = Path::new(database);
+        let mmap;
+        {
+            let file_read = File::open(database)?;
+            //let buf = fs::read(&path)?;
+            mmap = unsafe { MmapOptions::new().map(&file_read) }?;
+        }
+
+        // This is safe:
+        // - the data backing the slice is bound to the lifetime of mmap
+        // - mmap lives as long as the OwnedReader instance
+        // - `inner` cannot be moved out of said instance, so its
+        //   lifetime remains coupled to that of `data`
+        // - `data` will only expire when `inner` does the moment
+        //   the OwnedReader instance expires
+        let ref_static: &'static [u8];
+        {
+            let tmp_slice: &[u8] = &mmap;
+            let tmp_ptr: *const [u8] = tmp_slice;
+            ref_static = unsafe { &*tmp_ptr };
+        }
+        let reader = Reader::from_buf(&ref_static)?;
+        Ok(OwnedReader {
+            data: mmap,
+            inner: reader,
+        })
+    }
+}
+
+#[cfg(not(feature = "mmap"))]
+impl<'de, 'data> Reader<'data> {
+    /// Open a MaxMind DB database file.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let reader = maxminddb::Reader::open("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    /// ```
+    pub fn open(database: &str) -> Result<OwnedReader<'static>, MaxMindDBError> {
+        Self::open_readfile(database)
+    }
+}
+
+impl<'de, 'data> Reader<'data> {
+    /// Open a MaxMind DB database file.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let reader = maxminddb::Reader::open("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    /// ```
+    pub fn open_readfile(database: &str) -> Result<OwnedReaderFile<'static>, MaxMindDBError> {
+        use std::fs;
+        use std::path::Path;
+
         let path = Path::new(database);
-        let buf = fs::read(&path)?;
-        Reader::from_buf(buf)
+        let buf: Vec<u8> = fs::read(&path)?;
+
+        // This is safe:
+        // - the data backing the slice is bound to the lifetime of mmap
+        // - mmap lives as long as the OwnedReader instance
+        // - `inner` cannot be moved out of said instance, so its
+        //   lifetime remains coupled to that of `data`
+        // - `data` will only expire when `inner` does the moment
+        //   the OwnedReader instance expires
+        let ref_static: &'static [u8];
+        {
+            let tmp_slice: &[u8] = &buf;
+            let tmp_ptr: *const [u8] = tmp_slice;
+            ref_static = unsafe { &*tmp_ptr };
+        }
+        let reader = Reader::from_buf(&ref_static)?;
+        Ok(OwnedReaderFile {
+            data: buf,
+            inner: reader,
+        })
     }
 
     /// Open a MaxMind DB database file in memory
@@ -412,7 +526,7 @@ impl<'de> Reader {
     /// let buf = fs::read("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
     /// let reader = maxminddb::Reader::from_buf(buf).unwrap();
     /// ```
-    pub fn from_buf(buf: Vec<u8>) -> Result<Reader, MaxMindDBError> {
+    pub fn from_buf<'buf>(buf: &'buf [u8]) -> Result<Reader<'buf>, MaxMindDBError> {
         let data_section_separator_size = 16;
 
         let metadata_start = find_metadata_start(&buf)?;
