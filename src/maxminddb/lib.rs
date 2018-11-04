@@ -35,6 +35,7 @@ use serde::{de, Deserialize};
 #[cfg(feature = "mmap")]
 use std::fs::File;
 use std::ops::Deref;
+use std::path::Path;
 
 #[derive(Debug, PartialEq)]
 pub enum MaxMindDBError {
@@ -418,6 +419,16 @@ impl<'data> Deref for OwnedReader<'data> {
     }
 }
 
+/// Allows to use OwnedReader as a drop-in replacement for a `Reader<'data>`.
+#[cfg(feature = "mmap")]
+impl<'data> Deref for OwnedReaderFile<'data> {
+    type Target = Reader<'data>;
+
+    fn deref(&self) -> &<Self as Deref>::Target {
+        &self.inner
+    }
+}
+
 /// A reader for the MaxMind DB format. The lifetime `'data` is tied to the lifetime of the underlying buffer holding the contents of the database file.
 pub struct Reader<'data> {
     decoder: BinaryDecoder<'data>,
@@ -434,16 +445,14 @@ impl<'de, 'data> Reader<'data> {
     /// ```
     /// let reader = maxminddb::Reader::open("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
     /// ```
-    pub fn open(database: &str) -> Result<OwnedReader<'static>, MaxMindDBError> {
+    pub fn open<P:AsRef<Path>>(database: P) -> Result<OwnedReader<'static>, MaxMindDBError> {
         Self::open_mmap(database)
     }
 
-    pub fn open_mmap(database: &str) -> Result<OwnedReader<'static>, MaxMindDBError> {
-        //let path = Path::new(database);
+    pub fn open_mmap<P:AsRef<Path>>(database: P) -> Result<OwnedReader<'static>, MaxMindDBError> {
         let mmap;
         {
             let file_read = File::open(database)?;
-            //let buf = fs::read(&path)?;
             mmap = unsafe { MmapOptions::new().map(&file_read) }?;
         }
 
@@ -477,7 +486,7 @@ impl<'de, 'data> Reader<'data> {
     /// ```
     /// let reader = maxminddb::Reader::open("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
     /// ```
-    pub fn open(database: &str) -> Result<OwnedReader<'static>, MaxMindDBError> {
+    pub fn open<P:AsRef<Path>>(database: P) -> Result<OwnedReader<'static>, MaxMindDBError> {
         Self::open_readfile(database)
     }
 }
@@ -490,12 +499,10 @@ impl<'de, 'data> Reader<'data> {
     /// ```
     /// let reader = maxminddb::Reader::open("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
     /// ```
-    pub fn open_readfile(database: &str) -> Result<OwnedReaderFile<'static>, MaxMindDBError> {
+    pub fn open_readfile<P:AsRef<Path>>(database: P) -> Result<OwnedReaderFile<'static>, MaxMindDBError> {
         use std::fs;
-        use std::path::Path;
 
-        let path = Path::new(database);
-        let buf: Vec<u8> = fs::read(&path)?;
+        let buf: Vec<u8> = fs::read(&database)?;
 
         // This is safe:
         // - the data backing the slice is bound to the lifetime of mmap
