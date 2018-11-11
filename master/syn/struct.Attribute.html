@@ -31,9 +31,9 @@ tokens.</p>
   ^^^^^^~~~~~~         ^^^^^^^^^^^^^^^^^^^ ~~~~~
    path  tts                   path         tts
 </code></pre>
-<p>Use the <a href="#method.interpret_meta"><code>interpret_meta</code></a> method to try parsing the tokens of an
-attribute into the structured representation that is used by convention
-across most Rust libraries.</p>
+<p>Use the <a href="#method.parse_meta"><code>parse_meta</code></a> method to try parsing the tokens of an attribute
+into the structured representation that is used by convention across
+most Rust libraries.</p>
 <h1 id="parsing" class="section-header"><a href="#parsing">Parsing</a></h1>
 <p>This type does not implement the <a href="parse/trait.Parse.html"><code>Parse</code></a> trait and thus cannot be
 parsed directly by <a href="parse/struct.ParseBuffer.html#method.parse"><code>ParseStream::parse</code></a>. Instead use
