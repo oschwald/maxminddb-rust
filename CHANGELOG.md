@@ -1,5 +1,15 @@
 # Change Log #
 
+## 0.11.0 - 2018-11-12
+
+* An optional `mmap` cfg feature flag has been added. When set, `open`
+  will use the `memmap` crate to memory map the database file rather
+  than reading it from file. In addition to `open`, `open_readfile`
+  and `open_mmap` are available. PR by moschroe. GitHub #16.
+* `Reader::open` now takes an `AsRef<Path>`. Also, #16.
+* `Reader::from_buf` allows using an existing buffer instead of
+  specifying a database file. PR by kpcyrd. GitHub #15.
+
 ## 0.10.0 - 2018-08-07
 
 * Derive `Serialize` for GeoIP2 models. Pull request by Bryan Gilbert.
