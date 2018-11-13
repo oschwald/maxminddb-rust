@@ -146,7 +146,6 @@ fn test_reader() {
 
 /// Create Reader by explicitly reading the entire file into a buffer.
 #[test]
-#[cfg(feature = "mmap")]
 fn test_reader_readfile() {
     let _ = env_logger::try_init();
 
@@ -165,6 +164,28 @@ fn test_reader_readfile() {
         }
     }
 }
+
+#[test]
+#[cfg(feature = "mmap")]
+fn test_reader_mmap() {
+    let _ = env_logger::try_init();
+
+    let sizes = [24usize, 28, 32];
+    for record_size in sizes.iter() {
+        let versions = [4usize, 6];
+        for ip_version in versions.iter() {
+            let filename = format!(
+                "test-data/test-data/MaxMind-DB-test-ipv{}-{}.mmdb",
+                ip_version, record_size
+            );
+            let reader = Reader::open_mmap(filename).ok().unwrap();
+
+            check_metadata(&reader, *ip_version, *record_size);
+            check_ip(&reader, *ip_version);
+        }
+    }
+}
+
 
 #[test]
 fn test_lookup_city() {
