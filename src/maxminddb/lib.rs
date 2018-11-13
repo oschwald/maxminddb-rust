@@ -511,8 +511,8 @@ impl<'de, 'data> Reader<'data> {
         let buf: Vec<u8> = fs::read(&database)?;
 
         // This is safe:
-        // - the data backing the slice is bound to the lifetime of mmap
-        // - mmap lives as long as the OwnedReader instance
+        // - the data backing the slice is bound to the lifetime of buf
+        // - buf lives as long as the OwnedReader instance
         // - `inner` cannot be moved out of said instance, so its
         //   lifetime remains coupled to that of `data`
         // - `data` will only expire when `inner` does the moment
