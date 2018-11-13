@@ -437,7 +437,7 @@ pub struct Reader<'data> {
 
 #[cfg(feature = "mmap")]
 impl<'de, 'data> Reader<'data> {
-    /// Open a MaxMind DB database file.
+    /// Open a MaxMind DB database file by memory mapping it.
     ///
     /// # Example
     ///
@@ -448,6 +448,13 @@ impl<'de, 'data> Reader<'data> {
         Self::open_mmap(database)
     }
 
+    /// Open a MaxMind DB database file by memory mapping it.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let reader = maxminddb::Reader::open_mmap("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    /// ```
     pub fn open_mmap<P:AsRef<Path>>(database: P) -> Result<OwnedReader<'static>, MaxMindDBError> {
         let mmap;
         {
@@ -478,7 +485,7 @@ impl<'de, 'data> Reader<'data> {
 
 #[cfg(not(feature = "mmap"))]
 impl<'de, 'data> Reader<'data> {
-    /// Open a MaxMind DB database file.
+    /// Open a MaxMind DB database file by loading it into memory.
     ///
     /// # Example
     ///
@@ -491,12 +498,12 @@ impl<'de, 'data> Reader<'data> {
 }
 
 impl<'de, 'data> Reader<'data> {
-    /// Open a MaxMind DB database file.
+    /// Open a MaxMind DB database file by loading it into memory.
     ///
     /// # Example
     ///
     /// ```
-    /// let reader = maxminddb::Reader::open("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    /// let reader = maxminddb::Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
     /// ```
     pub fn open_readfile<P:AsRef<Path>>(database: P) -> Result<OwnedReaderFile<'static>, MaxMindDBError> {
         use std::fs;
