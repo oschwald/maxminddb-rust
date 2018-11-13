@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source to the Rust file `/home/travis/.cargo/registry/src/github.com-1ecc6299db9ec823/syn-0.15.19/src/error.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>error.rs.html -- source</title><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../dark.css"><link rel="stylesheet" type="text/css" href="../../light.css" id="themeStyle"><script src="../../storage.js"></script></head><body class="rustdoc source"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../../theme.js"></script><nav class="sub"><form class="search-form js-only"><div class="search-container"><input class="search-input" name="search" autocomplete="off" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><a id="settings-menu" href="../../settings.html"><img src="../../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><pre class="line-numbers"><span id="1">  1</span>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source to the Rust file `/home/travis/.cargo/registry/src/github.com-1ecc6299db9ec823/syn-0.15.20/src/error.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>error.rs.html -- source</title><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../dark.css"><link rel="stylesheet" type="text/css" href="../../light.css" id="themeStyle"><script src="../../storage.js"></script></head><body class="rustdoc source"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../../theme.js"></script><nav class="sub"><form class="search-form js-only"><div class="search-container"><input class="search-input" name="search" autocomplete="off" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><a id="settings-menu" href="../../settings.html"><img src="../../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><pre class="line-numbers"><span id="1">  1</span>
 <span id="2">  2</span>
 <span id="3">  3</span>
 <span id="4">  4</span>
@@ -135,6 +135,34 @@
 <span id="135">135</span>
 <span id="136">136</span>
 <span id="137">137</span>
+<span id="138">138</span>
+<span id="139">139</span>
+<span id="140">140</span>
+<span id="141">141</span>
+<span id="142">142</span>
+<span id="143">143</span>
+<span id="144">144</span>
+<span id="145">145</span>
+<span id="146">146</span>
+<span id="147">147</span>
+<span id="148">148</span>
+<span id="149">149</span>
+<span id="150">150</span>
+<span id="151">151</span>
+<span id="152">152</span>
+<span id="153">153</span>
+<span id="154">154</span>
+<span id="155">155</span>
+<span id="156">156</span>
+<span id="157">157</span>
+<span id="158">158</span>
+<span id="159">159</span>
+<span id="160">160</span>
+<span id="161">161</span>
+<span id="162">162</span>
+<span id="163">163</span>
+<span id="164">164</span>
+<span id="165">165</span>
 </pre><pre class="rust ">
 <span class="comment">// Copyright 2018 Syn Developers</span>
 <span class="comment">//</span>
@@ -153,6 +181,7 @@
 };
 
 <span class="kw">use</span> <span class="ident">buffer</span>::<span class="ident">Cursor</span>;
+<span class="kw">use</span> <span class="ident">thread</span>::<span class="ident">ThreadBound</span>;
 
 <span class="doccomment">/// The result of a Syn parser.</span>
 <span class="kw">pub</span> <span class="kw">type</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">std</span>::<span class="ident">result</span>::<span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">T</span>, <span class="ident">Error</span><span class="op">&gt;</span>;
@@ -164,11 +193,19 @@
 <span class="doccomment">/// [module documentation]: index.html</span>
 <span class="doccomment">///</span>
 <span class="doccomment">/// *This type is available if Syn is built with the `&quot;parsing&quot;` feature.*</span>
-<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>, <span class="ident">Clone</span>)]</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>)]</span>
 <span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">Error</span> {
-    <span class="ident">span</span>: <span class="ident">Span</span>,
+    <span class="comment">// Span is implemented as an index into a thread-local interner to keep the</span>
+    <span class="comment">// size small. It is not safe to access from a different thread. We want</span>
+    <span class="comment">// errors to be Send and Sync to play nicely with the Failure crate, so pin</span>
+    <span class="comment">// the span we&#39;re given to its original thread and assume it is</span>
+    <span class="comment">// Span::call_site if accessed from any other thread.</span>
+    <span class="ident">span</span>: <span class="ident">ThreadBound</span><span class="op">&lt;</span><span class="ident">Span</span><span class="op">&gt;</span>,
     <span class="ident">message</span>: <span class="ident">String</span>,
 }
+
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">test</span>)]</span>
+<span class="kw">struct</span> <span class="ident">_Test</span> <span class="kw">where</span> <span class="ident">Error</span>: <span class="ident">Send</span> <span class="op">+</span> <span class="ident">Sync</span>;
 
 <span class="kw">impl</span> <span class="ident">Error</span> {
     <span class="doccomment">/// Usually the [`ParseStream::error`] method will be used instead, which</span>
@@ -208,13 +245,21 @@
     <span class="doccomment">/// ```</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">new</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="ident">Display</span><span class="op">&gt;</span>(<span class="ident">span</span>: <span class="ident">Span</span>, <span class="ident">message</span>: <span class="ident">T</span>) <span class="op">-&gt;</span> <span class="self">Self</span> {
         <span class="ident">Error</span> {
-            <span class="ident">span</span>: <span class="ident">span</span>,
+            <span class="ident">span</span>: <span class="ident">ThreadBound</span>::<span class="ident">new</span>(<span class="ident">span</span>),
             <span class="ident">message</span>: <span class="ident">message</span>.<span class="ident">to_string</span>(),
         }
     }
 
+    <span class="doccomment">/// The source location of the error.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Spans are not thread-safe so this function returns `Span::call_site()`</span>
+    <span class="doccomment">/// if called from a different thread than the one on which the `Error` was</span>
+    <span class="doccomment">/// originally created.</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">span</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">Span</span> {
-        <span class="self">self</span>.<span class="ident">span</span>
+        <span class="kw">match</span> <span class="self">self</span>.<span class="ident">span</span>.<span class="ident">get</span>() {
+            <span class="prelude-val">Some</span>(<span class="ident">span</span>) <span class="op">=&gt;</span> <span class="kw-2">*</span><span class="ident">span</span>,
+            <span class="prelude-val">None</span> <span class="op">=&gt;</span> <span class="ident">Span</span>::<span class="ident">call_site</span>(),
+        }
     }
 
     <span class="doccomment">/// Render the error as an invocation of [`compile_error!`].</span>
@@ -225,23 +270,25 @@
     <span class="doccomment">/// [`compile_error!`]: https://doc.rust-lang.org/std/macro.compile_error.html</span>
     <span class="doccomment">/// [`parse_macro_input!`]: ../macro.parse_macro_input.html</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">to_compile_error</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">TokenStream</span> {
+        <span class="kw">let</span> <span class="ident">span</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">span</span>();
+
         <span class="comment">// compile_error!($message)</span>
         <span class="ident">TokenStream</span>::<span class="ident">from_iter</span>(<span class="macro">vec</span><span class="macro">!</span>[
-            <span class="ident">TokenTree</span>::<span class="ident">Ident</span>(<span class="ident">Ident</span>::<span class="ident">new</span>(<span class="string">&quot;compile_error&quot;</span>, <span class="self">self</span>.<span class="ident">span</span>)),
+            <span class="ident">TokenTree</span>::<span class="ident">Ident</span>(<span class="ident">Ident</span>::<span class="ident">new</span>(<span class="string">&quot;compile_error&quot;</span>, <span class="ident">span</span>)),
             <span class="ident">TokenTree</span>::<span class="ident">Punct</span>({
                 <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">punct</span> <span class="op">=</span> <span class="ident">Punct</span>::<span class="ident">new</span>(<span class="string">&#39;!&#39;</span>, <span class="ident">Spacing</span>::<span class="ident">Alone</span>);
-                <span class="ident">punct</span>.<span class="ident">set_span</span>(<span class="self">self</span>.<span class="ident">span</span>);
+                <span class="ident">punct</span>.<span class="ident">set_span</span>(<span class="ident">span</span>);
                 <span class="ident">punct</span>
             }),
             <span class="ident">TokenTree</span>::<span class="ident">Group</span>({
                 <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">group</span> <span class="op">=</span> <span class="ident">Group</span>::<span class="ident">new</span>(<span class="ident">Delimiter</span>::<span class="ident">Brace</span>, {
                     <span class="ident">TokenStream</span>::<span class="ident">from_iter</span>(<span class="macro">vec</span><span class="macro">!</span>[<span class="ident">TokenTree</span>::<span class="ident">Literal</span>({
                         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">string</span> <span class="op">=</span> <span class="ident">Literal</span>::<span class="ident">string</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">message</span>);
-                        <span class="ident">string</span>.<span class="ident">set_span</span>(<span class="self">self</span>.<span class="ident">span</span>);
+                        <span class="ident">string</span>.<span class="ident">set_span</span>(<span class="ident">span</span>);
                         <span class="ident">string</span>
                     })])
                 });
-                <span class="ident">group</span>.<span class="ident">set_span</span>(<span class="self">self</span>.<span class="ident">span</span>);
+                <span class="ident">group</span>.<span class="ident">set_span</span>(<span class="ident">span</span>);
                 <span class="ident">group</span>
             }),
         ])
@@ -259,6 +306,15 @@
 <span class="kw">impl</span> <span class="ident">Display</span> <span class="kw">for</span> <span class="ident">Error</span> {
     <span class="kw">fn</span> <span class="ident">fmt</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">formatter</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">fmt</span>::<span class="ident">Formatter</span>) <span class="op">-&gt;</span> <span class="ident">fmt</span>::<span class="prelude-ty">Result</span> {
         <span class="ident">formatter</span>.<span class="ident">write_str</span>(<span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">message</span>)
+    }
+}
+
+<span class="kw">impl</span> <span class="ident">Clone</span> <span class="kw">for</span> <span class="ident">Error</span> {
+    <span class="kw">fn</span> <span class="ident">clone</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="self">Self</span> {
+        <span class="ident">Error</span> {
+            <span class="ident">span</span>: <span class="ident">ThreadBound</span>::<span class="ident">new</span>(<span class="self">self</span>.<span class="ident">span</span>()),
+            <span class="ident">message</span>: <span class="self">self</span>.<span class="ident">message</span>.<span class="ident">clone</span>(),
+        }
     }
 }
 

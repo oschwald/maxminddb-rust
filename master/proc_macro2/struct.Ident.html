@@ -7,8 +7,8 @@ property.</p>
 <li>A lifetime is not an identifier. Use <code>syn::Lifetime</code> instead.</li>
 </ul>
 <p>An identifier constructed with <code>Ident::new</code> is permitted to be a Rust
-keyword, though parsing one through its <a href="https://docs.rs/syn/0.14/syn/synom/trait.Synom.html"><code>Synom</code></a> implementation rejects
-Rust keywords. Use <code>call!(Ident::parse_any)</code> when parsing to match the
+keyword, though parsing one through its <a href="https://docs.rs/syn/0.15/syn/parse/trait.Parse.html"><code>Parse</code></a> implementation rejects
+Rust keywords. Use <code>input.call(Ident::parse_any)</code> when parsing to match the
 behaviour of <code>Ident::new</code>.</p>
 <h1 id="examples" class="section-header"><a href="#examples">Examples</a></h1>
 <p>A new ident can be created from a string using the <code>Ident::new</code> function.
