@@ -21,7 +21,7 @@ before_script:
 script:
   - |
       cargo build &&
-      cargo test &&
+      cargo test --all-features &&
       cargo bench &&
       cargo doc
 
