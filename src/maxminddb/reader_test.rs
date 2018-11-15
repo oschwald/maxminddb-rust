@@ -38,7 +38,7 @@ fn test_decoder() {
         utf8_string: String,
     }
 
-    let r = Reader::open("test-data/test-data/MaxMind-DB-test-decoder.mmdb");
+    let r = Reader::open_readfile("test-data/test-data/MaxMind-DB-test-decoder.mmdb");
     if let Err(err) = r {
         panic!(format!("error opening mmdb: {:?}", err));
     }
@@ -78,7 +78,7 @@ fn test_decoder() {
 fn test_broken_database() {
     let _ = env_logger::try_init();
 
-    let r = Reader::open("test-data/test-data/GeoIP2-City-Test-Broken-Double-Format.mmdb")
+    let r = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test-Broken-Double-Format.mmdb")
         .ok()
         .unwrap();
     let ip: IpAddr = FromStr::from_str("2001:220::").unwrap();
@@ -98,7 +98,7 @@ fn test_broken_database() {
 fn test_missing_database() {
     let _ = env_logger::try_init();
 
-    let r = Reader::open("file-does-not-exist.mmdb");
+    let r = Reader::open_readfile("file-does-not-exist.mmdb");
     match r {
         Ok(_) => panic!("Received Reader when opening non-existent file"),
         Err(MaxMindDBError::IoError(_)) => assert!(true),
@@ -110,7 +110,7 @@ fn test_missing_database() {
 fn test_non_database() {
     let _ = env_logger::try_init();
 
-    let r = Reader::open("README.md");
+    let r = Reader::open_readfile("README.md");
     match r {
         Ok(_) => panic!("Received Reader when opening a non-MMDB file"),
         Err(e) => assert_eq!(
@@ -136,7 +136,7 @@ fn test_reader() {
                 "test-data/test-data/MaxMind-DB-test-ipv{}-{}.mmdb",
                 ip_version, record_size
             );
-            let reader = Reader::open(filename).ok().unwrap();
+            let reader = Reader::open_readfile(filename).ok().unwrap();
 
             check_metadata(&reader, *ip_version, *record_size);
             check_ip(&reader, *ip_version);
@@ -194,7 +194,7 @@ fn test_lookup_city() {
 
     let filename = "test-data/test-data/GeoIP2-City-Test.mmdb";
 
-    let reader = Reader::open(filename).unwrap();
+    let reader = Reader::open_readfile(filename).unwrap();
 
     let ip: IpAddr = FromStr::from_str("89.160.20.112").unwrap();
     let city: City = reader.lookup(ip).unwrap();
@@ -204,7 +204,7 @@ fn test_lookup_city() {
     assert_eq!(iso_code, Some("SE".to_owned()));
 }
 
-fn check_metadata(reader: &Reader, ip_version: usize, record_size: usize) {
+fn check_metadata<T: AsRef<[u8]>>(reader: &Reader<T>, ip_version: usize, record_size: usize) {
     let metadata = &reader.metadata;
 
     assert_eq!(metadata.binary_format_major_version, 2u16);
@@ -234,7 +234,7 @@ fn check_metadata(reader: &Reader, ip_version: usize, record_size: usize) {
     assert_eq!(metadata.record_size, record_size as u16)
 }
 
-fn check_ip(reader: &Reader, ip_version: usize) {
+fn check_ip<T: AsRef<[u8]>>(reader: &Reader<T>, ip_version: usize) {
     let subnets = match ip_version {
         6 => [
             "::1:ffff:ffff",
