@@ -44,6 +44,7 @@ ALIASES['maxminddb'] = {};
 ALIASES['maxminddb'] = {};
 ALIASES['maxminddb'] = {};
 ALIASES['maxminddb'] = {};
+ALIASES['maxminddb'] = {};
 ALIASES['proc_macro2'] = {};
 ALIASES['proc_macro2'] = {};
 ALIASES['proc_macro2'] = {};
