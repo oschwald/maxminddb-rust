@@ -16,9 +16,9 @@ identifiers.</p>
 <span class="attribute">#[<span class="ident">macro_use</span>]</span>
 <span class="kw">extern</span> <span class="kw">crate</span> <span class="ident">syn</span>;
 
-<span class="kw">use</span> <span class="ident">syn</span>::<span class="ident">Ident</span>;
+<span class="kw">use</span> <span class="ident">syn</span>::{<span class="ident">Error</span>, <span class="ident">Ident</span>, <span class="prelude-ty">Result</span>};
 <span class="kw">use</span> <span class="ident">syn</span>::<span class="ident">ext</span>::<span class="ident">IdentExt</span>;
-<span class="kw">use</span> <span class="ident">syn</span>::<span class="ident">parse</span>::{<span class="ident">Error</span>, <span class="ident">ParseStream</span>, <span class="prelude-ty">Result</span>};
+<span class="kw">use</span> <span class="ident">syn</span>::<span class="ident">parse</span>::<span class="ident">ParseStream</span>;
 
 <span class="comment">// Parses input that looks like `name = NAME` where `NAME` can be</span>
 <span class="comment">// any identifier.</span>

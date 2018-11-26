@@ -12,8 +12,8 @@ parsers.</p>
 <span class="kw">extern</span> <span class="kw">crate</span> <span class="ident">proc_macro2</span>;
 
 <span class="kw">use</span> <span class="ident">proc_macro2</span>::<span class="ident">TokenStream</span>;
-<span class="kw">use</span> <span class="ident">syn</span>::<span class="ident">token</span>;
-<span class="kw">use</span> <span class="ident">syn</span>::<span class="ident">parse</span>::{<span class="ident">Parse</span>, <span class="ident">ParseStream</span>, <span class="prelude-ty">Result</span>};
+<span class="kw">use</span> <span class="ident">syn</span>::{<span class="ident">token</span>, <span class="prelude-ty">Result</span>};
+<span class="kw">use</span> <span class="ident">syn</span>::<span class="ident">parse</span>::{<span class="ident">Parse</span>, <span class="ident">ParseStream</span>};
 
 <span class="comment">// Parse an outer attribute like:</span>
 <span class="comment">//</span>

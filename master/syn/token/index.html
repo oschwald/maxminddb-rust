@@ -24,8 +24,8 @@ method. Delimiter tokens are parsed using the <a href="../macro.parenthesized.ht
 <a href="../macro.bracketed.html"><code>bracketed!</code></a> and <a href="../macro.braced.html"><code>braced!</code></a> macros.</p>
 
 <pre class="rust rust-example-rendered">
-<span class="kw">use</span> <span class="ident">syn</span>::<span class="ident">Attribute</span>;
-<span class="kw">use</span> <span class="ident">syn</span>::<span class="ident">parse</span>::{<span class="ident">Parse</span>, <span class="ident">ParseStream</span>, <span class="prelude-ty">Result</span>};
+<span class="kw">use</span> <span class="ident">syn</span>::{<span class="ident">Attribute</span>, <span class="prelude-ty">Result</span>};
+<span class="kw">use</span> <span class="ident">syn</span>::<span class="ident">parse</span>::{<span class="ident">Parse</span>, <span class="ident">ParseStream</span>};
 
 <span class="comment">// Parse the ItemStatic struct shown above.</span>
 <span class="kw">impl</span> <span class="ident">Parse</span> <span class="kw">for</span> <span class="ident">ItemStatic</span> {

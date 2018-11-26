@@ -46,8 +46,8 @@ by crates that need to use them as such.</p>
 <span class="attribute">#[<span class="ident">macro_use</span>]</span>
 <span class="kw">extern</span> <span class="kw">crate</span> <span class="ident">syn</span>;
 
-<span class="kw">use</span> <span class="ident">syn</span>::{<span class="ident">LitBool</span>, <span class="ident">LitStr</span>};
-<span class="kw">use</span> <span class="ident">syn</span>::<span class="ident">parse</span>::{<span class="ident">Parse</span>, <span class="ident">ParseStream</span>, <span class="prelude-ty">Result</span>};
+<span class="kw">use</span> <span class="ident">syn</span>::{<span class="ident">LitBool</span>, <span class="ident">LitStr</span>, <span class="prelude-ty">Result</span>};
+<span class="kw">use</span> <span class="ident">syn</span>::<span class="ident">parse</span>::{<span class="ident">Parse</span>, <span class="ident">ParseStream</span>};
 
 <span class="kw">mod</span> <span class="ident">kw</span> {
     <span class="macro">custom_keyword</span><span class="macro">!</span>(<span class="ident">bool</span>);

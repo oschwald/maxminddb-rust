@@ -7,8 +7,8 @@
 <pre class="rust rust-example-rendered">
 <span class="attribute">#[<span class="ident">macro_use</span>]</span>
 <span class="kw">extern</span> <span class="kw">crate</span> <span class="ident">syn</span>;
-<span class="kw">use</span> <span class="ident">syn</span>::{<span class="ident">token</span>, <span class="ident">Ident</span>, <span class="ident">Type</span>};
-<span class="kw">use</span> <span class="ident">syn</span>::<span class="ident">parse</span>::{<span class="ident">Parse</span>, <span class="ident">ParseStream</span>, <span class="prelude-ty">Result</span>};
+<span class="kw">use</span> <span class="ident">syn</span>::{<span class="ident">token</span>, <span class="ident">Ident</span>, <span class="prelude-ty">Result</span>, <span class="ident">Type</span>};
+<span class="kw">use</span> <span class="ident">syn</span>::<span class="ident">parse</span>::{<span class="ident">Parse</span>, <span class="ident">ParseStream</span>};
 <span class="kw">use</span> <span class="ident">syn</span>::<span class="ident">punctuated</span>::<span class="ident">Punctuated</span>;
 
 <span class="comment">// Parse a simplified struct syntax like:</span>
