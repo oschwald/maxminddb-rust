@@ -1,5 +1,12 @@
 # Change Log #
 
+## 0.12.0 - 2018-12-09
+
+* `Reader::open` has been removed. You should use `Reader::open_readfile`
+  or `Reader::open_mmap`. Pull request by kpcyrd. GitHub #17 & #18.
+* `Reader::open_readfile` no longer depends on `unsafe`. Pull request by
+  kpcyrd. GitHub #17 & #18.
+
 ## 0.11.0 - 2018-11-12
 
 * An optional `mmap` cfg feature flag has been added. When set, `open`
