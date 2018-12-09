@@ -5,7 +5,7 @@
     trivial_casts,
     trivial_numeric_casts,
     unstable_features,
-    unused_import_braces,
+    unused_import_braces
 )]
 
 #[macro_use]

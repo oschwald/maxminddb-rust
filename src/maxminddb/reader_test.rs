@@ -186,7 +186,6 @@ fn test_reader_mmap() {
     }
 }
 
-
 #[test]
 fn test_lookup_city() {
     use super::geoip2::City;
