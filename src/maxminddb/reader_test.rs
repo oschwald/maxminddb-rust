@@ -5,6 +5,8 @@ use super::{MaxMindDBError, Reader};
 use std::net::IpAddr;
 use std::str::FromStr;
 
+#[allow(clippy::float_cmp)]
+
 #[test]
 fn test_decoder() {
     let _ = env_logger::try_init();
@@ -49,9 +51,9 @@ fn test_decoder() {
     assert_eq!(result.array, vec![1u32, 2u32, 3u32]);
     assert_eq!(result.boolean, true);
     assert_eq!(result.bytes, vec![0u8, 0u8, 0u8, 42u8]);
-    assert_eq!(result.double, 42.123456);
+    assert_eq!(result.double, 42.123_456);
     assert_eq!(result.float, 1.1);
-    assert_eq!(result.int32, -268435456);
+    assert_eq!(result.int32, -268_435_456);
 
     assert_eq!(
         result.map,
@@ -64,8 +66,8 @@ fn test_decoder() {
     );
 
     assert_eq!(result.uint16, 100);
-    assert_eq!(result.uint32, 268435456);
-    assert_eq!(result.uint64, 1152921504606846976);
+    assert_eq!(result.uint32, 268_435_456);
+    assert_eq!(result.uint64, 1_152_921_504_606_846_976);
     assert_eq!(
         result.uint128,
         vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
@@ -209,15 +211,15 @@ fn check_metadata<T: AsRef<[u8]>>(reader: &Reader<T>, ip_version: usize, record_
     assert_eq!(metadata.binary_format_major_version, 2u16);
 
     assert_eq!(metadata.binary_format_minor_version, 0u16);
-    assert!(metadata.build_epoch >= 1397457605);
+    assert!(metadata.build_epoch >= 1_397_457_605);
     assert_eq!(metadata.database_type, "Test".to_string());
 
     assert_eq!(
-        *metadata.description.get(&"en".to_string()).unwrap(),
+        *metadata.description[&"en".to_string()],
         "Test Database".to_string()
     );
     assert_eq!(
-        *metadata.description.get(&"zh".to_string()).unwrap(),
+        *metadata.description[&"zh".to_string()],
         "Test Database Chinese".to_string()
     );
 
