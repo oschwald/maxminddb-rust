@@ -33,7 +33,6 @@ use memmap::MmapOptions;
 use serde::{de, Deserialize};
 #[cfg(feature = "mmap")]
 use std::fs::File;
-use std::ops::Deref;
 use std::path::Path;
 
 #[derive(Debug, PartialEq)]
@@ -85,12 +84,12 @@ pub struct Metadata {
     pub record_size: u16,
 }
 
-struct BinaryDecoder<'data> {
-    buf: &'data [u8],
+struct BinaryDecoder<T: AsRef<[u8]>> {
+    buf: T,
     pointer_base: usize,
 }
 
-impl<'data> BinaryDecoder<'data> {
+impl<T: AsRef<[u8]>> BinaryDecoder<T> {
     fn decode_array(&self, size: usize, offset: usize) -> BinaryDecodeResult<decoder::DataRecord> {
         let mut array = Vec::new();
         let mut new_offset = offset;
@@ -121,7 +120,7 @@ impl<'data> BinaryDecoder<'data> {
 
     fn decode_bytes(&self, size: usize, offset: usize) -> BinaryDecodeResult<decoder::DataRecord> {
         let new_offset = offset + size;
-        let u8_slice = &self.buf[offset..new_offset];
+        let u8_slice = &self.buf.as_ref()[offset..new_offset];
 
         let bytes = u8_slice
             .iter()
@@ -136,7 +135,7 @@ impl<'data> BinaryDecoder<'data> {
             4 => {
                 let new_offset = offset + size;
 
-                let value = self.buf[offset..new_offset]
+                let value = self.buf.as_ref()[offset..new_offset]
                     .iter()
                     .fold(0u32, |acc, &b| (acc << 8) | u32::from(b));
                 let float_value: f32 = f32::from_bits(value);
@@ -157,7 +156,7 @@ impl<'data> BinaryDecoder<'data> {
             8 => {
                 let new_offset = offset + size;
 
-                let value = self.buf[offset..new_offset]
+                let value = self.buf.as_ref()[offset..new_offset]
                     .iter()
                     .fold(0u64, |acc, &b| (acc << 8) | u64::from(b));
                 let float_value: f64 = f64::from_bits(value);
@@ -178,7 +177,7 @@ impl<'data> BinaryDecoder<'data> {
             s if s <= 8 => {
                 let new_offset = offset + size;
 
-                let value = self.buf[offset..new_offset]
+                let value = self.buf.as_ref()[offset..new_offset]
                     .iter()
                     .fold(0u64, |acc, &b| (acc << 8) | u64::from(b));
                 (Ok(decoder::DataRecord::Uint64(value)), new_offset)
@@ -234,7 +233,7 @@ impl<'data> BinaryDecoder<'data> {
             s if s <= 4 => {
                 let new_offset = offset + size;
 
-                let value = self.buf[offset..new_offset]
+                let value = self.buf.as_ref()[offset..new_offset]
                     .iter()
                     .fold(0i32, |acc, &b| (acc << 8) | i32::from(b));
                 (Ok(decoder::DataRecord::Int32(value)), new_offset)
@@ -290,7 +289,7 @@ impl<'data> BinaryDecoder<'data> {
         let pointer_value_offset = [0, 0, 2048, 526_336, 0];
         let pointer_size = ((size >> 3) & 0x3) + 1;
         let new_offset = offset + pointer_size;
-        let pointer_bytes = &self.buf[offset..new_offset];
+        let pointer_bytes = &self.buf.as_ref()[offset..new_offset];
 
         let base = if pointer_size == 4 {
             0
@@ -309,7 +308,7 @@ impl<'data> BinaryDecoder<'data> {
         use std::str::from_utf8;
 
         let new_offset: usize = offset + size;
-        let bytes = &self.buf[offset..new_offset];
+        let bytes = &self.buf.as_ref()[offset..new_offset];
         match from_utf8(bytes) {
             Ok(v) => (Ok(decoder::DataRecord::String(v.to_owned())), new_offset),
             Err(_) => (
@@ -323,13 +322,13 @@ impl<'data> BinaryDecoder<'data> {
 
     fn decode(&self, offset: usize) -> BinaryDecodeResult<decoder::DataRecord> {
         let mut new_offset = offset + 1;
-        let ctrl_byte = self.buf[offset];
+        let ctrl_byte = self.buf.as_ref()[offset];
 
         let mut type_num = ctrl_byte >> 5;
 
         // Extended type
         if type_num == 0 {
-            type_num = self.buf[new_offset] + 7;
+            type_num = self.buf.as_ref()[new_offset] + 7;
             new_offset += 1;
         }
 
@@ -347,7 +346,7 @@ impl<'data> BinaryDecoder<'data> {
         let bytes_to_read = if size > 28 { size - 28 } else { 0 };
 
         let new_offset = offset + bytes_to_read;
-        let size_bytes = &self.buf[offset..new_offset];
+        let size_bytes = &self.buf.as_ref()[offset..new_offset];
 
         size = match size {
             s if s < 29 => s,
@@ -390,64 +389,15 @@ impl<'data> BinaryDecoder<'data> {
     }
 }
 
-/// A reader for the MaxMind DB format using `mmap` internally to only cause a minimal set of IO operations to happen, instead of reading the entire database (potentially 100s of MiB) into memory.
-#[cfg(feature = "mmap")]
-#[allow(dead_code)]
-pub struct OwnedReader<'data> {
-    data: Mmap,
-    inner: Reader<'data>,
-}
-
-/// A type definition substituting `OwnedReader<'data>` with `OwnedReaderFile<'data>`, used if the feature `mmap` is not active.
-#[cfg(not(feature = "mmap"))]
-pub type OwnedReader<'data> = OwnedReaderFile<'data>;
-
-/// A reader for the MaxMind DB format using a `Vec<u8>` internally to hold a complete copy of the database.
-#[allow(dead_code)]
-pub struct OwnedReaderFile<'data> {
-    data: Vec<u8>,
-    inner: Reader<'data>,
-}
-
-/// Allows to use OwnedReader as a drop-in replacement for a `Reader<'data>`.
-impl<'data> Deref for OwnedReader<'data> {
-    type Target = Reader<'data>;
-
-    fn deref(&self) -> &<Self as Deref>::Target {
-        &self.inner
-    }
-}
-
-/// Allows to use OwnedReader as a drop-in replacement for a `Reader<'data>`.
-#[cfg(feature = "mmap")]
-impl<'data> Deref for OwnedReaderFile<'data> {
-    type Target = Reader<'data>;
-
-    fn deref(&self) -> &<Self as Deref>::Target {
-        &self.inner
-    }
-}
-
 /// A reader for the MaxMind DB format. The lifetime `'data` is tied to the lifetime of the underlying buffer holding the contents of the database file.
-pub struct Reader<'data> {
-    decoder: BinaryDecoder<'data>,
+pub struct Reader<S: AsRef<[u8]>> {
+    decoder: BinaryDecoder<S>,
     pub metadata: Metadata,
     ipv4_start: usize,
 }
 
 #[cfg(feature = "mmap")]
-impl<'de, 'data> Reader<'data> {
-    /// Open a MaxMind DB database file by memory mapping it.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// let reader = maxminddb::Reader::open("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
-    /// ```
-    pub fn open<P:AsRef<Path>>(database: P) -> Result<OwnedReader<'static>, MaxMindDBError> {
-        Self::open_mmap(database)
-    }
-
+impl<'de> Reader<Mmap> {
     /// Open a MaxMind DB database file by memory mapping it.
     ///
     /// # Example
@@ -455,49 +405,14 @@ impl<'de, 'data> Reader<'data> {
     /// ```
     /// let reader = maxminddb::Reader::open_mmap("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
     /// ```
-    pub fn open_mmap<P:AsRef<Path>>(database: P) -> Result<OwnedReader<'static>, MaxMindDBError> {
-        let mmap;
-        {
-            let file_read = File::open(database)?;
-            mmap = unsafe { MmapOptions::new().map(&file_read) }?;
-        }
-
-        // This is safe:
-        // - the data backing the slice is bound to the lifetime of mmap
-        // - mmap lives as long as the OwnedReader instance
-        // - `inner` cannot be moved out of said instance, so its
-        //   lifetime remains coupled to that of `data`
-        // - `data` will only expire when `inner` does the moment
-        //   the OwnedReader instance expires
-        let ref_static: &'static [u8];
-        {
-            let tmp_slice: &[u8] = &mmap;
-            let tmp_ptr: *const [u8] = tmp_slice;
-            ref_static = unsafe { &*tmp_ptr };
-        }
-        let reader = Reader::from_buf(&ref_static)?;
-        Ok(OwnedReader {
-            data: mmap,
-            inner: reader,
-        })
+    pub fn open_mmap<P: AsRef<Path>>(database: P) -> Result<Reader<Mmap>, MaxMindDBError> {
+        let file_read = File::open(database)?;
+        let mmap = unsafe { MmapOptions::new().map(&file_read) }?;
+        Reader::from_source(mmap)
     }
 }
 
-#[cfg(not(feature = "mmap"))]
-impl<'de, 'data> Reader<'data> {
-    /// Open a MaxMind DB database file by loading it into memory.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// let reader = maxminddb::Reader::open("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
-    /// ```
-    pub fn open<P:AsRef<Path>>(database: P) -> Result<OwnedReader<'static>, MaxMindDBError> {
-        Self::open_readfile(database)
-    }
-}
-
-impl<'de, 'data> Reader<'data> {
+impl<'de> Reader<Vec<u8>> {
     /// Open a MaxMind DB database file by loading it into memory.
     ///
     /// # Example
@@ -505,44 +420,28 @@ impl<'de, 'data> Reader<'data> {
     /// ```
     /// let reader = maxminddb::Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
     /// ```
-    pub fn open_readfile<P:AsRef<Path>>(database: P) -> Result<OwnedReaderFile<'static>, MaxMindDBError> {
+    pub fn open_readfile<P: AsRef<Path>>(database: P) -> Result<Reader<Vec<u8>>, MaxMindDBError> {
         use std::fs;
 
         let buf: Vec<u8> = fs::read(&database)?;
-
-        // This is safe:
-        // - the data backing the slice is bound to the lifetime of buf
-        // - buf lives as long as the OwnedReader instance
-        // - `inner` cannot be moved out of said instance, so its
-        //   lifetime remains coupled to that of `data`
-        // - `data` will only expire when `inner` does the moment
-        //   the OwnedReader instance expires
-        let ref_static: &'static [u8];
-        {
-            let tmp_slice: &[u8] = &buf;
-            let tmp_ptr: *const [u8] = tmp_slice;
-            ref_static = unsafe { &*tmp_ptr };
-        }
-        let reader = Reader::from_buf(&ref_static)?;
-        Ok(OwnedReaderFile {
-            data: buf,
-            inner: reader,
-        })
+        Reader::from_source(buf)
     }
+}
 
-    /// Open a MaxMind DB database file in memory
+impl<'de, S: AsRef<[u8]>> Reader<S> {
+    /// Open a MaxMind DB database from anything that implements AsRef<[u8]>
     ///
     /// # Example
     ///
     /// ```
     /// use std::fs;
     /// let buf = fs::read("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
-    /// let reader = maxminddb::Reader::from_buf(&buf).unwrap();
+    /// let reader = maxminddb::Reader::from_source(buf).unwrap();
     /// ```
-    pub fn from_buf<'buf>(buf: &'buf [u8]) -> Result<Reader<'buf>, MaxMindDBError> {
+    pub fn from_source(buf: S) -> Result<Reader<S>, MaxMindDBError> {
         let data_section_separator_size = 16;
 
-        let metadata_start = find_metadata_start(&buf)?;
+        let metadata_start = find_metadata_start(buf.as_ref())?;
 
         let metadata_decoder = BinaryDecoder {
             buf,
@@ -588,7 +487,7 @@ impl<'de, 'data> Reader<'data> {
     /// use std::net::IpAddr;
     /// use std::str::FromStr;
     ///
-    /// let reader = maxminddb::Reader::open("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    /// let reader = maxminddb::Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
     ///
     /// let ip: IpAddr = FromStr::from_str("89.160.20.128").unwrap();
     /// let city: geoip2::City = reader.lookup(ip).unwrap();
@@ -662,26 +561,27 @@ impl<'de, 'data> Reader<'data> {
     }
 
     fn read_node(&self, node_number: usize, index: usize) -> Result<usize, MaxMindDBError> {
+        let buf = self.decoder.buf.as_ref();
         let base_offset = node_number * (self.metadata.record_size as usize) / 4;
 
         let val = match self.metadata.record_size {
             24 => {
                 let offset = base_offset + index * 3;
-                to_usize(0, &self.decoder.buf[offset..offset + 3])
+                to_usize(0, &buf[offset..offset + 3])
             }
             28 => {
-                let mut middle = self.decoder.buf[base_offset + 3];
+                let mut middle = buf[base_offset + 3];
                 if index != 0 {
                     middle &= 0x0F
                 } else {
                     middle = (0xF0 & middle) >> 4
                 }
                 let offset = base_offset + index * 4;
-                to_usize(middle, &self.decoder.buf[offset..offset + 3])
+                to_usize(middle, &buf[offset..offset + 3])
             }
             32 => {
                 let offset = base_offset + index * 4;
-                to_usize(0, &self.decoder.buf[offset..offset + 4])
+                to_usize(0, &buf[offset..offset + 4])
             }
             s => {
                 return Err(MaxMindDBError::InvalidDatabaseError(format!(
@@ -700,7 +600,7 @@ impl<'de, 'data> Reader<'data> {
 
         let resolved = pointer - (self.metadata.node_count as usize) + search_tree_size;
 
-        if resolved > self.decoder.buf.len() {
+        if resolved > self.decoder.buf.as_ref().len() {
             return Err(MaxMindDBError::InvalidDatabaseError(
                 "the MaxMind DB file's search tree \
                  is corrupt"
