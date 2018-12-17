@@ -128,6 +128,7 @@ ALIASES['syn'] = {};
 ALIASES['syn'] = {};
 ALIASES['syn'] = {};
 ALIASES['syn'] = {};
+ALIASES['syn'] = {};
 ALIASES['unicode_xid'] = {};
 ALIASES['unicode_xid'] = {};
 ALIASES['unicode_xid'] = {};
