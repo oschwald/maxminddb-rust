@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source to the Rust file `/home/travis/.cargo/registry/src/github.com-1ecc6299db9ec823/syn-0.15.23/src/spanned.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>spanned.rs.html -- source</title><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../dark.css"><link rel="stylesheet" type="text/css" href="../../light.css" id="themeStyle"><script src="../../storage.js"></script></head><body class="rustdoc source"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../../theme.js"></script><nav class="sub"><form class="search-form js-only"><div class="search-container"><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><a id="settings-menu" href="../../settings.html"><img src="../../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><pre class="line-numbers"><span id="1">  1</span>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source to the Rust file `/home/travis/.cargo/registry/src/github.com-1ecc6299db9ec823/syn-0.15.24/src/spanned.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>spanned.rs.html -- source</title><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../dark.css"><link rel="stylesheet" type="text/css" href="../../light.css" id="themeStyle"><script src="../../storage.js"></script></head><body class="rustdoc source"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../../theme.js"></script><nav class="sub"><form class="search-form js-only"><div class="search-container"><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><a id="settings-menu" href="../../settings.html"><img src="../../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><pre class="line-numbers"><span id="1">  1</span>
 <span id="2">  2</span>
 <span id="3">  3</span>
 <span id="4">  4</span>
@@ -142,12 +142,6 @@
 <span id="142">142</span>
 <span id="143">143</span>
 <span id="144">144</span>
-<span id="145">145</span>
-<span id="146">146</span>
-<span id="147">147</span>
-<span id="148">148</span>
-<span id="149">149</span>
-<span id="150">150</span>
 </pre><pre class="rust ">
 <span class="doccomment">//! A trait that can provide the `Span` of the complete contents of a syntax</span>
 <span class="doccomment">//! tree node.</span>
@@ -171,16 +165,12 @@
 <span class="doccomment">//! The following macro code takes a variable `ty` of type `Type` and produces a</span>
 <span class="doccomment">//! static assertion that `Sync` is implemented for that type.</span>
 <span class="doccomment">//!</span>
-<span class="doccomment">//! ```</span>
+<span class="doccomment">//! ```edition2018</span>
 <span class="doccomment">//! # extern crate proc_macro;</span>
-<span class="doccomment">//! # extern crate proc_macro2;</span>
-<span class="doccomment">//! # extern crate syn;</span>
 <span class="doccomment">//! #</span>
-<span class="doccomment">//! #[macro_use]</span>
-<span class="doccomment">//! extern crate quote;</span>
-<span class="doccomment">//!</span>
 <span class="doccomment">//! use proc_macro::TokenStream;</span>
 <span class="doccomment">//! use proc_macro2::Span;</span>
+<span class="doccomment">//! use quote::quote_spanned;</span>
 <span class="doccomment">//! use syn::Type;</span>
 <span class="doccomment">//! use syn::spanned::Spanned;</span>
 <span class="doccomment">//!</span>
@@ -202,8 +192,6 @@
 <span class="doccomment">//! # fn get_a_type() -&gt; Type {</span>
 <span class="doccomment">//! #     unimplemented!()</span>
 <span class="doccomment">//! # }</span>
-<span class="doccomment">//! #</span>
-<span class="doccomment">//! # fn main() {}</span>
 <span class="doccomment">//! ```</span>
 <span class="doccomment">//!</span>
 <span class="doccomment">//! By inserting this `assert_sync` fragment into the output code generated by</span>
