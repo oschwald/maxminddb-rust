@@ -2,6 +2,7 @@ var ALIASES = {};
 ALIASES['cfg_if'] = {};
 ALIASES['log'] = {};
 ALIASES['maxminddb'] = {};
+ALIASES['maxminddb'] = {};
 ALIASES['proc_macro2'] = {};
 ALIASES['quote'] = {};
 ALIASES['serde'] = {};
