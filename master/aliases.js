@@ -4,6 +4,7 @@ ALIASES['log'] = {};
 ALIASES['maxminddb'] = {};
 ALIASES['maxminddb'] = {};
 ALIASES['maxminddb'] = {};
+ALIASES['maxminddb'] = {};
 ALIASES['proc_macro2'] = {};
 ALIASES['quote'] = {};
 ALIASES['serde'] = {};
