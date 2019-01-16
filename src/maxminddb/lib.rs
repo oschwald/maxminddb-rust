@@ -53,15 +53,19 @@ impl From<io::Error> for MaxMindDBError {
 
 impl Display for MaxMindDBError {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), fmt::Error> {
-        std::error::Error::description(self).fmt(fmt)
+        match self {
+            MaxMindDBError::AddressNotFoundError(msg) => write!(fmt, "AddressNotFoundError: {}", msg)?,
+            MaxMindDBError::InvalidDatabaseError(msg) => write!(fmt, "InvalidDatabaseError: {}", msg)?,
+            MaxMindDBError::IoError(msg) => write!(fmt, "IoError: {}", msg)?,
+            MaxMindDBError::MapError(msg) => write!(fmt, "MapError: {}", msg)?,
+            MaxMindDBError::DecodingError(msg) => write!(fmt, "DecodingError: {}", msg)?,
+        }
+        Ok(())
     }
 }
 
-impl std::error::Error for MaxMindDBError {
-    fn description(&self) -> &str {
-        "error while decoding value"
-    }
-}
+// Use default implementation for `std::error::Error`
+impl std::error::Error for MaxMindDBError {}
 
 impl de::Error for MaxMindDBError {
     fn custom<T: Display>(msg: T) -> Self {
@@ -659,3 +663,34 @@ pub mod geoip2;
 
 #[cfg(test)]
 mod reader_test;
+
+#[cfg(test)]
+mod tests {
+    use super::MaxMindDBError;
+
+    #[test]
+    fn test_error_display() {
+        assert_eq!(
+            format!("{}", MaxMindDBError::AddressNotFoundError("something went wrong".to_owned())),
+            "AddressNotFoundError: something went wrong".to_owned(),
+        );
+        assert_eq!(
+            format!("{}", MaxMindDBError::InvalidDatabaseError("something went wrong".to_owned())),
+            "InvalidDatabaseError: something went wrong".to_owned(),
+        );
+        assert_eq!(
+            format!("{}", MaxMindDBError::IoError("something went wrong".to_owned())),
+            "IoError: something went wrong".to_owned(),
+        );
+        assert_eq!(
+            format!("{}", MaxMindDBError::MapError("something went wrong".to_owned())),
+            "MapError: something went wrong".to_owned(),
+        );
+        assert_eq!(
+            format!("{}", MaxMindDBError::DecodingError("something went wrong".to_owned())),
+            "DecodingError: something went wrong".to_owned(),
+        );
+    }
+
+
+}
