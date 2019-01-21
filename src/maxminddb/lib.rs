@@ -54,8 +54,12 @@ impl From<io::Error> for MaxMindDBError {
 impl Display for MaxMindDBError {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), fmt::Error> {
         match self {
-            MaxMindDBError::AddressNotFoundError(msg) => write!(fmt, "AddressNotFoundError: {}", msg)?,
-            MaxMindDBError::InvalidDatabaseError(msg) => write!(fmt, "InvalidDatabaseError: {}", msg)?,
+            MaxMindDBError::AddressNotFoundError(msg) => {
+                write!(fmt, "AddressNotFoundError: {}", msg)?
+            }
+            MaxMindDBError::InvalidDatabaseError(msg) => {
+                write!(fmt, "InvalidDatabaseError: {}", msg)?
+            }
             MaxMindDBError::IoError(msg) => write!(fmt, "IoError: {}", msg)?,
             MaxMindDBError::MapError(msg) => write!(fmt, "MapError: {}", msg)?,
             MaxMindDBError::DecodingError(msg) => write!(fmt, "DecodingError: {}", msg)?,
@@ -671,26 +675,40 @@ mod tests {
     #[test]
     fn test_error_display() {
         assert_eq!(
-            format!("{}", MaxMindDBError::AddressNotFoundError("something went wrong".to_owned())),
+            format!(
+                "{}",
+                MaxMindDBError::AddressNotFoundError("something went wrong".to_owned())
+            ),
             "AddressNotFoundError: something went wrong".to_owned(),
         );
         assert_eq!(
-            format!("{}", MaxMindDBError::InvalidDatabaseError("something went wrong".to_owned())),
+            format!(
+                "{}",
+                MaxMindDBError::InvalidDatabaseError("something went wrong".to_owned())
+            ),
             "InvalidDatabaseError: something went wrong".to_owned(),
         );
         assert_eq!(
-            format!("{}", MaxMindDBError::IoError("something went wrong".to_owned())),
+            format!(
+                "{}",
+                MaxMindDBError::IoError("something went wrong".to_owned())
+            ),
             "IoError: something went wrong".to_owned(),
         );
         assert_eq!(
-            format!("{}", MaxMindDBError::MapError("something went wrong".to_owned())),
+            format!(
+                "{}",
+                MaxMindDBError::MapError("something went wrong".to_owned())
+            ),
             "MapError: something went wrong".to_owned(),
         );
         assert_eq!(
-            format!("{}", MaxMindDBError::DecodingError("something went wrong".to_owned())),
+            format!(
+                "{}",
+                MaxMindDBError::DecodingError("something went wrong".to_owned())
+            ),
             "DecodingError: something went wrong".to_owned(),
         );
     }
-
 
 }
