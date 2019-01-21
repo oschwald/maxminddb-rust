@@ -41,7 +41,30 @@ pub struct ConnectionType {
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct AnonymousIp {
     pub is_anonymous: Option<bool>,
+    pub is_anonymous_vpn: Option<bool>,
+    pub is_hosting_provider: Option<bool>,
     pub is_public_proxy: Option<bool>,
+    pub is_tor_exit_node: Option<bool>,
+}
+
+/// GeoIP2 DensityIncome record
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct DensityIncome {
+    pub average_income: Option<u32>,
+    pub population_density: Option<u32>,
+}
+
+/// GeoIP2 Domain record
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct Domain {
+    pub domain: Option<String>,
+}
+
+/// GeoIP2 Asn record
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct Asn {
+    pub autonomous_system_number: Option<u32>,
+    pub autonomous_system_organization: Option<String>,
 }
 
 pub mod model {
@@ -63,6 +86,7 @@ pub mod model {
     #[derive(Deserialize, Serialize, Clone, Debug)]
     pub struct Country {
         pub geoname_id: Option<u32>,
+        pub is_in_european_union: Option<bool>,
         pub iso_code: Option<String>,
         pub names: Option<BTreeMap<String, String>>,
     }

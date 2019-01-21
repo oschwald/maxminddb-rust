@@ -6,7 +6,6 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 #[allow(clippy::float_cmp)]
-
 #[test]
 fn test_decoder() {
     let _ = env_logger::try_init();
@@ -203,6 +202,127 @@ fn test_lookup_city() {
     let iso_code = city.country.and_then(|cy| cy.iso_code);
 
     assert_eq!(iso_code, Some("SE".to_owned()));
+}
+
+#[test]
+fn test_lookup_country() {
+    use super::geoip2::Country;
+    let _ = env_logger::try_init();
+
+    let filename = "test-data/test-data/GeoIP2-Country-Test.mmdb";
+
+    let reader = Reader::open_readfile(filename).unwrap();
+
+    let ip: IpAddr = FromStr::from_str("89.160.20.112").unwrap();
+    let country: Country = reader.lookup(ip).unwrap();
+    let country: super::geoip2::model::Country = country.country.unwrap();
+
+    assert_eq!(country.iso_code, Some("SE".to_owned()));
+    assert_eq!(country.is_in_european_union, Some(true));
+}
+
+#[test]
+fn test_lookup_connection_type() {
+    use super::geoip2::ConnectionType;
+    let _ = env_logger::try_init();
+
+    let filename = "test-data/test-data/GeoIP2-Connection-Type-Test.mmdb";
+
+    let reader = Reader::open_readfile(filename).unwrap();
+
+    let ip: IpAddr = FromStr::from_str("96.1.20.112").unwrap();
+    let connection_type: ConnectionType = reader.lookup(ip).unwrap();
+
+    assert_eq!(
+        connection_type.connection_type,
+        Some("Cable/DSL".to_owned())
+    );
+}
+
+#[test]
+fn test_lookup_annonymous_ip() {
+    use super::geoip2::AnonymousIp;
+    let _ = env_logger::try_init();
+
+    let filename = "test-data/test-data/GeoIP2-Anonymous-IP-Test.mmdb";
+
+    let reader = Reader::open_readfile(filename).unwrap();
+
+    let ip: IpAddr = FromStr::from_str("81.2.69.123").unwrap();
+    let anonymous_ip: AnonymousIp = reader.lookup(ip).unwrap();
+
+    assert_eq!(anonymous_ip.is_anonymous, Some(true));
+    assert_eq!(anonymous_ip.is_public_proxy, Some(true));
+    assert_eq!(anonymous_ip.is_anonymous_vpn, Some(true));
+    assert_eq!(anonymous_ip.is_hosting_provider, Some(true));
+    assert_eq!(anonymous_ip.is_tor_exit_node, Some(true))
+}
+
+#[test]
+fn test_lookup_density_income() {
+    use super::geoip2::DensityIncome;
+    let _ = env_logger::try_init();
+
+    let filename = "test-data/test-data/GeoIP2-DensityIncome-Test.mmdb";
+
+    let reader = Reader::open_readfile(filename).unwrap();
+
+    let ip: IpAddr = FromStr::from_str("5.83.124.123").unwrap();
+    let density_income: DensityIncome = reader.lookup(ip).unwrap();
+
+    assert_eq!(density_income.average_income, Some(32323));
+    assert_eq!(density_income.population_density, Some(1232))
+}
+
+#[test]
+fn test_lookup_domain() {
+    use super::geoip2::Domain;
+    let _ = env_logger::try_init();
+
+    let filename = "test-data/test-data/GeoIP2-Domain-Test.mmdb";
+
+    let reader = Reader::open_readfile(filename).unwrap();
+
+    let ip: IpAddr = FromStr::from_str("66.92.80.123").unwrap();
+    let domain: Domain = reader.lookup(ip).unwrap();
+
+    assert_eq!(domain.domain, Some("speakeasy.net".to_owned()));
+}
+
+#[test]
+fn test_lookup_isp() {
+    use super::geoip2::Isp;
+    let _ = env_logger::try_init();
+
+    let filename = "test-data/test-data/GeoIP2-ISP-Test.mmdb";
+
+    let reader = Reader::open_readfile(filename).unwrap();
+
+    let ip: IpAddr = FromStr::from_str("12.87.118.123").unwrap();
+    let isp: Isp = reader.lookup(ip).unwrap();
+
+    assert_eq!(isp.autonomous_system_number, Some(7018));
+    assert_eq!(isp.isp, Some("AT&T Services".to_owned()));
+    assert_eq!(isp.organization, Some("AT&T Worldnet Services".to_owned()));
+}
+
+#[test]
+fn test_lookup_asn() {
+    use super::geoip2::Asn;
+    let _ = env_logger::try_init();
+
+    let filename = "test-data/test-data/GeoIP2-ISP-Test.mmdb";
+
+    let reader = Reader::open_readfile(filename).unwrap();
+
+    let ip: IpAddr = FromStr::from_str("1.128.0.123").unwrap();
+    let asn: Asn = reader.lookup(ip).unwrap();
+
+    assert_eq!(asn.autonomous_system_number, Some(1221));
+    assert_eq!(
+        asn.autonomous_system_organization,
+        Some("Telstra Pty Ltd".to_owned())
+    );
 }
 
 fn check_metadata<T: AsRef<[u8]>>(reader: &Reader<T>, ip_version: usize, record_size: usize) {
