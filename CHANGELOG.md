@@ -1,5 +1,13 @@
 # Change Log #
 
+## 0.13.0 - 2019-01-21
+
+* Missing models for `DensityIncome`, `Domain`, and `Asn` were added
+  and the missing `is_in_european_union` field was added to the
+  `Country` model. Pull request by Sebastian Nadorp. GitHub #19.
+* More details are now included in the `Display` implementation for
+  `MaxMindDBError`. Pull request by Mike Cooper. GitHub #20.
+
 ## 0.12.0 - 2018-12-09
 
 * `Reader::open` has been removed. You should use `Reader::open_readfile`
