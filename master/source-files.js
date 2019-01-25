@@ -8,6 +8,7 @@ sourcesIndex['maxminddb'] = {"name":"","dirs":[],"files":["decoder.rs","geoip2.r
 sourcesIndex['maxminddb'] = {"name":"","dirs":[],"files":["decoder.rs","geoip2.rs","lib.rs"]};
 sourcesIndex['maxminddb'] = {"name":"","dirs":[],"files":["decoder.rs","geoip2.rs","lib.rs"]};
 sourcesIndex['maxminddb'] = {"name":"","dirs":[],"files":["decoder.rs","geoip2.rs","lib.rs"]};
+sourcesIndex['maxminddb'] = {"name":"","dirs":[],"files":["decoder.rs","geoip2.rs","lib.rs"]};
 sourcesIndex['proc_macro2'] = {"name":"","dirs":[],"files":["fallback.rs","lib.rs","strnom.rs","wrapper.rs"]};
 sourcesIndex['proc_macro2'] = {"name":"","dirs":[],"files":["lib.rs","stable.rs","strnom.rs","unstable.rs"]};
 sourcesIndex['quote'] = {"name":"","dirs":[],"files":["ext.rs","lib.rs","to_tokens.rs"]};
