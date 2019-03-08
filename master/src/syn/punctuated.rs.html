@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source to the Rust file `/home/travis/.cargo/registry/src/github.com-1ecc6299db9ec823/syn-0.15.27/src/punctuated.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>punctuated.rs.html -- source</title><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../dark.css"><link rel="stylesheet" type="text/css" href="../../light.css" id="themeStyle"><script src="../../storage.js"></script><noscript><link rel="stylesheet" href="../../noscript.css"></noscript><style type="text/css">#crate-search{background-image:url("../../down-arrow.svg");}</style></head><body class="rustdoc source"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../../theme.js"></script><nav class="sub"><form class="search-form js-only"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><a id="settings-menu" href="../../settings.html"><img src="../../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><pre class="line-numbers"><span id="1">  1</span>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source to the Rust file `/home/travis/.cargo/registry/src/github.com-1ecc6299db9ec823/syn-0.15.28/src/punctuated.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>punctuated.rs.html -- source</title><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../dark.css"><link rel="stylesheet" type="text/css" href="../../light.css" id="themeStyle"><script src="../../storage.js"></script><noscript><link rel="stylesheet" href="../../noscript.css"></noscript><style type="text/css">#crate-search{background-image:url("../../down-arrow.svg");}</style></head><body class="rustdoc source"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../../theme.js"></script><nav class="sub"><form class="search-form js-only"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><a id="settings-menu" href="../../settings.html"><img src="../../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><pre class="line-numbers"><span id="1">  1</span>
 <span id="2">  2</span>
 <span id="3">  3</span>
 <span id="4">  4</span>
@@ -781,6 +781,7 @@
 <span id="781">781</span>
 <span id="782">782</span>
 <span id="783">783</span>
+<span id="784">784</span>
 </pre><div class="example-wrap"><pre class="rust ">
 <span class="doccomment">//! A punctuated sequence of syntax tree nodes separated by punctuation.</span>
 <span class="doccomment">//!</span>
@@ -788,7 +789,8 @@
 <span class="doccomment">//!</span>
 <span class="doccomment">//! - The fields of a struct are `Punctuated&lt;Field, Token![,]&gt;`.</span>
 <span class="doccomment">//! - The segments of a path are `Punctuated&lt;PathSegment, Token![::]&gt;`.</span>
-<span class="doccomment">//! - The bounds on a generic parameter are `Punctuated&lt;TypeParamBound, Token![+]&gt;`.</span>
+<span class="doccomment">//! - The bounds on a generic parameter are `Punctuated&lt;TypeParamBound,</span>
+<span class="doccomment">//!   Token![+]&gt;`.</span>
 <span class="doccomment">//! - The arguments to a function call are `Punctuated&lt;Expr, Token![,]&gt;`.</span>
 <span class="doccomment">//!</span>
 <span class="doccomment">//! This module provides a common representation for these punctuated sequences</span>
@@ -888,7 +890,7 @@
         <span class="ident">Iter</span> {
             <span class="ident">inner</span>: <span class="ident">Box</span>::<span class="ident">new</span>(<span class="ident">PrivateIter</span> {
                 <span class="ident">inner</span>: <span class="self">self</span>.<span class="ident">inner</span>.<span class="ident">iter</span>(),
-                <span class="ident">last</span>: <span class="self">self</span>.<span class="ident">last</span>.<span class="ident">as_ref</span>().<span class="ident">map</span>(<span class="op">|</span><span class="ident">t</span><span class="op">|</span> <span class="ident">t</span>.<span class="ident">as_ref</span>()).<span class="ident">into_iter</span>(),
+                <span class="ident">last</span>: <span class="self">self</span>.<span class="ident">last</span>.<span class="ident">as_ref</span>().<span class="ident">map</span>(<span class="ident">Box</span>::<span class="ident">as_ref</span>).<span class="ident">into_iter</span>(),
             }),
         }
     }
@@ -899,7 +901,7 @@
         <span class="ident">IterMut</span> {
             <span class="ident">inner</span>: <span class="ident">Box</span>::<span class="ident">new</span>(<span class="ident">PrivateIterMut</span> {
                 <span class="ident">inner</span>: <span class="self">self</span>.<span class="ident">inner</span>.<span class="ident">iter_mut</span>(),
-                <span class="ident">last</span>: <span class="self">self</span>.<span class="ident">last</span>.<span class="ident">as_mut</span>().<span class="ident">map</span>(<span class="op">|</span><span class="ident">t</span><span class="op">|</span> <span class="ident">t</span>.<span class="ident">as_mut</span>()).<span class="ident">into_iter</span>(),
+                <span class="ident">last</span>: <span class="self">self</span>.<span class="ident">last</span>.<span class="ident">as_mut</span>().<span class="ident">map</span>(<span class="ident">Box</span>::<span class="ident">as_mut</span>).<span class="ident">into_iter</span>(),
             }),
         }
     }
@@ -909,7 +911,7 @@
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">pairs</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">Pairs</span><span class="op">&lt;</span><span class="ident">T</span>, <span class="ident">P</span><span class="op">&gt;</span> {
         <span class="ident">Pairs</span> {
             <span class="ident">inner</span>: <span class="self">self</span>.<span class="ident">inner</span>.<span class="ident">iter</span>(),
-            <span class="ident">last</span>: <span class="self">self</span>.<span class="ident">last</span>.<span class="ident">as_ref</span>().<span class="ident">map</span>(<span class="op">|</span><span class="ident">t</span><span class="op">|</span> <span class="ident">t</span>.<span class="ident">as_ref</span>()).<span class="ident">into_iter</span>(),
+            <span class="ident">last</span>: <span class="self">self</span>.<span class="ident">last</span>.<span class="ident">as_ref</span>().<span class="ident">map</span>(<span class="ident">Box</span>::<span class="ident">as_ref</span>).<span class="ident">into_iter</span>(),
         }
     }
 
@@ -918,7 +920,7 @@
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">pairs_mut</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">PairsMut</span><span class="op">&lt;</span><span class="ident">T</span>, <span class="ident">P</span><span class="op">&gt;</span> {
         <span class="ident">PairsMut</span> {
             <span class="ident">inner</span>: <span class="self">self</span>.<span class="ident">inner</span>.<span class="ident">iter_mut</span>(),
-            <span class="ident">last</span>: <span class="self">self</span>.<span class="ident">last</span>.<span class="ident">as_mut</span>().<span class="ident">map</span>(<span class="op">|</span><span class="ident">t</span><span class="op">|</span> <span class="ident">t</span>.<span class="ident">as_mut</span>()).<span class="ident">into_iter</span>(),
+            <span class="ident">last</span>: <span class="self">self</span>.<span class="ident">last</span>.<span class="ident">as_mut</span>().<span class="ident">map</span>(<span class="ident">Box</span>::<span class="ident">as_mut</span>).<span class="ident">into_iter</span>(),
         }
     }
 
