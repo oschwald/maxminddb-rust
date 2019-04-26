@@ -12,8 +12,8 @@ fn skip_past_next_at(input: ParseStream) -&gt; Result&lt;()&gt; {
     input.step(|cursor| {
         let mut rest = *cursor;
         while let Some((tt, next)) = rest.token_tree() {
-            match tt {
-                TokenTree::Punct(ref punct) if punct.as_char() == '@' =&gt; {
+            match &amp;tt {
+                TokenTree::Punct(punct) if punct.as_char() == '@' =&gt; {
                     return Ok(((), next));
                 }
                 _ =&gt; rest = next,

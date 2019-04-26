@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source to the Rust file `/home/travis/.cargo/registry/src/github.com-1ecc6299db9ec823/syn-0.15.32/src/expr.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>expr.rs.html -- source</title><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../dark.css"><link rel="stylesheet" type="text/css" href="../../light.css" id="themeStyle"><script src="../../storage.js"></script><noscript><link rel="stylesheet" href="../../noscript.css"></noscript><link rel="shortcut icon" href="../../favicon.ico"><style type="text/css">#crate-search{background-image:url("../../down-arrow.svg");}</style></head><body class="rustdoc source"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div><a href='../../syn/index.html'><img src='../../rust-logo.png' alt='logo' width='100'></a></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../../theme.js"></script><nav class="sub"><form class="search-form js-only"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><a id="settings-menu" href="../../settings.html"><img src="../../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><pre class="line-numbers"><span id="1">   1</span>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source to the Rust file `/home/travis/.cargo/registry/src/github.com-1ecc6299db9ec823/syn-0.15.33/src/expr.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>expr.rs.html -- source</title><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../dark.css"><link rel="stylesheet" type="text/css" href="../../light.css" id="themeStyle"><script src="../../storage.js"></script><noscript><link rel="stylesheet" href="../../noscript.css"></noscript><link rel="shortcut icon" href="../../favicon.ico"><style type="text/css">#crate-search{background-image:url("../../down-arrow.svg");}</style></head><body class="rustdoc source"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div><a href='../../syn/index.html'><img src='../../rust-logo.png' alt='logo' width='100'></a></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../../theme.js"></script><nav class="sub"><form class="search-form js-only"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><a id="settings-menu" href="../../settings.html"><img src="../../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><pre class="line-numbers"><span id="1">   1</span>
 <span id="2">   2</span>
 <span id="3">   3</span>
 <span id="4">   4</span>
@@ -3764,18 +3764,6 @@
 <span id="3764">3764</span>
 <span id="3765">3765</span>
 <span id="3766">3766</span>
-<span id="3767">3767</span>
-<span id="3768">3768</span>
-<span id="3769">3769</span>
-<span id="3770">3770</span>
-<span id="3771">3771</span>
-<span id="3772">3772</span>
-<span id="3773">3773</span>
-<span id="3774">3774</span>
-<span id="3775">3775</span>
-<span id="3776">3776</span>
-<span id="3777">3777</span>
-<span id="3778">3778</span>
 </pre><div class="example-wrap"><pre class="rust ">
 <span class="kw">use</span> <span class="kw">super</span>::<span class="kw-2">*</span>;
 <span class="kw">use</span> <span class="ident">proc_macro2</span>::{<span class="ident">Span</span>, <span class="ident">TokenStream</span>};
@@ -3815,9 +3803,10 @@
     <span class="doccomment">///     Expr::If(expr) =&gt; {</span>
     <span class="doccomment">///         /* ... */</span>
     <span class="doccomment">///     }</span>
+    <span class="doccomment">///</span>
     <span class="doccomment">///     /* ... */</span>
     <span class="doccomment">///     # _ =&gt; {}</span>
-    <span class="doccomment">/// }</span>
+    <span class="doccomment">/// # }</span>
     <span class="doccomment">/// # }</span>
     <span class="doccomment">/// ```</span>
     <span class="doccomment">///</span>
@@ -3829,28 +3818,15 @@
     <span class="doccomment">/// `expr.receiver`, `expr.args` etc; if we ended up in the `If` case we get</span>
     <span class="doccomment">/// to use `expr.cond`, `expr.then_branch`, `expr.else_branch`.</span>
     <span class="doccomment">///</span>
-    <span class="doccomment">/// The pattern is similar if the input expression is borrowed:</span>
-    <span class="doccomment">///</span>
-    <span class="doccomment">/// ```edition2018</span>
-    <span class="doccomment">/// # use syn::Expr;</span>
-    <span class="doccomment">/// #</span>
-    <span class="doccomment">/// # fn example(expr: &amp;Expr) {</span>
-    <span class="doccomment">/// match *expr {</span>
-    <span class="doccomment">///     Expr::MethodCall(ref expr) =&gt; {</span>
-    <span class="doccomment">/// #   }</span>
-    <span class="doccomment">/// #   _ =&gt; {}</span>
-    <span class="doccomment">/// # }</span>
-    <span class="doccomment">/// # }</span>
-    <span class="doccomment">/// ```</span>
-    <span class="doccomment">///</span>
     <span class="doccomment">/// This approach avoids repeating the variant names twice on every line.</span>
     <span class="doccomment">///</span>
     <span class="doccomment">/// ```edition2018</span>
     <span class="doccomment">/// # use syn::{Expr, ExprMethodCall};</span>
     <span class="doccomment">/// #</span>
     <span class="doccomment">/// # fn example(expr: Expr) {</span>
-    <span class="doccomment">/// # match expr {</span>
-    <span class="doccomment">/// Expr::MethodCall(ExprMethodCall { method, args, .. }) =&gt; { // repetitive</span>
+    <span class="doccomment">/// // Repetitive; recommend not doing this.</span>
+    <span class="doccomment">/// match expr {</span>
+    <span class="doccomment">///     Expr::MethodCall(ExprMethodCall { method, args, .. }) =&gt; {</span>
     <span class="doccomment">/// # }</span>
     <span class="doccomment">/// # _ =&gt; {}</span>
     <span class="doccomment">/// # }</span>
@@ -3863,10 +3839,10 @@
     <span class="doccomment">/// ```edition2018</span>
     <span class="doccomment">/// # use syn::{Expr, ExprField};</span>
     <span class="doccomment">/// #</span>
-    <span class="doccomment">/// # fn example(discriminant: &amp;ExprField) {</span>
+    <span class="doccomment">/// # fn example(discriminant: ExprField) {</span>
     <span class="doccomment">/// // Binding is called `base` which is the name I would use if I were</span>
     <span class="doccomment">/// // assigning `*discriminant.base` without an `if let`.</span>
-    <span class="doccomment">/// if let Expr::Tuple(ref base) = *discriminant.base {</span>
+    <span class="doccomment">/// if let Expr::Tuple(base) = *discriminant.base {</span>
     <span class="doccomment">/// # }</span>
     <span class="doccomment">/// # }</span>
     <span class="doccomment">/// ```</span>
