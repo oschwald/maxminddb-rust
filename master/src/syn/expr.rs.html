@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source to the Rust file `/home/travis/.cargo/registry/src/github.com-1ecc6299db9ec823/syn-0.15.34/src/expr.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>expr.rs.html -- source</title><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../dark.css"><link rel="stylesheet" type="text/css" href="../../light.css" id="themeStyle"><script src="../../storage.js"></script><noscript><link rel="stylesheet" href="../../noscript.css"></noscript><link rel="shortcut icon" href="../../favicon.ico"><style type="text/css">#crate-search{background-image:url("../../down-arrow.svg");}</style></head><body class="rustdoc source"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div><a href='../../syn/index.html'><img src='../../rust-logo.png' alt='logo' width='100'></a></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../../theme.js"></script><nav class="sub"><form class="search-form js-only"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><a id="settings-menu" href="../../settings.html"><img src="../../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><pre class="line-numbers"><span id="1">   1</span>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source to the Rust file `/home/travis/.cargo/registry/src/github.com-1ecc6299db9ec823/syn-0.15.35/src/expr.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>expr.rs.html -- source</title><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../dark.css"><link rel="stylesheet" type="text/css" href="../../light.css" id="themeStyle"><script src="../../storage.js"></script><noscript><link rel="stylesheet" href="../../noscript.css"></noscript><link rel="shortcut icon" href="../../favicon.ico"><style type="text/css">#crate-search{background-image:url("../../down-arrow.svg");}</style></head><body class="rustdoc source"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div><a href='../../syn/index.html'><img src='../../rust-logo.png' alt='logo' width='100'></a></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../../theme.js"></script><nav class="sub"><form class="search-form js-only"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><a id="settings-menu" href="../../settings.html"><img src="../../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><pre class="line-numbers"><span id="1">   1</span>
 <span id="2">   2</span>
 <span id="3">   3</span>
 <span id="4">   4</span>
@@ -3809,11 +3809,6 @@
 <span id="3809">3809</span>
 <span id="3810">3810</span>
 <span id="3811">3811</span>
-<span id="3812">3812</span>
-<span id="3813">3813</span>
-<span id="3814">3814</span>
-<span id="3815">3815</span>
-<span id="3816">3816</span>
 </pre><div class="example-wrap"><pre class="rust ">
 <span class="kw">use</span> <span class="kw">super</span>::<span class="kw-2">*</span>;
 <span class="kw">use</span> <span class="ident">proc_macro2</span>::{<span class="ident">Span</span>, <span class="ident">TokenStream</span>};
@@ -4811,7 +4806,6 @@
     <span class="kw">enum</span> <span class="ident">Precedence</span> {
         <span class="ident">Any</span>,
         <span class="ident">Assign</span>,
-        <span class="ident">Placement</span>,
         <span class="ident">Range</span>,
         <span class="ident">Or</span>,
         <span class="ident">And</span>,
@@ -4928,23 +4922,6 @@
                     <span class="ident">eq_token</span>: <span class="ident">eq_token</span>,
                     <span class="ident">right</span>: <span class="ident">Box</span>::<span class="ident">new</span>(<span class="ident">rhs</span>),
                 });
-            } <span class="kw">else</span> <span class="kw">if</span> <span class="ident">Precedence</span>::<span class="ident">Placement</span> <span class="op">&gt;=</span> <span class="ident">base</span> <span class="op">&amp;&amp;</span> <span class="ident">input</span>.<span class="ident">peek</span>(<span class="macro">Token</span><span class="macro">!</span>[&lt;-]) {
-                <span class="kw">let</span> <span class="ident">arrow_token</span>: <span class="macro">Token</span><span class="macro">!</span>[&lt;-] <span class="op">=</span> <span class="ident">input</span>.<span class="ident">parse</span>()<span class="question-mark">?</span>;
-                <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">rhs</span> <span class="op">=</span> <span class="ident">unary_expr</span>(<span class="ident">input</span>, <span class="ident">allow_struct</span>)<span class="question-mark">?</span>;
-                <span class="kw">loop</span> {
-                    <span class="kw">let</span> <span class="ident">next</span> <span class="op">=</span> <span class="ident">peek_precedence</span>(<span class="ident">input</span>);
-                    <span class="kw">if</span> <span class="ident">next</span> <span class="op">&gt;</span> <span class="ident">Precedence</span>::<span class="ident">Placement</span> {
-                        <span class="ident">rhs</span> <span class="op">=</span> <span class="ident">parse_expr</span>(<span class="ident">input</span>, <span class="ident">rhs</span>, <span class="ident">allow_struct</span>, <span class="ident">next</span>)<span class="question-mark">?</span>;
-                    } <span class="kw">else</span> {
-                        <span class="kw">break</span>;
-                    }
-                }
-                <span class="ident">lhs</span> <span class="op">=</span> <span class="ident">Expr</span>::<span class="ident">InPlace</span>(<span class="ident">ExprInPlace</span> {
-                    <span class="ident">attrs</span>: <span class="ident">Vec</span>::<span class="ident">new</span>(),
-                    <span class="ident">place</span>: <span class="ident">Box</span>::<span class="ident">new</span>(<span class="ident">lhs</span>),
-                    <span class="ident">arrow_token</span>: <span class="ident">arrow_token</span>,
-                    <span class="ident">value</span>: <span class="ident">Box</span>::<span class="ident">new</span>(<span class="ident">rhs</span>),
-                });
             } <span class="kw">else</span> <span class="kw">if</span> <span class="ident">Precedence</span>::<span class="ident">Range</span> <span class="op">&gt;=</span> <span class="ident">base</span> <span class="op">&amp;&amp;</span> <span class="ident">input</span>.<span class="ident">peek</span>(<span class="macro">Token</span><span class="macro">!</span>[..]) {
                 <span class="kw">let</span> <span class="ident">limits</span>: <span class="ident">RangeLimits</span> <span class="op">=</span> <span class="ident">input</span>.<span class="ident">parse</span>()<span class="question-mark">?</span>;
                 <span class="kw">let</span> <span class="ident">rhs</span> <span class="op">=</span> <span class="kw">if</span> <span class="ident">input</span>.<span class="ident">is_empty</span>()
@@ -5048,8 +5025,6 @@
             <span class="ident">Precedence</span>::<span class="ident">of</span>(<span class="kw-2">&amp;</span><span class="ident">op</span>)
         } <span class="kw">else</span> <span class="kw">if</span> <span class="ident">input</span>.<span class="ident">peek</span>(<span class="macro">Token</span><span class="macro">!</span>[<span class="op">=</span>]) <span class="op">&amp;&amp;</span> <span class="op">!</span><span class="ident">input</span>.<span class="ident">peek</span>(<span class="macro">Token</span><span class="macro">!</span>[<span class="op">=&gt;</span>]) {
             <span class="ident">Precedence</span>::<span class="ident">Assign</span>
-        } <span class="kw">else</span> <span class="kw">if</span> <span class="ident">input</span>.<span class="ident">peek</span>(<span class="macro">Token</span><span class="macro">!</span>[&lt;-]) {
-            <span class="ident">Precedence</span>::<span class="ident">Placement</span>
         } <span class="kw">else</span> <span class="kw">if</span> <span class="ident">input</span>.<span class="ident">peek</span>(<span class="macro">Token</span><span class="macro">!</span>[..]) {
             <span class="ident">Precedence</span>::<span class="ident">Range</span>
         } <span class="kw">else</span> <span class="kw">if</span> <span class="ident">input</span>.<span class="ident">peek</span>(<span class="macro">Token</span><span class="macro">!</span>[<span class="kw">as</span>]) <span class="op">||</span> <span class="ident">input</span>.<span class="ident">peek</span>(<span class="macro">Token</span><span class="macro">!</span>[:]) <span class="op">&amp;&amp;</span> <span class="op">!</span><span class="ident">input</span>.<span class="ident">peek</span>(<span class="macro">Token</span><span class="macro">!</span>[::]) {
@@ -5714,55 +5689,70 @@
         }
     }
 
+    <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">all</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;full&quot;</span>, <span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;printing&quot;</span>))]</span>
+    <span class="kw">impl</span> <span class="ident">Parse</span> <span class="kw">for</span> <span class="ident">ExprInPlace</span> {
+        <span class="kw">fn</span> <span class="ident">parse</span>(<span class="ident">input</span>: <span class="ident">ParseStream</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="self">Self</span><span class="op">&gt;</span> {
+            <span class="kw">let</span> <span class="ident">msg</span> <span class="op">=</span> <span class="string">&quot;placement expression has been removed from Rust and is no longer parsed&quot;</span>;
+            <span class="prelude-val">Err</span>(<span class="ident">input</span>.<span class="ident">error</span>(<span class="ident">msg</span>))
+        }
+    }
+
     <span class="macro">macro_rules</span><span class="macro">!</span> <span class="ident">impl_by_parsing_expr</span> {
-        (<span class="macro-nonterminal">$</span><span class="macro-nonterminal">expr_type</span>:<span class="ident">ty</span>, <span class="macro-nonterminal">$</span><span class="macro-nonterminal">variant</span>:<span class="ident">ident</span>, <span class="macro-nonterminal">$</span><span class="macro-nonterminal">msg</span>:<span class="ident">expr</span>) <span class="op">=&gt;</span> (
-            <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">all</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;full&quot;</span>, <span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;printing&quot;</span>))]</span>
-            <span class="kw">impl</span> <span class="ident">Parse</span> <span class="kw">for</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">expr_type</span> {
-                <span class="kw">fn</span> <span class="ident">parse</span>(<span class="ident">input</span>: <span class="ident">ParseStream</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="self">Self</span><span class="op">&gt;</span> {
-                    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">expr</span>: <span class="ident">Expr</span> <span class="op">=</span> <span class="ident">input</span>.<span class="ident">parse</span>()<span class="question-mark">?</span>;
-                    <span class="kw">loop</span> {
-                        <span class="kw">match</span> <span class="ident">expr</span> {
-                            <span class="ident">Expr</span>::<span class="macro-nonterminal">$</span><span class="macro-nonterminal">variant</span>(<span class="ident">inner</span>) <span class="op">=&gt;</span> <span class="kw">return</span> <span class="prelude-val">Ok</span>(<span class="ident">inner</span>),
-                            <span class="ident">Expr</span>::<span class="ident">Group</span>(<span class="ident">ExprGroup</span> { <span class="ident">expr</span>: <span class="ident">next</span>, .. }) <span class="op">=&gt;</span> <span class="ident">expr</span> <span class="op">=</span> <span class="kw-2">*</span><span class="ident">next</span>,
-                            <span class="kw">_</span> <span class="op">=&gt;</span> <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">Error</span>::<span class="ident">new_spanned</span>(<span class="ident">expr</span>, <span class="macro-nonterminal">$</span><span class="macro-nonterminal">msg</span>))
+        (
+            $(
+                <span class="macro-nonterminal">$</span><span class="macro-nonterminal">expr_type</span>:<span class="ident">ty</span>, <span class="macro-nonterminal">$</span><span class="macro-nonterminal">variant</span>:<span class="ident">ident</span>, <span class="macro-nonterminal">$</span><span class="macro-nonterminal">msg</span>:<span class="ident">expr</span>,
+            )<span class="op">*</span>
+        ) <span class="op">=&gt;</span> {
+            $(
+                <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">all</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;full&quot;</span>, <span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;printing&quot;</span>))]</span>
+                <span class="kw">impl</span> <span class="ident">Parse</span> <span class="kw">for</span> <span class="macro-nonterminal">$</span><span class="macro-nonterminal">expr_type</span> {
+                    <span class="kw">fn</span> <span class="ident">parse</span>(<span class="ident">input</span>: <span class="ident">ParseStream</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="self">Self</span><span class="op">&gt;</span> {
+                        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">expr</span>: <span class="ident">Expr</span> <span class="op">=</span> <span class="ident">input</span>.<span class="ident">parse</span>()<span class="question-mark">?</span>;
+                        <span class="kw">loop</span> {
+                            <span class="kw">match</span> <span class="ident">expr</span> {
+                                <span class="ident">Expr</span>::<span class="macro-nonterminal">$</span><span class="macro-nonterminal">variant</span>(<span class="ident">inner</span>) <span class="op">=&gt;</span> <span class="kw">return</span> <span class="prelude-val">Ok</span>(<span class="ident">inner</span>),
+                                <span class="ident">Expr</span>::<span class="ident">Group</span>(<span class="ident">next</span>) <span class="op">=&gt;</span> <span class="ident">expr</span> <span class="op">=</span> <span class="kw-2">*</span><span class="ident">next</span>.<span class="ident">expr</span>,
+                                <span class="kw">_</span> <span class="op">=&gt;</span> <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">Error</span>::<span class="ident">new_spanned</span>(<span class="ident">expr</span>, <span class="macro-nonterminal">$</span><span class="macro-nonterminal">msg</span>)),
+                            }
                         }
                     }
                 }
-            }
-        )
+            )<span class="op">*</span>
+        };
     }
 
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprBox</span>, <span class="ident">Box</span>, <span class="string">&quot;expected box expression&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprInPlace</span>, <span class="ident">InPlace</span>, <span class="string">&quot;expected placement expression&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprArray</span>, <span class="ident">Array</span>, <span class="string">&quot;expected slice literal expression&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprCall</span>, <span class="ident">Call</span>, <span class="string">&quot;expected function call expression&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprMethodCall</span>, <span class="ident">MethodCall</span>, <span class="string">&quot;expected method call expression&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprTuple</span>, <span class="ident">Tuple</span>, <span class="string">&quot;expected tuple expression&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprBinary</span>, <span class="ident">Binary</span>, <span class="string">&quot;expected binary operation&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprUnary</span>, <span class="ident">Unary</span>, <span class="string">&quot;expected unary operation&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprCast</span>, <span class="ident">Cast</span>, <span class="string">&quot;expected cast expression&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprType</span>, <span class="ident">Type</span>, <span class="string">&quot;expected type ascription expression&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprLet</span>, <span class="ident">Let</span>, <span class="string">&quot;expected let guard&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprClosure</span>, <span class="ident">Closure</span>, <span class="string">&quot;expected closure expression&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprUnsafe</span>, <span class="ident">Unsafe</span>, <span class="string">&quot;expected unsafe block&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprBlock</span>, <span class="ident">Block</span>, <span class="string">&quot;expected blocked scope&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprAssign</span>, <span class="ident">Assign</span>, <span class="string">&quot;expected assignment expression&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprAssignOp</span>, <span class="ident">AssignOp</span>, <span class="string">&quot;expected compound assignment expression&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprField</span>, <span class="ident">Field</span>, <span class="string">&quot;expected struct field access&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprIndex</span>, <span class="ident">Index</span>, <span class="string">&quot;expected indexing expression&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprRange</span>, <span class="ident">Range</span>, <span class="string">&quot;expected range expression&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprReference</span>, <span class="ident">Reference</span>, <span class="string">&quot;expected referencing operation&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprBreak</span>, <span class="ident">Break</span>, <span class="string">&quot;expected break expression&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprContinue</span>, <span class="ident">Continue</span>, <span class="string">&quot;expected continue expression&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprReturn</span>, <span class="ident">Return</span>, <span class="string">&quot;expected return expression&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprMacro</span>, <span class="ident">Macro</span>, <span class="string">&quot;expected macro invocation expression&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprStruct</span>, <span class="ident">Struct</span>, <span class="string">&quot;expected struct literal expression&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprRepeat</span>, <span class="ident">Repeat</span>, <span class="string">&quot;expected array literal constructed from one repeated element&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprParen</span>, <span class="ident">Paren</span>, <span class="string">&quot;expected parenthesized expression&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprTry</span>, <span class="ident">Try</span>, <span class="string">&quot;expected try expression&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprAsync</span>, <span class="ident">Async</span>, <span class="string">&quot;expected async block&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprTryBlock</span>, <span class="ident">TryBlock</span>, <span class="string">&quot;expected try block&quot;</span>);
-    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span>(<span class="ident">ExprYield</span>, <span class="ident">Yield</span>, <span class="string">&quot;expected yield expression&quot;</span>);
+    <span class="macro">impl_by_parsing_expr</span><span class="macro">!</span> {
+        <span class="ident">ExprBox</span>, <span class="ident">Box</span>, <span class="string">&quot;expected box expression&quot;</span>,
+        <span class="ident">ExprArray</span>, <span class="ident">Array</span>, <span class="string">&quot;expected slice literal expression&quot;</span>,
+        <span class="ident">ExprCall</span>, <span class="ident">Call</span>, <span class="string">&quot;expected function call expression&quot;</span>,
+        <span class="ident">ExprMethodCall</span>, <span class="ident">MethodCall</span>, <span class="string">&quot;expected method call expression&quot;</span>,
+        <span class="ident">ExprTuple</span>, <span class="ident">Tuple</span>, <span class="string">&quot;expected tuple expression&quot;</span>,
+        <span class="ident">ExprBinary</span>, <span class="ident">Binary</span>, <span class="string">&quot;expected binary operation&quot;</span>,
+        <span class="ident">ExprUnary</span>, <span class="ident">Unary</span>, <span class="string">&quot;expected unary operation&quot;</span>,
+        <span class="ident">ExprCast</span>, <span class="ident">Cast</span>, <span class="string">&quot;expected cast expression&quot;</span>,
+        <span class="ident">ExprType</span>, <span class="ident">Type</span>, <span class="string">&quot;expected type ascription expression&quot;</span>,
+        <span class="ident">ExprLet</span>, <span class="ident">Let</span>, <span class="string">&quot;expected let guard&quot;</span>,
+        <span class="ident">ExprClosure</span>, <span class="ident">Closure</span>, <span class="string">&quot;expected closure expression&quot;</span>,
+        <span class="ident">ExprUnsafe</span>, <span class="ident">Unsafe</span>, <span class="string">&quot;expected unsafe block&quot;</span>,
+        <span class="ident">ExprBlock</span>, <span class="ident">Block</span>, <span class="string">&quot;expected blocked scope&quot;</span>,
+        <span class="ident">ExprAssign</span>, <span class="ident">Assign</span>, <span class="string">&quot;expected assignment expression&quot;</span>,
+        <span class="ident">ExprAssignOp</span>, <span class="ident">AssignOp</span>, <span class="string">&quot;expected compound assignment expression&quot;</span>,
+        <span class="ident">ExprField</span>, <span class="ident">Field</span>, <span class="string">&quot;expected struct field access&quot;</span>,
+        <span class="ident">ExprIndex</span>, <span class="ident">Index</span>, <span class="string">&quot;expected indexing expression&quot;</span>,
+        <span class="ident">ExprRange</span>, <span class="ident">Range</span>, <span class="string">&quot;expected range expression&quot;</span>,
+        <span class="ident">ExprReference</span>, <span class="ident">Reference</span>, <span class="string">&quot;expected referencing operation&quot;</span>,
+        <span class="ident">ExprBreak</span>, <span class="ident">Break</span>, <span class="string">&quot;expected break expression&quot;</span>,
+        <span class="ident">ExprContinue</span>, <span class="ident">Continue</span>, <span class="string">&quot;expected continue expression&quot;</span>,
+        <span class="ident">ExprReturn</span>, <span class="ident">Return</span>, <span class="string">&quot;expected return expression&quot;</span>,
+        <span class="ident">ExprMacro</span>, <span class="ident">Macro</span>, <span class="string">&quot;expected macro invocation expression&quot;</span>,
+        <span class="ident">ExprStruct</span>, <span class="ident">Struct</span>, <span class="string">&quot;expected struct literal expression&quot;</span>,
+        <span class="ident">ExprRepeat</span>, <span class="ident">Repeat</span>, <span class="string">&quot;expected array literal constructed from one repeated element&quot;</span>,
+        <span class="ident">ExprParen</span>, <span class="ident">Paren</span>, <span class="string">&quot;expected parenthesized expression&quot;</span>,
+        <span class="ident">ExprTry</span>, <span class="ident">Try</span>, <span class="string">&quot;expected try expression&quot;</span>,
+        <span class="ident">ExprAsync</span>, <span class="ident">Async</span>, <span class="string">&quot;expected async block&quot;</span>,
+        <span class="ident">ExprTryBlock</span>, <span class="ident">TryBlock</span>, <span class="string">&quot;expected try block&quot;</span>,
+        <span class="ident">ExprYield</span>, <span class="ident">Yield</span>, <span class="string">&quot;expected yield expression&quot;</span>,
+    }
 
     <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;full&quot;</span>)]</span>
     <span class="kw">fn</span> <span class="ident">expr_try_block</span>(<span class="ident">input</span>: <span class="ident">ParseStream</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">ExprTryBlock</span><span class="op">&gt;</span> {
