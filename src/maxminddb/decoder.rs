@@ -59,7 +59,7 @@ impl Decoder {
     }
 
     fn peek(&self) -> Option<&DataRecord> {
-        self.stack.get(self.stack.len() - 1)
+        self.stack.last()
     }
 }
 
