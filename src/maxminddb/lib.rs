@@ -79,7 +79,7 @@ impl de::Error for MaxMindDBError {
 
 type BinaryDecodeResult<T> = (Result<T, MaxMindDBError>, usize);
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct Metadata {
     pub binary_format_major_version: u16,
     pub binary_format_minor_version: u16,
@@ -92,6 +92,7 @@ pub struct Metadata {
     pub record_size: u16,
 }
 
+#[derive(Clone)]
 struct BinaryDecoder<T: AsRef<[u8]>> {
     buf: T,
     pointer_base: usize,
@@ -398,6 +399,7 @@ impl<T: AsRef<[u8]>> BinaryDecoder<T> {
 }
 
 /// A reader for the MaxMind DB format. The lifetime `'data` is tied to the lifetime of the underlying buffer holding the contents of the database file.
+#[derive(Clone)]
 pub struct Reader<S: AsRef<[u8]>> {
     decoder: BinaryDecoder<S>,
     pub metadata: Metadata,
