@@ -29,7 +29,14 @@ memmap = { version = "0.7.0", optional = true }
 
 [dev-dependencies]
 env_logger = "0.5"
+criterion = "0.3"
+fake = "2.2.0"
+rayon = "1.2.0"
+
 
 [badges]
 travis-ci = { repository = "oschwald/maxminddb-rust" }
 
+[[bench]]
+name = "lookup"
+harness = false

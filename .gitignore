@@ -4,3 +4,4 @@
 Cargo.lock
 GeoLite2-City.mmdb
 target
+GeoIP2-City.mmdb
