@@ -1,4 +1,4 @@
-extern crate maxminddb;
+use maxminddb;
 
 use std::net::IpAddr;
 use std::str::FromStr;

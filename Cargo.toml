@@ -11,6 +11,7 @@ documentation = "http://oschwald.github.io/maxminddb-rust/maxminddb/struct.Reade
 repository = "https://github.com/oschwald/maxminddb-rust"
 license = "ISC"
 include = ["/Cargo.toml", "/src/**/*.rs", "/README.md", "/LICENSE"]
+edition = "2018"
 
 [features]
 default = []

@@ -52,7 +52,7 @@ impl From<io::Error> for MaxMindDBError {
 }
 
 impl Display for MaxMindDBError {
-    fn fmt(&self, fmt: &mut Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             MaxMindDBError::AddressNotFoundError(msg) => {
                 write!(fmt, "AddressNotFoundError: {}", msg)?
