@@ -16,6 +16,8 @@ before_script:
   - cargo install cargo-update || echo "cargo-update already installed"
   - cargo install cargo-travis || echo "cargo-travis already installed"
   - cargo install-update -a # update outdated cached binaries
+  # For cargo bench
+  - cp test-data/test-data/GeoIP2-City-Test.mmdb GeoIP2-City.mmdb
   - rustup component add clippy || cargo install --git https://github.com/rust-lang/rust-clippy/ --force clippy
 
 # the main build
@@ -23,6 +25,8 @@ script:
   - cargo build
   - cargo clippy --all-targets --all-features -- -D warnings
   - cargo test --all-features
+  # As this uses a test DB and runs on a shared VM, this isn't
+  # indicative of much beyond verifying that the benchmarking runs.
   - cargo bench
   - cargo doc
 
