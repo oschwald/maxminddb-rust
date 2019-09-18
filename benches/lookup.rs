@@ -4,7 +4,6 @@ extern crate fake;
 extern crate maxminddb;
 extern crate rayon;
 
-use criterion::black_box;
 use criterion::Criterion;
 use fake::faker::internet::raw::*;
 use fake::locales::EN;
@@ -29,14 +28,14 @@ pub fn generate_ipv4(count: u64) -> Vec<IpAddr> {
 // Single-threaded
 pub fn bench_maxminddb(ips: &Vec<IpAddr>, reader: &maxminddb::Reader<Vec<u8>>) {
     ips.iter().for_each(|ip| {
-        let city: Result<geoip2::City, _> = reader.lookup(*ip);
+        let _ = reader.lookup::<geoip2::City>(*ip);
     });
 }
 
 // Using rayon for parallel execution
 pub fn bench_par_maxminddb(ips: &Vec<IpAddr>, reader: &maxminddb::Reader<Vec<u8>>) {
     ips.par_iter().for_each(|ip| {
-        let city: Result<geoip2::City, _> = reader.lookup(*ip);
+        let _ = reader.lookup::<geoip2::City>(*ip);
     });
 }
 
