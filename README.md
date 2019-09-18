@@ -45,6 +45,29 @@ The API docs are on [GitHub Pages](http://oschwald.github.io/maxminddb-rust/maxm
 
 See [`examples/lookup.rs`](https://github.com/oschwald/maxminddb-rust/blob/master/examples/lookup.rs) for a basic example.
 
+## Benchmarks ##
+
+The projects include benchmarks using [Criterion.rs](https://github.com/bheisler/criterion.rs).
+
+First you need to have a working copy of the GeoIP City database.
+You can fetch it from [here](https://dev.maxmind.com/geoip/geoip2/geolite2/).
+
+Place it in the root folder as `GeoIP2-City.mmdb`.
+
+Once this is done, run
+
+```
+cargo bench
+```
+
+If [gnuplot](http://www.gnuplot.info/) is installed, Criterion.rs can generate
+an HTML report displaying the results of the benchmark under
+`target/criterion/report/index.html`.
+
+Result of doing 100 random IP lookups:
+
+![](/assets/pdf_small.svg)
+
 ## Contributing ##
 
 Contributions welcome! Please fork the repository and open a pull request
