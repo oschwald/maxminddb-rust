@@ -336,6 +336,34 @@ fn test_lookup_asn() {
 }
 
 #[test]
+fn test_lookup_prefix() {
+    use super::geoip2::City;
+    let _ = env_logger::try_init();
+
+    let filename = "test-data/test-data/GeoIP2-ISP-Test.mmdb";
+
+    let reader = Reader::open_readfile(filename).unwrap();
+
+    // IPv4
+    let ip: IpAddr = "89.160.20.128".parse().unwrap();
+    let (_, prefix_len) = reader.lookup_prefix::<City>(ip).unwrap();
+
+    assert_eq!(prefix_len, 25); // "::89.160.20.128/121"
+
+    // Last host
+    let ip: IpAddr = "89.160.20.254".parse().unwrap();
+    let (_, last_prefix_len) = reader.lookup_prefix::<City>(ip).unwrap();
+
+    assert_eq!(prefix_len, last_prefix_len);
+
+    // IPv6
+    let ip: IpAddr = "2c0f:ff00::1".parse().unwrap();
+    let (_, prefix_len) = reader.lookup_prefix::<City>(ip).unwrap();
+
+    assert_eq!(prefix_len, 26); // "2c0f:ff00::/26"
+}
+
+#[test]
 fn test_within_city() {
     use super::geoip2::City;
     use super::Within;
