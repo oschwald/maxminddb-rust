@@ -532,14 +532,12 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
 
             node = self.read_node(node, bit as usize)?;
         }
-        if node == node_count {
-            Ok(0)
-        } else if node > node_count {
-            Ok(node)
-        } else {
-            Err(MaxMindDBError::InvalidDatabaseError(
+        match node_count {
+            n if n == node => Ok(0),
+            n if node > n => Ok(node),
+            _ => Err(MaxMindDBError::InvalidDatabaseError(
                 "invalid node in search tree".to_owned(),
-            ))
+            )),
         }
     }
 
@@ -710,5 +708,4 @@ mod tests {
             "DecodingError: something went wrong".to_owned(),
         );
     }
-
 }
