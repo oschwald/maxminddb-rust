@@ -1,5 +1,3 @@
-use env_logger;
-
 use super::{MaxMindDBError, Reader};
 
 use std::net::IpAddr;
@@ -102,7 +100,10 @@ fn test_missing_database() {
     let r = Reader::open_readfile("file-does-not-exist.mmdb");
     match r {
         Ok(_) => panic!("Received Reader when opening non-existent file"),
-        Err(e) => assert_eq!(e, MaxMindDBError::IoError("entity not found".to_string())),
+        Err(e) => assert_eq!(
+            e,
+            MaxMindDBError::IoError("No such file or directory (os error 2)".to_string())
+        ),
     }
 }
 

@@ -21,7 +21,6 @@ extern crate serde;
 extern crate serde_derive;
 
 use std::collections::BTreeMap;
-use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::io;
 use std::net::IpAddr;
