@@ -47,7 +47,7 @@ pub enum MaxMindDBError {
 impl From<io::Error> for MaxMindDBError {
     fn from(err: io::Error) -> MaxMindDBError {
         // clean up and clean up MaxMindDBError generally
-        MaxMindDBError::IoError(err.description().to_owned())
+        MaxMindDBError::IoError(err.to_string())
     }
 }
 
