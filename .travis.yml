@@ -25,9 +25,6 @@ script:
   - cargo build
   - cargo clippy --all-targets --all-features -- -D warnings
   - cargo test --all-features
-  # As this uses a test DB and runs on a shared VM, this isn't
-  # indicative of much beyond verifying that the benchmarking runs.
-  - cargo bench
   - cargo doc
 
 # Dependencies of kcov, used by coverage
