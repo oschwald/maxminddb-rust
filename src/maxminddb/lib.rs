@@ -98,7 +98,7 @@ struct BinaryDecoder<T: AsRef<[u8]>> {
 
 impl<T: AsRef<[u8]>> BinaryDecoder<T> {
     fn decode_array(&self, size: usize, offset: usize) -> BinaryDecodeResult<decoder::DataRecord> {
-        let mut array = Vec::new();
+        let mut array = Vec::with_capacity(size);
         let mut new_offset = offset;
 
         for _ in 0..size {
@@ -256,7 +256,7 @@ impl<T: AsRef<[u8]>> BinaryDecoder<T> {
     }
 
     fn decode_map(&self, size: usize, offset: usize) -> BinaryDecodeResult<decoder::DataRecord> {
-        let mut values = Box::new(BTreeMap::new());
+        let mut values = BTreeMap::new();
         let mut new_offset = offset;
 
         for _ in 0..size {
@@ -317,7 +317,7 @@ impl<T: AsRef<[u8]>> BinaryDecoder<T> {
         let new_offset: usize = offset + size;
         let bytes = &self.buf.as_ref()[offset..new_offset];
         match from_utf8(bytes) {
-            Ok(v) => (Ok(decoder::DataRecord::String(v.to_owned())), new_offset),
+            Ok(v) => (Ok(decoder::DataRecord::String(v)), new_offset),
             Err(_) => (
                 Err(MaxMindDBError::InvalidDatabaseError(
                     "error decoding string".to_owned(),
@@ -500,7 +500,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// let city: geoip2::City = reader.lookup(ip).unwrap();
     /// print!("{:?}", city);
     /// ```
-    pub fn lookup<T>(&self, address: IpAddr) -> Result<T, MaxMindDBError>
+    pub fn lookup<T>(&'de self, address: IpAddr) -> Result<T, MaxMindDBError>
     where
         T: Deserialize<'de>,
     {
