@@ -201,7 +201,7 @@ fn test_lookup_city() {
 
     let iso_code = city.country.and_then(|cy| cy.iso_code);
 
-    assert_eq!(iso_code, Some("SE".to_owned()));
+    assert_eq!(iso_code, Some("SE"));
 }
 
 #[test]
@@ -217,7 +217,7 @@ fn test_lookup_country() {
     let country: Country = reader.lookup(ip).unwrap();
     let country: super::geoip2::model::Country = country.country.unwrap();
 
-    assert_eq!(country.iso_code, Some("SE".to_owned()));
+    assert_eq!(country.iso_code, Some("SE"));
     assert_eq!(country.is_in_european_union, Some(true));
 }
 
@@ -233,10 +233,7 @@ fn test_lookup_connection_type() {
     let ip: IpAddr = FromStr::from_str("96.1.20.112").unwrap();
     let connection_type: ConnectionType = reader.lookup(ip).unwrap();
 
-    assert_eq!(
-        connection_type.connection_type,
-        Some("Cable/DSL".to_owned())
-    );
+    assert_eq!(connection_type.connection_type, Some("Cable/DSL"));
 }
 
 #[test]
@@ -286,7 +283,7 @@ fn test_lookup_domain() {
     let ip: IpAddr = FromStr::from_str("66.92.80.123").unwrap();
     let domain: Domain = reader.lookup(ip).unwrap();
 
-    assert_eq!(domain.domain, Some("speakeasy.net".to_owned()));
+    assert_eq!(domain.domain, Some("speakeasy.net"));
 }
 
 #[test]
@@ -302,8 +299,8 @@ fn test_lookup_isp() {
     let isp: Isp = reader.lookup(ip).unwrap();
 
     assert_eq!(isp.autonomous_system_number, Some(7018));
-    assert_eq!(isp.isp, Some("AT&T Services".to_owned()));
-    assert_eq!(isp.organization, Some("AT&T Worldnet Services".to_owned()));
+    assert_eq!(isp.isp, Some("AT&T Services"));
+    assert_eq!(isp.organization, Some("AT&T Worldnet Services"));
 }
 
 #[test]
@@ -319,10 +316,7 @@ fn test_lookup_asn() {
     let asn: Asn = reader.lookup(ip).unwrap();
 
     assert_eq!(asn.autonomous_system_number, Some(1221));
-    assert_eq!(
-        asn.autonomous_system_organization,
-        Some("Telstra Pty Ltd".to_owned())
-    );
+    assert_eq!(asn.autonomous_system_organization, Some("Telstra Pty Ltd"));
 }
 
 fn check_metadata<T: AsRef<[u8]>>(reader: &Reader<T>, ip_version: usize, record_size: usize) {
