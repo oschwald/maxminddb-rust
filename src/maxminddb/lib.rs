@@ -311,6 +311,22 @@ impl<T: AsRef<[u8]>> BinaryDecoder<T> {
         (result, new_offset)
     }
 
+    #[cfg(feature = "unsafe-str-decode")]
+    fn decode_string(&self, size: usize, offset: usize) -> BinaryDecodeResult<decoder::DataRecord> {
+        use std::str::from_utf8_unchecked;
+        let new_offset: usize = offset + size;
+        let bytes = &self.buf.as_ref()[offset..new_offset];
+        // SAFETY:
+        // A corrupt maxminddb will cause undefined behaviour.
+        // If the caller has verified the integrity of their database and trusts their upstream
+        // provider, they can opt-into the performance gains provided by this unsafe function via
+        // the `unsafe-str-decode` feature flag.
+        // This can provide around 20% performance increase in the lookup benchmark.
+        let v = unsafe { from_utf8_unchecked(bytes) };
+        (Ok(decoder::DataRecord::String(v)), new_offset)
+    }
+
+    #[cfg(not(feature = "unsafe-str-decode"))]
     fn decode_string(&self, size: usize, offset: usize) -> BinaryDecodeResult<decoder::DataRecord> {
         use std::str::from_utf8;
 
