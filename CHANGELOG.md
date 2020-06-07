@@ -1,5 +1,18 @@
 # Change Log #
 
+## 0.14.0 - 2020-06-07
+
+* BREAKING CHANGE: All Strings in the `geoip2` structs are not returned
+  as references. This was done to provide a significant performance
+  improvement when ownership is not needed. Pull request by Matthew Wynn.
+  GitHub #31.
+* A new opt-in feature, `unsafe-str-decode`, has been added that will
+  skip UTF-8 validation when decoding strings. You should only use this
+  when you trust that the MaxMind DB is valid and contains valid UTF-8
+  strings. This provides a modest performance improvement. Pull request
+  by Matthew Wynn. GitHub #31.
+* Many other internal improvements to reduce the number of allocations.
+
 ## 0.13.0 - 2019-01-21
 
 * Missing models for `DensityIncome`, `Domain`, and `Asn` were added
