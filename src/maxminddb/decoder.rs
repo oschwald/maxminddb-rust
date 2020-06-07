@@ -1,26 +1,25 @@
 use std::collections::BTreeMap;
-use std::string;
 
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 
 use super::MaxMindDBError;
 use super::MaxMindDBError::DecodingError;
 
-pub type DbArray = Vec<DataRecord>;
-pub type DbMap = BTreeMap<string::String, DataRecord>;
+pub type DbArray<'a> = Vec<DataRecord<'a>>;
+pub type DbMap<'a> = BTreeMap<&'a str, DataRecord<'a>>;
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum DataRecord {
-    String(string::String),
+pub enum DataRecord<'a> {
+    String(&'a str),
     Double(f64),
     Byte(u8),
     Uint16(u16),
     Uint32(u32),
-    Map(Box<DbMap>),
+    Map(DbMap<'a>),
     Int32(i32),
     Uint64(u64),
     Boolean(bool),
-    Array(DbArray),
+    Array(DbArray<'a>),
     Float(f32),
     Null,
 }
@@ -40,21 +39,21 @@ macro_rules! expect(
 );
 
 #[derive(Debug)]
-pub struct Decoder {
-    stack: Vec<DataRecord>,
+pub struct Decoder<'de> {
+    stack: Vec<DataRecord<'de>>,
 }
 
-impl Decoder {
+impl<'de> Decoder<'de> {
     /// Creates a new decoder instance for decoding the specified JSON value.
-    pub fn new(record: DataRecord) -> Decoder {
+    pub fn new(record: DataRecord<'de>) -> Decoder<'de> {
         Decoder {
             stack: vec![record],
         }
     }
 }
 
-impl Decoder {
-    fn pop(&mut self) -> DataRecord {
+impl<'de> Decoder<'de> {
+    fn pop(&mut self) -> DataRecord<'de> {
         self.stack.pop().unwrap()
     }
 
@@ -65,8 +64,8 @@ impl Decoder {
 
 pub type DecodeResult<T> = Result<T, MaxMindDBError>;
 
-// Much of this code was borrowed from the Rust JSON library, Serde Deserializer example
-impl<'de, 'a> de::Deserializer<'de> for &'a mut Decoder {
+// Much of this code was borrowed from the Rust JSON library, Serde Decoder example
+impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
     type Error = MaxMindDBError;
 
     #[inline]
@@ -170,7 +169,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Decoder {
     {
         let string = expect!(self.pop(), String)?;
         debug!("read_str: {}", string);
-        visitor.visit_str(&string)
+        visitor.visit_borrowed_str(&string)
     }
 
     fn deserialize_string<V>(self, visitor: V) -> DecodeResult<V::Value>
@@ -322,20 +321,20 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Decoder {
     }
 }
 
-struct ArrayAccess<'a> {
-    de: &'a mut Decoder,
+struct ArrayAccess<'a, 'de: 'a> {
+    de: &'a mut Decoder<'de>,
     count: usize,
 }
 
-impl<'a> ArrayAccess<'a> {
-    fn new(de: &'a mut Decoder, count: usize) -> Self {
+impl<'a, 'de> ArrayAccess<'a, 'de> {
+    fn new(de: &'a mut Decoder<'de>, count: usize) -> Self {
         ArrayAccess { de, count }
     }
 }
 
 // `SeqAccess` is provided to the `Visitor` to give it the ability to iterate
 // through elements of the sequence.
-impl<'de, 'a> SeqAccess<'de> for ArrayAccess<'a> {
+impl<'de, 'a> SeqAccess<'de> for ArrayAccess<'a, 'de> {
     type Error = MaxMindDBError;
 
     fn next_element_seed<T>(&mut self, seed: T) -> DecodeResult<Option<T::Value>>
@@ -353,20 +352,20 @@ impl<'de, 'a> SeqAccess<'de> for ArrayAccess<'a> {
     }
 }
 
-struct MapAccessor<'a> {
-    de: &'a mut Decoder,
+struct MapAccessor<'a, 'de: 'a> {
+    de: &'a mut Decoder<'de>,
     count: usize,
 }
 
-impl<'a> MapAccessor<'a> {
-    fn new(de: &'a mut Decoder, count: usize) -> Self {
+impl<'a, 'de> MapAccessor<'a, 'de> {
+    fn new(de: &'a mut Decoder<'de>, count: usize) -> Self {
         MapAccessor { de, count }
     }
 }
 
 // `MapAccess` is provided to the `Visitor` to give it the ability to iterate
 // through entries of the map.
-impl<'de, 'a> MapAccess<'de> for MapAccessor<'a> {
+impl<'de, 'a> MapAccess<'de> for MapAccessor<'a, 'de> {
     type Error = MaxMindDBError;
 
     fn next_key_seed<K>(&mut self, seed: K) -> DecodeResult<Option<K::Value>>

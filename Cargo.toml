@@ -16,6 +16,7 @@ edition = "2018"
 [features]
 default = []
 mmap = ["memmap"]
+unsafe-str-decode = []
 
 [lib]
 name ="maxminddb"
