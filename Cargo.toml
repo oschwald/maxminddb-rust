@@ -36,9 +36,6 @@ fake = "2.2.0"
 rayon = "1.2.0"
 
 
-[badges]
-travis-ci = { repository = "oschwald/maxminddb-rust" }
-
 [[bench]]
 name = "lookup"
 harness = false
