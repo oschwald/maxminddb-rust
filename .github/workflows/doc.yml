@@ -27,6 +27,9 @@ jobs:
           command: doc
           args: --all --no-deps
 
+      - name: Create index
+        run: echo '<meta http-equiv=refresh content=0;url=maxminddb/index.html>' > target/doc/index.html
+
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v3
         with:
