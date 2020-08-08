@@ -100,9 +100,10 @@ fn test_missing_database() {
     let r = Reader::open_readfile("file-does-not-exist.mmdb");
     match r {
         Ok(_) => panic!("Received Reader when opening non-existent file"),
-        Err(e) => assert_eq!(
-            e,
-            MaxMindDBError::IoError("No such file or directory (os error 2)".to_string())
+        Err(e) => assert!(
+            e == MaxMindDBError::IoError(
+                "The system cannot find the file specified. (os error 2)".to_string()
+            ) || e == MaxMindDBError::IoError("No such file or directory (os error 2)".to_string())
         ),
     }
 }
