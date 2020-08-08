@@ -1,1 +1,0 @@
-initSidebarItems({"mod":[["model",""]],"struct":[["AnonymousIp","GeoIP2 Anonymous Ip record"],["Asn","GeoIP2 Asn record"],["City","GeoIP2 City record"],["ConnectionType","GeoIP2 Connection-Type record"],["Country","GeoIP2 Country record"],["DensityIncome","GeoIP2 DensityIncome record"],["Domain","GeoIP2 Domain record"],["Isp","GeoIP2 ISP record"]]});

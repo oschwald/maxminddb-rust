@@ -1,1 +1,0 @@
-initSidebarItems({"enum":[["MaxMindDBError",""]],"mod":[["geoip2",""]],"struct":[["Metadata",""],["Reader","A reader for the MaxMind DB format. The lifetime `'data` is tied to the lifetime of the underlying buffer holding the contents of the database file."]]});
