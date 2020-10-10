@@ -1,4 +1,5 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source to the Rust file `src/maxminddb/lib.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>lib.rs.html -- source</title><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../dark.css"><link rel="stylesheet" type="text/css" href="../../light.css" id="themeStyle"><script src="../../storage.js"></script><noscript><link rel="stylesheet" href="../../noscript.css"></noscript><link rel="shortcut icon" href="../../favicon.ico"><style type="text/css">#crate-search{background-image:url("../../down-arrow.svg");}</style></head><body class="rustdoc source"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div><a href='../../maxminddb/index.html'><div class='logo-container'><img src='../../rust-logo.png' alt='logo'></div></a></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../../theme.js"></script><nav class="sub"><form class="search-form"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" disabled autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><a id="settings-menu" href="../../settings.html"><img src="../../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><pre class="line-numbers"><span id="1">  1</span>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source to the Rust file `src/maxminddb/lib.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>lib.rs.html -- source</title><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../light.css"  id="themeStyle"><link rel="stylesheet" type="text/css" href="../../dark.css" disabled ><link rel="stylesheet" type="text/css" href="../../ayu.css" disabled ><script src="../../storage.js"></script><noscript><link rel="stylesheet" href="../../noscript.css"></noscript><link rel="shortcut icon" href="../../favicon.ico"><style type="text/css">#crate-search{background-image:url("../../down-arrow.svg");}</style></head><body class="rustdoc source"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div><a href='../../maxminddb/index.html'><div class='logo-container rust-logo'><img src='../../rust-logo.png' alt='logo'></div></a></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../../theme.js"></script><nav class="sub"><form class="search-form"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" disabled autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><span class="help-button">?</span>
+                <a id="settings-menu" href="../../settings.html"><img src="../../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><pre class="line-numbers"><span id="1">  1</span>
 <span id="2">  2</span>
 <span id="3">  3</span>
 <span id="4">  4</span>
@@ -722,12 +723,8 @@
 <span id="722">722</span>
 <span id="723">723</span>
 <span id="724">724</span>
-<span id="725">725</span>
-<span id="726">726</span>
 </pre><div class="example-wrap"><pre class="rust ">
 <span class="attribute">#![<span class="ident">crate_name</span> <span class="op">=</span> <span class="string">&quot;maxminddb&quot;</span>]</span>
-<span class="attribute">#![<span class="ident">crate_type</span> <span class="op">=</span> <span class="string">&quot;dylib&quot;</span>]</span>
-<span class="attribute">#![<span class="ident">crate_type</span> <span class="op">=</span> <span class="string">&quot;rlib&quot;</span>]</span>
 <span class="attribute">#![<span class="ident">deny</span>(
     <span class="ident">trivial_casts</span>,
     <span class="ident">trivial_numeric_casts</span>,
@@ -771,24 +768,24 @@
 }
 
 <span class="kw">impl</span> <span class="ident">From</span><span class="op">&lt;</span><span class="ident">io</span>::<span class="ident">Error</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="ident">MaxMindDBError</span> {
-    <span class="kw">fn</span> <span class="ident">from</span>(<span class="ident">err</span>: <span class="ident">io</span>::<span class="ident">Error</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">MaxMindDBError</span> {
+    <span class="kw">fn</span> <span class="ident">from</span>(<span class="ident">err</span>: <span class="ident">io</span>::<span class="ident">Error</span>) <span class="op">-&gt;</span> <span class="ident">MaxMindDBError</span> {
         <span class="comment">// clean up and clean up MaxMindDBError generally</span>
         <span class="ident">MaxMindDBError</span>::<span class="ident">IoError</span>(<span class="ident">err</span>.<span class="ident">to_string</span>())
     }
 }
 
 <span class="kw">impl</span> <span class="ident">Display</span> <span class="kw">for</span> <span class="ident">MaxMindDBError</span> {
-    <span class="kw">fn</span> <span class="ident">fmt</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">fmt</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Formatter</span><span class="op">&lt;</span><span class="lifetime">&#39;_</span><span class="op">&gt;</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">fmt</span>::<span class="ident">Error</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">fmt</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">fmt</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Formatter</span><span class="op">&lt;</span><span class="lifetime">&#39;_</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">fmt</span>::<span class="ident">Error</span><span class="op">&gt;</span> {
         <span class="kw">match</span> <span class="self">self</span> {
-            <span class="ident">MaxMindDBError</span>::<span class="ident">AddressNotFoundError</span>(<span class="ident">msg</span>) <span class="op">=</span><span class="op">&gt;</span> {
+            <span class="ident">MaxMindDBError</span>::<span class="ident">AddressNotFoundError</span>(<span class="ident">msg</span>) <span class="op">=&gt;</span> {
                 <span class="macro">write</span><span class="macro">!</span>(<span class="ident">fmt</span>, <span class="string">&quot;AddressNotFoundError: {}&quot;</span>, <span class="ident">msg</span>)<span class="question-mark">?</span>
             }
-            <span class="ident">MaxMindDBError</span>::<span class="ident">InvalidDatabaseError</span>(<span class="ident">msg</span>) <span class="op">=</span><span class="op">&gt;</span> {
+            <span class="ident">MaxMindDBError</span>::<span class="ident">InvalidDatabaseError</span>(<span class="ident">msg</span>) <span class="op">=&gt;</span> {
                 <span class="macro">write</span><span class="macro">!</span>(<span class="ident">fmt</span>, <span class="string">&quot;InvalidDatabaseError: {}&quot;</span>, <span class="ident">msg</span>)<span class="question-mark">?</span>
             }
-            <span class="ident">MaxMindDBError</span>::<span class="ident">IoError</span>(<span class="ident">msg</span>) <span class="op">=</span><span class="op">&gt;</span> <span class="macro">write</span><span class="macro">!</span>(<span class="ident">fmt</span>, <span class="string">&quot;IoError: {}&quot;</span>, <span class="ident">msg</span>)<span class="question-mark">?</span>,
-            <span class="ident">MaxMindDBError</span>::<span class="ident">MapError</span>(<span class="ident">msg</span>) <span class="op">=</span><span class="op">&gt;</span> <span class="macro">write</span><span class="macro">!</span>(<span class="ident">fmt</span>, <span class="string">&quot;MapError: {}&quot;</span>, <span class="ident">msg</span>)<span class="question-mark">?</span>,
-            <span class="ident">MaxMindDBError</span>::<span class="ident">DecodingError</span>(<span class="ident">msg</span>) <span class="op">=</span><span class="op">&gt;</span> <span class="macro">write</span><span class="macro">!</span>(<span class="ident">fmt</span>, <span class="string">&quot;DecodingError: {}&quot;</span>, <span class="ident">msg</span>)<span class="question-mark">?</span>,
+            <span class="ident">MaxMindDBError</span>::<span class="ident">IoError</span>(<span class="ident">msg</span>) <span class="op">=&gt;</span> <span class="macro">write</span><span class="macro">!</span>(<span class="ident">fmt</span>, <span class="string">&quot;IoError: {}&quot;</span>, <span class="ident">msg</span>)<span class="question-mark">?</span>,
+            <span class="ident">MaxMindDBError</span>::<span class="ident">MapError</span>(<span class="ident">msg</span>) <span class="op">=&gt;</span> <span class="macro">write</span><span class="macro">!</span>(<span class="ident">fmt</span>, <span class="string">&quot;MapError: {}&quot;</span>, <span class="ident">msg</span>)<span class="question-mark">?</span>,
+            <span class="ident">MaxMindDBError</span>::<span class="ident">DecodingError</span>(<span class="ident">msg</span>) <span class="op">=&gt;</span> <span class="macro">write</span><span class="macro">!</span>(<span class="ident">fmt</span>, <span class="string">&quot;DecodingError: {}&quot;</span>, <span class="ident">msg</span>)<span class="question-mark">?</span>,
         }
         <span class="prelude-val">Ok</span>(())
     }
@@ -798,7 +795,7 @@
 <span class="kw">impl</span> <span class="ident">std</span>::<span class="ident">error</span>::<span class="ident">Error</span> <span class="kw">for</span> <span class="ident">MaxMindDBError</span> {}
 
 <span class="kw">impl</span> <span class="ident">de</span>::<span class="ident">Error</span> <span class="kw">for</span> <span class="ident">MaxMindDBError</span> {
-    <span class="kw">fn</span> <span class="ident">custom</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="ident">Display</span><span class="op">&gt;</span>(<span class="ident">msg</span>: <span class="ident">T</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="self">Self</span> {
+    <span class="kw">fn</span> <span class="ident">custom</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="ident">Display</span><span class="op">&gt;</span>(<span class="ident">msg</span>: <span class="ident">T</span>) <span class="op">-&gt;</span> <span class="self">Self</span> {
         <span class="ident">MaxMindDBError</span>::<span class="ident">DecodingError</span>(<span class="macro">format</span><span class="macro">!</span>(<span class="string">&quot;{}&quot;</span>, <span class="ident">msg</span>))
     }
 }
@@ -818,20 +815,20 @@
     <span class="kw">pub</span> <span class="ident">record_size</span>: <span class="ident">u16</span>,
 }
 
-<span class="kw">struct</span> <span class="ident">BinaryDecoder</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="ident">AsRef</span><span class="op">&lt;</span>[<span class="ident">u8</span>]<span class="op">&gt;</span><span class="op">&gt;</span> {
+<span class="kw">struct</span> <span class="ident">BinaryDecoder</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="ident">AsRef</span><span class="op">&lt;</span>[<span class="ident">u8</span>]<span class="op">&gt;&gt;</span> {
     <span class="ident">buf</span>: <span class="ident">T</span>,
     <span class="ident">pointer_base</span>: <span class="ident">usize</span>,
 }
 
-<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="ident">AsRef</span><span class="op">&lt;</span>[<span class="ident">u8</span>]<span class="op">&gt;</span><span class="op">&gt;</span> <span class="ident">BinaryDecoder</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
-    <span class="kw">fn</span> <span class="ident">decode_array</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="ident">AsRef</span><span class="op">&lt;</span>[<span class="ident">u8</span>]<span class="op">&gt;&gt;</span> <span class="ident">BinaryDecoder</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">decode_array</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">array</span> <span class="op">=</span> <span class="ident">Vec</span>::<span class="ident">with_capacity</span>(<span class="ident">size</span>);
         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">new_offset</span> <span class="op">=</span> <span class="ident">offset</span>;
 
         <span class="kw">for</span> <span class="kw">_</span> <span class="kw">in</span> <span class="number">0</span>..<span class="ident">size</span> {
             <span class="kw">let</span> (<span class="ident">val</span>, <span class="ident">tmp_offset</span>) <span class="op">=</span> <span class="kw">match</span> <span class="self">self</span>.<span class="ident">decode</span>(<span class="ident">new_offset</span>) {
-                (<span class="prelude-val">Ok</span>(<span class="ident">v</span>), <span class="ident">os</span>) <span class="op">=</span><span class="op">&gt;</span> (<span class="ident">v</span>, <span class="ident">os</span>),
-                (<span class="prelude-val">Err</span>(<span class="ident">e</span>), <span class="ident">os</span>) <span class="op">=</span><span class="op">&gt;</span> <span class="kw">return</span> (<span class="prelude-val">Err</span>(<span class="ident">e</span>), <span class="ident">os</span>),
+                (<span class="prelude-val">Ok</span>(<span class="ident">v</span>), <span class="ident">os</span>) <span class="op">=&gt;</span> (<span class="ident">v</span>, <span class="ident">os</span>),
+                (<span class="prelude-val">Err</span>(<span class="ident">e</span>), <span class="ident">os</span>) <span class="op">=&gt;</span> <span class="kw">return</span> (<span class="prelude-val">Err</span>(<span class="ident">e</span>), <span class="ident">os</span>),
             };
             <span class="ident">new_offset</span> <span class="op">=</span> <span class="ident">tmp_offset</span>;
             <span class="ident">array</span>.<span class="ident">push</span>(<span class="ident">val</span>);
@@ -839,10 +836,10 @@
         (<span class="prelude-val">Ok</span>(<span class="ident">decoder</span>::<span class="ident">DataRecord</span>::<span class="ident">Array</span>(<span class="ident">array</span>)), <span class="ident">new_offset</span>)
     }
 
-    <span class="kw">fn</span> <span class="ident">decode_bool</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">decode_bool</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
         <span class="kw">match</span> <span class="ident">size</span> {
-            <span class="number">0</span> <span class="op">|</span> <span class="number">1</span> <span class="op">=</span><span class="op">&gt;</span> (<span class="prelude-val">Ok</span>(<span class="ident">decoder</span>::<span class="ident">DataRecord</span>::<span class="ident">Boolean</span>(<span class="ident">size</span> <span class="op">!</span><span class="op">=</span> <span class="number">0</span>)), <span class="ident">offset</span>),
-            <span class="ident">s</span> <span class="op">=</span><span class="op">&gt;</span> (
+            <span class="number">0</span> <span class="op">|</span> <span class="number">1</span> <span class="op">=&gt;</span> (<span class="prelude-val">Ok</span>(<span class="ident">decoder</span>::<span class="ident">DataRecord</span>::<span class="ident">Boolean</span>(<span class="ident">size</span> <span class="op">!=</span> <span class="number">0</span>)), <span class="ident">offset</span>),
+            <span class="ident">s</span> <span class="op">=&gt;</span> (
                 <span class="prelude-val">Err</span>(<span class="ident">MaxMindDBError</span>::<span class="ident">InvalidDatabaseError</span>(<span class="macro">format</span><span class="macro">!</span>(
                     <span class="string">&quot;float of size {:?}&quot;</span>,
                     <span class="ident">s</span>
@@ -852,7 +849,7 @@
         }
     }
 
-    <span class="kw">fn</span> <span class="ident">decode_bytes</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">decode_bytes</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
         <span class="kw">let</span> <span class="ident">new_offset</span> <span class="op">=</span> <span class="ident">offset</span> <span class="op">+</span> <span class="ident">size</span>;
         <span class="kw">let</span> <span class="ident">u8_slice</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">buf</span>.<span class="ident">as_ref</span>()[<span class="ident">offset</span>..<span class="ident">new_offset</span>];
 
@@ -864,18 +861,18 @@
         (<span class="prelude-val">Ok</span>(<span class="ident">decoder</span>::<span class="ident">DataRecord</span>::<span class="ident">Array</span>(<span class="ident">bytes</span>)), <span class="ident">new_offset</span>)
     }
 
-    <span class="kw">fn</span> <span class="ident">decode_float</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">decode_float</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
         <span class="kw">match</span> <span class="ident">size</span> {
-            <span class="number">4</span> <span class="op">=</span><span class="op">&gt;</span> {
+            <span class="number">4</span> <span class="op">=&gt;</span> {
                 <span class="kw">let</span> <span class="ident">new_offset</span> <span class="op">=</span> <span class="ident">offset</span> <span class="op">+</span> <span class="ident">size</span>;
 
                 <span class="kw">let</span> <span class="ident">value</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">buf</span>.<span class="ident">as_ref</span>()[<span class="ident">offset</span>..<span class="ident">new_offset</span>]
                     .<span class="ident">iter</span>()
-                    .<span class="ident">fold</span>(<span class="number">0u32</span>, <span class="op">|</span><span class="ident">acc</span>, <span class="kw-2">&amp;</span><span class="ident">b</span><span class="op">|</span> (<span class="ident">acc</span> <span class="op">&lt;</span><span class="op">&lt;</span> <span class="number">8</span>) <span class="op">|</span> <span class="ident">u32</span>::<span class="ident">from</span>(<span class="ident">b</span>));
+                    .<span class="ident">fold</span>(<span class="number">0u32</span>, <span class="op">|</span><span class="ident">acc</span>, <span class="kw-2">&amp;</span><span class="ident">b</span><span class="op">|</span> (<span class="ident">acc</span> <span class="op">&lt;&lt;</span> <span class="number">8</span>) <span class="op">|</span> <span class="ident">u32</span>::<span class="ident">from</span>(<span class="ident">b</span>));
                 <span class="kw">let</span> <span class="ident">float_value</span>: <span class="ident">f32</span> <span class="op">=</span> <span class="ident">f32</span>::<span class="ident">from_bits</span>(<span class="ident">value</span>);
                 (<span class="prelude-val">Ok</span>(<span class="ident">decoder</span>::<span class="ident">DataRecord</span>::<span class="ident">Float</span>(<span class="ident">float_value</span>)), <span class="ident">new_offset</span>)
             }
-            <span class="ident">s</span> <span class="op">=</span><span class="op">&gt;</span> (
+            <span class="ident">s</span> <span class="op">=&gt;</span> (
                 <span class="prelude-val">Err</span>(<span class="ident">MaxMindDBError</span>::<span class="ident">InvalidDatabaseError</span>(<span class="macro">format</span><span class="macro">!</span>(
                     <span class="string">&quot;float of size {:?}&quot;</span>,
                     <span class="ident">s</span>
@@ -885,18 +882,18 @@
         }
     }
 
-    <span class="kw">fn</span> <span class="ident">decode_double</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">decode_double</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
         <span class="kw">match</span> <span class="ident">size</span> {
-            <span class="number">8</span> <span class="op">=</span><span class="op">&gt;</span> {
+            <span class="number">8</span> <span class="op">=&gt;</span> {
                 <span class="kw">let</span> <span class="ident">new_offset</span> <span class="op">=</span> <span class="ident">offset</span> <span class="op">+</span> <span class="ident">size</span>;
 
                 <span class="kw">let</span> <span class="ident">value</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">buf</span>.<span class="ident">as_ref</span>()[<span class="ident">offset</span>..<span class="ident">new_offset</span>]
                     .<span class="ident">iter</span>()
-                    .<span class="ident">fold</span>(<span class="number">0u64</span>, <span class="op">|</span><span class="ident">acc</span>, <span class="kw-2">&amp;</span><span class="ident">b</span><span class="op">|</span> (<span class="ident">acc</span> <span class="op">&lt;</span><span class="op">&lt;</span> <span class="number">8</span>) <span class="op">|</span> <span class="ident">u64</span>::<span class="ident">from</span>(<span class="ident">b</span>));
+                    .<span class="ident">fold</span>(<span class="number">0u64</span>, <span class="op">|</span><span class="ident">acc</span>, <span class="kw-2">&amp;</span><span class="ident">b</span><span class="op">|</span> (<span class="ident">acc</span> <span class="op">&lt;&lt;</span> <span class="number">8</span>) <span class="op">|</span> <span class="ident">u64</span>::<span class="ident">from</span>(<span class="ident">b</span>));
                 <span class="kw">let</span> <span class="ident">float_value</span>: <span class="ident">f64</span> <span class="op">=</span> <span class="ident">f64</span>::<span class="ident">from_bits</span>(<span class="ident">value</span>);
                 (<span class="prelude-val">Ok</span>(<span class="ident">decoder</span>::<span class="ident">DataRecord</span>::<span class="ident">Double</span>(<span class="ident">float_value</span>)), <span class="ident">new_offset</span>)
             }
-            <span class="ident">s</span> <span class="op">=</span><span class="op">&gt;</span> (
+            <span class="ident">s</span> <span class="op">=&gt;</span> (
                 <span class="prelude-val">Err</span>(<span class="ident">MaxMindDBError</span>::<span class="ident">InvalidDatabaseError</span>(<span class="macro">format</span><span class="macro">!</span>(
                     <span class="string">&quot;double of size {:?}&quot;</span>,
                     <span class="ident">s</span>
@@ -906,17 +903,17 @@
         }
     }
 
-    <span class="kw">fn</span> <span class="ident">decode_uint64</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">decode_uint64</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
         <span class="kw">match</span> <span class="ident">size</span> {
-            <span class="ident">s</span> <span class="kw">if</span> <span class="ident">s</span> <span class="op">&lt;</span><span class="op">=</span> <span class="number">8</span> <span class="op">=</span><span class="op">&gt;</span> {
+            <span class="ident">s</span> <span class="kw">if</span> <span class="ident">s</span> <span class="op">&lt;=</span> <span class="number">8</span> <span class="op">=&gt;</span> {
                 <span class="kw">let</span> <span class="ident">new_offset</span> <span class="op">=</span> <span class="ident">offset</span> <span class="op">+</span> <span class="ident">size</span>;
 
                 <span class="kw">let</span> <span class="ident">value</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">buf</span>.<span class="ident">as_ref</span>()[<span class="ident">offset</span>..<span class="ident">new_offset</span>]
                     .<span class="ident">iter</span>()
-                    .<span class="ident">fold</span>(<span class="number">0u64</span>, <span class="op">|</span><span class="ident">acc</span>, <span class="kw-2">&amp;</span><span class="ident">b</span><span class="op">|</span> (<span class="ident">acc</span> <span class="op">&lt;</span><span class="op">&lt;</span> <span class="number">8</span>) <span class="op">|</span> <span class="ident">u64</span>::<span class="ident">from</span>(<span class="ident">b</span>));
+                    .<span class="ident">fold</span>(<span class="number">0u64</span>, <span class="op">|</span><span class="ident">acc</span>, <span class="kw-2">&amp;</span><span class="ident">b</span><span class="op">|</span> (<span class="ident">acc</span> <span class="op">&lt;&lt;</span> <span class="number">8</span>) <span class="op">|</span> <span class="ident">u64</span>::<span class="ident">from</span>(<span class="ident">b</span>));
                 (<span class="prelude-val">Ok</span>(<span class="ident">decoder</span>::<span class="ident">DataRecord</span>::<span class="ident">Uint64</span>(<span class="ident">value</span>)), <span class="ident">new_offset</span>)
             }
-            <span class="ident">s</span> <span class="op">=</span><span class="op">&gt;</span> (
+            <span class="ident">s</span> <span class="op">=&gt;</span> (
                 <span class="prelude-val">Err</span>(<span class="ident">MaxMindDBError</span>::<span class="ident">InvalidDatabaseError</span>(<span class="macro">format</span><span class="macro">!</span>(
                     <span class="string">&quot;u64 of size {:?}&quot;</span>,
                     <span class="ident">s</span>
@@ -926,15 +923,15 @@
         }
     }
 
-    <span class="kw">fn</span> <span class="ident">decode_uint32</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">decode_uint32</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
         <span class="kw">match</span> <span class="ident">size</span> {
-            <span class="ident">s</span> <span class="kw">if</span> <span class="ident">s</span> <span class="op">&lt;</span><span class="op">=</span> <span class="number">4</span> <span class="op">=</span><span class="op">&gt;</span> <span class="kw">match</span> <span class="self">self</span>.<span class="ident">decode_uint64</span>(<span class="ident">size</span>, <span class="ident">offset</span>) {
-                (<span class="prelude-val">Ok</span>(<span class="ident">decoder</span>::<span class="ident">DataRecord</span>::<span class="ident">Uint64</span>(<span class="ident">u</span>)), <span class="ident">o</span>) <span class="op">=</span><span class="op">&gt;</span> {
+            <span class="ident">s</span> <span class="kw">if</span> <span class="ident">s</span> <span class="op">&lt;=</span> <span class="number">4</span> <span class="op">=&gt;</span> <span class="kw">match</span> <span class="self">self</span>.<span class="ident">decode_uint64</span>(<span class="ident">size</span>, <span class="ident">offset</span>) {
+                (<span class="prelude-val">Ok</span>(<span class="ident">decoder</span>::<span class="ident">DataRecord</span>::<span class="ident">Uint64</span>(<span class="ident">u</span>)), <span class="ident">o</span>) <span class="op">=&gt;</span> {
                     (<span class="prelude-val">Ok</span>(<span class="ident">decoder</span>::<span class="ident">DataRecord</span>::<span class="ident">Uint32</span>(<span class="ident">u</span> <span class="kw">as</span> <span class="ident">u32</span>)), <span class="ident">o</span>)
                 }
-                <span class="ident">e</span> <span class="op">=</span><span class="op">&gt;</span> <span class="ident">e</span>,
+                <span class="ident">e</span> <span class="op">=&gt;</span> <span class="ident">e</span>,
             },
-            <span class="ident">s</span> <span class="op">=</span><span class="op">&gt;</span> (
+            <span class="ident">s</span> <span class="op">=&gt;</span> (
                 <span class="prelude-val">Err</span>(<span class="ident">MaxMindDBError</span>::<span class="ident">InvalidDatabaseError</span>(<span class="macro">format</span><span class="macro">!</span>(
                     <span class="string">&quot;u32 of size {:?}&quot;</span>,
                     <span class="ident">s</span>
@@ -944,15 +941,15 @@
         }
     }
 
-    <span class="kw">fn</span> <span class="ident">decode_uint16</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">decode_uint16</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
         <span class="kw">match</span> <span class="ident">size</span> {
-            <span class="ident">s</span> <span class="kw">if</span> <span class="ident">s</span> <span class="op">&lt;</span><span class="op">=</span> <span class="number">4</span> <span class="op">=</span><span class="op">&gt;</span> <span class="kw">match</span> <span class="self">self</span>.<span class="ident">decode_uint64</span>(<span class="ident">size</span>, <span class="ident">offset</span>) {
-                (<span class="prelude-val">Ok</span>(<span class="ident">decoder</span>::<span class="ident">DataRecord</span>::<span class="ident">Uint64</span>(<span class="ident">u</span>)), <span class="ident">o</span>) <span class="op">=</span><span class="op">&gt;</span> {
+            <span class="ident">s</span> <span class="kw">if</span> <span class="ident">s</span> <span class="op">&lt;=</span> <span class="number">4</span> <span class="op">=&gt;</span> <span class="kw">match</span> <span class="self">self</span>.<span class="ident">decode_uint64</span>(<span class="ident">size</span>, <span class="ident">offset</span>) {
+                (<span class="prelude-val">Ok</span>(<span class="ident">decoder</span>::<span class="ident">DataRecord</span>::<span class="ident">Uint64</span>(<span class="ident">u</span>)), <span class="ident">o</span>) <span class="op">=&gt;</span> {
                     (<span class="prelude-val">Ok</span>(<span class="ident">decoder</span>::<span class="ident">DataRecord</span>::<span class="ident">Uint16</span>(<span class="ident">u</span> <span class="kw">as</span> <span class="ident">u16</span>)), <span class="ident">o</span>)
                 }
-                <span class="ident">e</span> <span class="op">=</span><span class="op">&gt;</span> <span class="ident">e</span>,
+                <span class="ident">e</span> <span class="op">=&gt;</span> <span class="ident">e</span>,
             },
-            <span class="ident">s</span> <span class="op">=</span><span class="op">&gt;</span> (
+            <span class="ident">s</span> <span class="op">=&gt;</span> (
                 <span class="prelude-val">Err</span>(<span class="ident">MaxMindDBError</span>::<span class="ident">InvalidDatabaseError</span>(<span class="macro">format</span><span class="macro">!</span>(
                     <span class="string">&quot;u16 of size {:?}&quot;</span>,
                     <span class="ident">s</span>
@@ -962,17 +959,17 @@
         }
     }
 
-    <span class="kw">fn</span> <span class="ident">decode_int</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">decode_int</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
         <span class="kw">match</span> <span class="ident">size</span> {
-            <span class="ident">s</span> <span class="kw">if</span> <span class="ident">s</span> <span class="op">&lt;</span><span class="op">=</span> <span class="number">4</span> <span class="op">=</span><span class="op">&gt;</span> {
+            <span class="ident">s</span> <span class="kw">if</span> <span class="ident">s</span> <span class="op">&lt;=</span> <span class="number">4</span> <span class="op">=&gt;</span> {
                 <span class="kw">let</span> <span class="ident">new_offset</span> <span class="op">=</span> <span class="ident">offset</span> <span class="op">+</span> <span class="ident">size</span>;
 
                 <span class="kw">let</span> <span class="ident">value</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">buf</span>.<span class="ident">as_ref</span>()[<span class="ident">offset</span>..<span class="ident">new_offset</span>]
                     .<span class="ident">iter</span>()
-                    .<span class="ident">fold</span>(<span class="number">0i32</span>, <span class="op">|</span><span class="ident">acc</span>, <span class="kw-2">&amp;</span><span class="ident">b</span><span class="op">|</span> (<span class="ident">acc</span> <span class="op">&lt;</span><span class="op">&lt;</span> <span class="number">8</span>) <span class="op">|</span> <span class="ident">i32</span>::<span class="ident">from</span>(<span class="ident">b</span>));
+                    .<span class="ident">fold</span>(<span class="number">0i32</span>, <span class="op">|</span><span class="ident">acc</span>, <span class="kw-2">&amp;</span><span class="ident">b</span><span class="op">|</span> (<span class="ident">acc</span> <span class="op">&lt;&lt;</span> <span class="number">8</span>) <span class="op">|</span> <span class="ident">i32</span>::<span class="ident">from</span>(<span class="ident">b</span>));
                 (<span class="prelude-val">Ok</span>(<span class="ident">decoder</span>::<span class="ident">DataRecord</span>::<span class="ident">Int32</span>(<span class="ident">value</span>)), <span class="ident">new_offset</span>)
             }
-            <span class="ident">s</span> <span class="op">=</span><span class="op">&gt;</span> (
+            <span class="ident">s</span> <span class="op">=&gt;</span> (
                 <span class="prelude-val">Err</span>(<span class="ident">MaxMindDBError</span>::<span class="ident">InvalidDatabaseError</span>(<span class="macro">format</span><span class="macro">!</span>(
                     <span class="string">&quot;int32 of size {:?}&quot;</span>,
                     <span class="ident">s</span>
@@ -982,24 +979,24 @@
         }
     }
 
-    <span class="kw">fn</span> <span class="ident">decode_map</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">decode_map</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">values</span> <span class="op">=</span> <span class="ident">BTreeMap</span>::<span class="ident">new</span>();
         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">new_offset</span> <span class="op">=</span> <span class="ident">offset</span>;
 
         <span class="kw">for</span> <span class="kw">_</span> <span class="kw">in</span> <span class="number">0</span>..<span class="ident">size</span> {
             <span class="kw">let</span> (<span class="ident">key</span>, <span class="ident">val_offset</span>) <span class="op">=</span> <span class="kw">match</span> <span class="self">self</span>.<span class="ident">decode</span>(<span class="ident">new_offset</span>) {
-                (<span class="prelude-val">Ok</span>(<span class="ident">v</span>), <span class="ident">os</span>) <span class="op">=</span><span class="op">&gt;</span> (<span class="ident">v</span>, <span class="ident">os</span>),
-                (<span class="prelude-val">Err</span>(<span class="ident">e</span>), <span class="ident">os</span>) <span class="op">=</span><span class="op">&gt;</span> <span class="kw">return</span> (<span class="prelude-val">Err</span>(<span class="ident">e</span>), <span class="ident">os</span>),
+                (<span class="prelude-val">Ok</span>(<span class="ident">v</span>), <span class="ident">os</span>) <span class="op">=&gt;</span> (<span class="ident">v</span>, <span class="ident">os</span>),
+                (<span class="prelude-val">Err</span>(<span class="ident">e</span>), <span class="ident">os</span>) <span class="op">=&gt;</span> <span class="kw">return</span> (<span class="prelude-val">Err</span>(<span class="ident">e</span>), <span class="ident">os</span>),
             };
             <span class="kw">let</span> (<span class="ident">val</span>, <span class="ident">tmp_offset</span>) <span class="op">=</span> <span class="kw">match</span> <span class="self">self</span>.<span class="ident">decode</span>(<span class="ident">val_offset</span>) {
-                (<span class="prelude-val">Ok</span>(<span class="ident">v</span>), <span class="ident">os</span>) <span class="op">=</span><span class="op">&gt;</span> (<span class="ident">v</span>, <span class="ident">os</span>),
-                (<span class="prelude-val">Err</span>(<span class="ident">e</span>), <span class="ident">os</span>) <span class="op">=</span><span class="op">&gt;</span> <span class="kw">return</span> (<span class="prelude-val">Err</span>(<span class="ident">e</span>), <span class="ident">os</span>),
+                (<span class="prelude-val">Ok</span>(<span class="ident">v</span>), <span class="ident">os</span>) <span class="op">=&gt;</span> (<span class="ident">v</span>, <span class="ident">os</span>),
+                (<span class="prelude-val">Err</span>(<span class="ident">e</span>), <span class="ident">os</span>) <span class="op">=&gt;</span> <span class="kw">return</span> (<span class="prelude-val">Err</span>(<span class="ident">e</span>), <span class="ident">os</span>),
             };
             <span class="ident">new_offset</span> <span class="op">=</span> <span class="ident">tmp_offset</span>;
 
             <span class="kw">let</span> <span class="ident">str_key</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">key</span> {
-                <span class="ident">decoder</span>::<span class="ident">DataRecord</span>::<span class="ident">String</span>(<span class="ident">s</span>) <span class="op">=</span><span class="op">&gt;</span> <span class="ident">s</span>,
-                <span class="ident">v</span> <span class="op">=</span><span class="op">&gt;</span> {
+                <span class="ident">decoder</span>::<span class="ident">DataRecord</span>::<span class="ident">String</span>(<span class="ident">s</span>) <span class="op">=&gt;</span> <span class="ident">s</span>,
+                <span class="ident">v</span> <span class="op">=&gt;</span> {
                     <span class="kw">return</span> (
                         <span class="prelude-val">Err</span>(<span class="ident">MaxMindDBError</span>::<span class="ident">InvalidDatabaseError</span>(<span class="macro">format</span><span class="macro">!</span>(
                             <span class="string">&quot;unexpected map \
@@ -1019,13 +1016,13 @@
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         <span class="ident">size</span>: <span class="ident">usize</span>,
         <span class="ident">offset</span>: <span class="ident">usize</span>,
-    ) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
+    ) <span class="op">-&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
         <span class="kw">let</span> <span class="ident">pointer_value_offset</span> <span class="op">=</span> [<span class="number">0</span>, <span class="number">0</span>, <span class="number">2048</span>, <span class="number">526_336</span>, <span class="number">0</span>];
-        <span class="kw">let</span> <span class="ident">pointer_size</span> <span class="op">=</span> ((<span class="ident">size</span> <span class="op">&gt;</span><span class="op">&gt;</span> <span class="number">3</span>) <span class="op">&amp;</span> <span class="number">0x3</span>) <span class="op">+</span> <span class="number">1</span>;
+        <span class="kw">let</span> <span class="ident">pointer_size</span> <span class="op">=</span> ((<span class="ident">size</span> <span class="op">&gt;&gt;</span> <span class="number">3</span>) <span class="op">&amp;</span> <span class="number">0x3</span>) <span class="op">+</span> <span class="number">1</span>;
         <span class="kw">let</span> <span class="ident">new_offset</span> <span class="op">=</span> <span class="ident">offset</span> <span class="op">+</span> <span class="ident">pointer_size</span>;
         <span class="kw">let</span> <span class="ident">pointer_bytes</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">buf</span>.<span class="ident">as_ref</span>()[<span class="ident">offset</span>..<span class="ident">new_offset</span>];
 
-        <span class="kw">let</span> <span class="ident">base</span> <span class="op">=</span> <span class="kw">if</span> <span class="ident">pointer_size</span> <span class="op">=</span><span class="op">=</span> <span class="number">4</span> {
+        <span class="kw">let</span> <span class="ident">base</span> <span class="op">=</span> <span class="kw">if</span> <span class="ident">pointer_size</span> <span class="op">==</span> <span class="number">4</span> {
             <span class="number">0</span>
         } <span class="kw">else</span> {
             (<span class="ident">size</span> <span class="op">&amp;</span> <span class="number">0x7</span>) <span class="kw">as</span> <span class="ident">u8</span>
@@ -1039,7 +1036,7 @@
     }
 
     <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;unsafe-str-decode&quot;</span>)]</span>
-    <span class="kw">fn</span> <span class="ident">decode_string</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">decode_string</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
         <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">str</span>::<span class="ident">from_utf8_unchecked</span>;
         <span class="kw">let</span> <span class="ident">new_offset</span>: <span class="ident">usize</span> <span class="op">=</span> <span class="ident">offset</span> <span class="op">+</span> <span class="ident">size</span>;
         <span class="kw">let</span> <span class="ident">bytes</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">buf</span>.<span class="ident">as_ref</span>()[<span class="ident">offset</span>..<span class="ident">new_offset</span>];
@@ -1054,14 +1051,14 @@
     }
 
     <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">not</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;unsafe-str-decode&quot;</span>))]</span>
-    <span class="kw">fn</span> <span class="ident">decode_string</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">decode_string</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">size</span>: <span class="ident">usize</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
         <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">str</span>::<span class="ident">from_utf8</span>;
 
         <span class="kw">let</span> <span class="ident">new_offset</span>: <span class="ident">usize</span> <span class="op">=</span> <span class="ident">offset</span> <span class="op">+</span> <span class="ident">size</span>;
         <span class="kw">let</span> <span class="ident">bytes</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">buf</span>.<span class="ident">as_ref</span>()[<span class="ident">offset</span>..<span class="ident">new_offset</span>];
         <span class="kw">match</span> <span class="ident">from_utf8</span>(<span class="ident">bytes</span>) {
-            <span class="prelude-val">Ok</span>(<span class="ident">v</span>) <span class="op">=</span><span class="op">&gt;</span> (<span class="prelude-val">Ok</span>(<span class="ident">decoder</span>::<span class="ident">DataRecord</span>::<span class="ident">String</span>(<span class="ident">v</span>)), <span class="ident">new_offset</span>),
-            <span class="prelude-val">Err</span>(<span class="kw">_</span>) <span class="op">=</span><span class="op">&gt;</span> (
+            <span class="prelude-val">Ok</span>(<span class="ident">v</span>) <span class="op">=&gt;</span> (<span class="prelude-val">Ok</span>(<span class="ident">decoder</span>::<span class="ident">DataRecord</span>::<span class="ident">String</span>(<span class="ident">v</span>)), <span class="ident">new_offset</span>),
+            <span class="prelude-val">Err</span>(<span class="kw">_</span>) <span class="op">=&gt;</span> (
                 <span class="prelude-val">Err</span>(<span class="ident">MaxMindDBError</span>::<span class="ident">InvalidDatabaseError</span>(
                     <span class="string">&quot;error decoding string&quot;</span>.<span class="ident">to_owned</span>(),
                 )),
@@ -1070,26 +1067,26 @@
         }
     }
 
-    <span class="kw">fn</span> <span class="ident">decode</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">decode</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">offset</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">new_offset</span> <span class="op">=</span> <span class="ident">offset</span> <span class="op">+</span> <span class="number">1</span>;
         <span class="kw">let</span> <span class="ident">ctrl_byte</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">buf</span>.<span class="ident">as_ref</span>()[<span class="ident">offset</span>];
 
-        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">type_num</span> <span class="op">=</span> <span class="ident">ctrl_byte</span> <span class="op">&gt;</span><span class="op">&gt;</span> <span class="number">5</span>;
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">type_num</span> <span class="op">=</span> <span class="ident">ctrl_byte</span> <span class="op">&gt;&gt;</span> <span class="number">5</span>;
 
         <span class="comment">// Extended type</span>
-        <span class="kw">if</span> <span class="ident">type_num</span> <span class="op">=</span><span class="op">=</span> <span class="number">0</span> {
+        <span class="kw">if</span> <span class="ident">type_num</span> <span class="op">==</span> <span class="number">0</span> {
             <span class="ident">type_num</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">buf</span>.<span class="ident">as_ref</span>()[<span class="ident">new_offset</span>] <span class="op">+</span> <span class="number">7</span>;
-            <span class="ident">new_offset</span> <span class="op">+</span><span class="op">=</span> <span class="number">1</span>;
+            <span class="ident">new_offset</span> <span class="op">+=</span> <span class="number">1</span>;
         }
 
         <span class="kw">let</span> (<span class="ident">size</span>, <span class="ident">value_offset</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">size_from_ctrl_byte</span>(<span class="ident">ctrl_byte</span>, <span class="ident">new_offset</span>, <span class="ident">type_num</span>);
         <span class="self">self</span>.<span class="ident">decode_from_type</span>(<span class="ident">type_num</span>, <span class="ident">size</span>, <span class="ident">value_offset</span>)
     }
 
-    <span class="kw">fn</span> <span class="ident">size_from_ctrl_byte</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">ctrl_byte</span>: <span class="ident">u8</span>, <span class="ident">offset</span>: <span class="ident">usize</span>, <span class="ident">type_num</span>: <span class="ident">u8</span>) <span class="op">-</span><span class="op">&gt;</span> (<span class="ident">usize</span>, <span class="ident">usize</span>) {
+    <span class="kw">fn</span> <span class="ident">size_from_ctrl_byte</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">ctrl_byte</span>: <span class="ident">u8</span>, <span class="ident">offset</span>: <span class="ident">usize</span>, <span class="ident">type_num</span>: <span class="ident">u8</span>) <span class="op">-&gt;</span> (<span class="ident">usize</span>, <span class="ident">usize</span>) {
         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">size</span> <span class="op">=</span> (<span class="ident">ctrl_byte</span> <span class="op">&amp;</span> <span class="number">0x1f</span>) <span class="kw">as</span> <span class="ident">usize</span>;
         <span class="comment">// extended</span>
-        <span class="kw">if</span> <span class="ident">type_num</span> <span class="op">=</span><span class="op">=</span> <span class="number">0</span> {
+        <span class="kw">if</span> <span class="ident">type_num</span> <span class="op">==</span> <span class="number">0</span> {
             <span class="kw">return</span> (<span class="ident">size</span>, <span class="ident">offset</span>);
         }
 
@@ -1099,10 +1096,10 @@
         <span class="kw">let</span> <span class="ident">size_bytes</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">buf</span>.<span class="ident">as_ref</span>()[<span class="ident">offset</span>..<span class="ident">new_offset</span>];
 
         <span class="ident">size</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">size</span> {
-            <span class="ident">s</span> <span class="kw">if</span> <span class="ident">s</span> <span class="op">&lt;</span> <span class="number">29</span> <span class="op">=</span><span class="op">&gt;</span> <span class="ident">s</span>,
-            <span class="number">29</span> <span class="op">=</span><span class="op">&gt;</span> <span class="number">29usize</span> <span class="op">+</span> <span class="ident">size_bytes</span>[<span class="number">0</span>] <span class="kw">as</span> <span class="ident">usize</span>,
-            <span class="number">30</span> <span class="op">=</span><span class="op">&gt;</span> <span class="number">285usize</span> <span class="op">+</span> <span class="ident">to_usize</span>(<span class="number">0</span>, <span class="ident">size_bytes</span>),
-            <span class="kw">_</span> <span class="op">=</span><span class="op">&gt;</span> <span class="number">65_821usize</span> <span class="op">+</span> <span class="ident">to_usize</span>(<span class="number">0</span>, <span class="ident">size_bytes</span>),
+            <span class="ident">s</span> <span class="kw">if</span> <span class="ident">s</span> <span class="op">&lt;</span> <span class="number">29</span> <span class="op">=&gt;</span> <span class="ident">s</span>,
+            <span class="number">29</span> <span class="op">=&gt;</span> <span class="number">29usize</span> <span class="op">+</span> <span class="ident">size_bytes</span>[<span class="number">0</span>] <span class="kw">as</span> <span class="ident">usize</span>,
+            <span class="number">30</span> <span class="op">=&gt;</span> <span class="number">285usize</span> <span class="op">+</span> <span class="ident">to_usize</span>(<span class="number">0</span>, <span class="ident">size_bytes</span>),
+            <span class="kw">_</span> <span class="op">=&gt;</span> <span class="number">65_821usize</span> <span class="op">+</span> <span class="ident">to_usize</span>(<span class="number">0</span>, <span class="ident">size_bytes</span>),
         };
         (<span class="ident">size</span>, <span class="ident">new_offset</span>)
     }
@@ -1112,23 +1109,23 @@
         <span class="ident">data_type</span>: <span class="ident">u8</span>,
         <span class="ident">size</span>: <span class="ident">usize</span>,
         <span class="ident">offset</span>: <span class="ident">usize</span>,
-    ) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
+    ) <span class="op">-&gt;</span> <span class="ident">BinaryDecodeResult</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span><span class="op">&gt;</span> {
         <span class="kw">match</span> <span class="ident">data_type</span> {
-            <span class="number">1</span> <span class="op">=</span><span class="op">&gt;</span> <span class="self">self</span>.<span class="ident">decode_pointer</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
-            <span class="number">2</span> <span class="op">=</span><span class="op">&gt;</span> <span class="self">self</span>.<span class="ident">decode_string</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
-            <span class="number">3</span> <span class="op">=</span><span class="op">&gt;</span> <span class="self">self</span>.<span class="ident">decode_double</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
-            <span class="number">4</span> <span class="op">=</span><span class="op">&gt;</span> <span class="self">self</span>.<span class="ident">decode_bytes</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
-            <span class="number">5</span> <span class="op">=</span><span class="op">&gt;</span> <span class="self">self</span>.<span class="ident">decode_uint16</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
-            <span class="number">6</span> <span class="op">=</span><span class="op">&gt;</span> <span class="self">self</span>.<span class="ident">decode_uint32</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
-            <span class="number">7</span> <span class="op">=</span><span class="op">&gt;</span> <span class="self">self</span>.<span class="ident">decode_map</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
-            <span class="number">8</span> <span class="op">=</span><span class="op">&gt;</span> <span class="self">self</span>.<span class="ident">decode_int</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
-            <span class="number">9</span> <span class="op">=</span><span class="op">&gt;</span> <span class="self">self</span>.<span class="ident">decode_uint64</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
+            <span class="number">1</span> <span class="op">=&gt;</span> <span class="self">self</span>.<span class="ident">decode_pointer</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
+            <span class="number">2</span> <span class="op">=&gt;</span> <span class="self">self</span>.<span class="ident">decode_string</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
+            <span class="number">3</span> <span class="op">=&gt;</span> <span class="self">self</span>.<span class="ident">decode_double</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
+            <span class="number">4</span> <span class="op">=&gt;</span> <span class="self">self</span>.<span class="ident">decode_bytes</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
+            <span class="number">5</span> <span class="op">=&gt;</span> <span class="self">self</span>.<span class="ident">decode_uint16</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
+            <span class="number">6</span> <span class="op">=&gt;</span> <span class="self">self</span>.<span class="ident">decode_uint32</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
+            <span class="number">7</span> <span class="op">=&gt;</span> <span class="self">self</span>.<span class="ident">decode_map</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
+            <span class="number">8</span> <span class="op">=&gt;</span> <span class="self">self</span>.<span class="ident">decode_int</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
+            <span class="number">9</span> <span class="op">=&gt;</span> <span class="self">self</span>.<span class="ident">decode_uint64</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
             <span class="comment">// XXX - this is u128. The return value for this is subject to change.</span>
-            <span class="number">10</span> <span class="op">=</span><span class="op">&gt;</span> <span class="self">self</span>.<span class="ident">decode_bytes</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
-            <span class="number">11</span> <span class="op">=</span><span class="op">&gt;</span> <span class="self">self</span>.<span class="ident">decode_array</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
-            <span class="number">14</span> <span class="op">=</span><span class="op">&gt;</span> <span class="self">self</span>.<span class="ident">decode_bool</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
-            <span class="number">15</span> <span class="op">=</span><span class="op">&gt;</span> <span class="self">self</span>.<span class="ident">decode_float</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
-            <span class="ident">u</span> <span class="op">=</span><span class="op">&gt;</span> (
+            <span class="number">10</span> <span class="op">=&gt;</span> <span class="self">self</span>.<span class="ident">decode_bytes</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
+            <span class="number">11</span> <span class="op">=&gt;</span> <span class="self">self</span>.<span class="ident">decode_array</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
+            <span class="number">14</span> <span class="op">=&gt;</span> <span class="self">self</span>.<span class="ident">decode_bool</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
+            <span class="number">15</span> <span class="op">=&gt;</span> <span class="self">self</span>.<span class="ident">decode_float</span>(<span class="ident">size</span>, <span class="ident">offset</span>),
+            <span class="ident">u</span> <span class="op">=&gt;</span> (
                 <span class="prelude-val">Err</span>(<span class="ident">MaxMindDBError</span>::<span class="ident">InvalidDatabaseError</span>(<span class="macro">format</span><span class="macro">!</span>(
                     <span class="string">&quot;Unknown data type: {:?}&quot;</span>,
                     <span class="ident">u</span>
@@ -1140,7 +1137,7 @@
 }
 
 <span class="doccomment">/// A reader for the MaxMind DB format. The lifetime `&#39;data` is tied to the lifetime of the underlying buffer holding the contents of the database file.</span>
-<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">Reader</span><span class="op">&lt;</span><span class="ident">S</span>: <span class="ident">AsRef</span><span class="op">&lt;</span>[<span class="ident">u8</span>]<span class="op">&gt;</span><span class="op">&gt;</span> {
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">Reader</span><span class="op">&lt;</span><span class="ident">S</span>: <span class="ident">AsRef</span><span class="op">&lt;</span>[<span class="ident">u8</span>]<span class="op">&gt;&gt;</span> {
     <span class="ident">decoder</span>: <span class="ident">BinaryDecoder</span><span class="op">&lt;</span><span class="ident">S</span><span class="op">&gt;</span>,
     <span class="kw">pub</span> <span class="ident">metadata</span>: <span class="ident">Metadata</span>,
     <span class="ident">ipv4_start</span>: <span class="ident">usize</span>,
@@ -1155,14 +1152,14 @@
     <span class="doccomment">/// ```</span>
     <span class="doccomment">/// let reader = maxminddb::Reader::open_mmap(&quot;test-data/test-data/GeoIP2-City-Test.mmdb&quot;).unwrap();</span>
     <span class="doccomment">/// ```</span>
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">open_mmap</span><span class="op">&lt;</span><span class="ident">P</span>: <span class="ident">AsRef</span><span class="op">&lt;</span><span class="ident">Path</span><span class="op">&gt;</span><span class="op">&gt;</span>(<span class="ident">database</span>: <span class="ident">P</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">Reader</span><span class="op">&lt;</span><span class="ident">Mmap</span><span class="op">&gt;</span>, <span class="ident">MaxMindDBError</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">open_mmap</span><span class="op">&lt;</span><span class="ident">P</span>: <span class="ident">AsRef</span><span class="op">&lt;</span><span class="ident">Path</span><span class="op">&gt;&gt;</span>(<span class="ident">database</span>: <span class="ident">P</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">Reader</span><span class="op">&lt;</span><span class="ident">Mmap</span><span class="op">&gt;</span>, <span class="ident">MaxMindDBError</span><span class="op">&gt;</span> {
         <span class="kw">let</span> <span class="ident">file_read</span> <span class="op">=</span> <span class="ident">File</span>::<span class="ident">open</span>(<span class="ident">database</span>)<span class="question-mark">?</span>;
         <span class="kw">let</span> <span class="ident">mmap</span> <span class="op">=</span> <span class="kw">unsafe</span> { <span class="ident">MmapOptions</span>::<span class="ident">new</span>().<span class="ident">map</span>(<span class="kw-2">&amp;</span><span class="ident">file_read</span>) }<span class="question-mark">?</span>;
         <span class="ident">Reader</span>::<span class="ident">from_source</span>(<span class="ident">mmap</span>)
     }
 }
 
-<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;de</span><span class="op">&gt;</span> <span class="ident">Reader</span><span class="op">&lt;</span><span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">u8</span><span class="op">&gt;</span><span class="op">&gt;</span> {
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;de</span><span class="op">&gt;</span> <span class="ident">Reader</span><span class="op">&lt;</span><span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">u8</span><span class="op">&gt;&gt;</span> {
     <span class="doccomment">/// Open a MaxMind DB database file by loading it into memory.</span>
     <span class="doccomment">///</span>
     <span class="doccomment">/// # Example</span>
@@ -1170,7 +1167,7 @@
     <span class="doccomment">/// ```</span>
     <span class="doccomment">/// let reader = maxminddb::Reader::open_readfile(&quot;test-data/test-data/GeoIP2-City-Test.mmdb&quot;).unwrap();</span>
     <span class="doccomment">/// ```</span>
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">open_readfile</span><span class="op">&lt;</span><span class="ident">P</span>: <span class="ident">AsRef</span><span class="op">&lt;</span><span class="ident">Path</span><span class="op">&gt;</span><span class="op">&gt;</span>(<span class="ident">database</span>: <span class="ident">P</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">Reader</span><span class="op">&lt;</span><span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">u8</span><span class="op">&gt;</span><span class="op">&gt;</span>, <span class="ident">MaxMindDBError</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">open_readfile</span><span class="op">&lt;</span><span class="ident">P</span>: <span class="ident">AsRef</span><span class="op">&lt;</span><span class="ident">Path</span><span class="op">&gt;&gt;</span>(<span class="ident">database</span>: <span class="ident">P</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">Reader</span><span class="op">&lt;</span><span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">u8</span><span class="op">&gt;&gt;</span>, <span class="ident">MaxMindDBError</span><span class="op">&gt;</span> {
         <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">fs</span>;
 
         <span class="kw">let</span> <span class="ident">buf</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">u8</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">fs</span>::<span class="ident">read</span>(<span class="kw-2">&amp;</span><span class="ident">database</span>)<span class="question-mark">?</span>;
@@ -1178,7 +1175,7 @@
     }
 }
 
-<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;de</span>, <span class="ident">S</span>: <span class="ident">AsRef</span><span class="op">&lt;</span>[<span class="ident">u8</span>]<span class="op">&gt;</span><span class="op">&gt;</span> <span class="ident">Reader</span><span class="op">&lt;</span><span class="ident">S</span><span class="op">&gt;</span> {
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;de</span>, <span class="ident">S</span>: <span class="ident">AsRef</span><span class="op">&lt;</span>[<span class="ident">u8</span>]<span class="op">&gt;&gt;</span> <span class="ident">Reader</span><span class="op">&lt;</span><span class="ident">S</span><span class="op">&gt;</span> {
     <span class="doccomment">/// Open a MaxMind DB database from anything that implements AsRef&lt;[u8]&gt;</span>
     <span class="doccomment">///</span>
     <span class="doccomment">/// # Example</span>
@@ -1188,7 +1185,7 @@
     <span class="doccomment">/// let buf = fs::read(&quot;test-data/test-data/GeoIP2-City-Test.mmdb&quot;).unwrap();</span>
     <span class="doccomment">/// let reader = maxminddb::Reader::from_source(buf).unwrap();</span>
     <span class="doccomment">/// ```</span>
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">from_source</span>(<span class="ident">buf</span>: <span class="ident">S</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">Reader</span><span class="op">&lt;</span><span class="ident">S</span><span class="op">&gt;</span>, <span class="ident">MaxMindDBError</span><span class="op">&gt;</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">from_source</span>(<span class="ident">buf</span>: <span class="ident">S</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">Reader</span><span class="op">&lt;</span><span class="ident">S</span><span class="op">&gt;</span>, <span class="ident">MaxMindDBError</span><span class="op">&gt;</span> {
         <span class="kw">let</span> <span class="ident">data_section_separator_size</span> <span class="op">=</span> <span class="number">16</span>;
 
         <span class="kw">let</span> <span class="ident">metadata_start</span> <span class="op">=</span> <span class="ident">find_metadata_start</span>(<span class="ident">buf</span>.<span class="ident">as_ref</span>())<span class="question-mark">?</span>;
@@ -1199,8 +1196,8 @@
         };
 
         <span class="kw">let</span> <span class="ident">raw_metadata</span> <span class="op">=</span> <span class="kw">match</span> <span class="ident">metadata_decoder</span>.<span class="ident">decode</span>(<span class="ident">metadata_start</span>) {
-            (<span class="prelude-val">Ok</span>(<span class="ident">m</span>), <span class="kw">_</span>) <span class="op">=</span><span class="op">&gt;</span> <span class="ident">m</span>,
-            <span class="ident">m</span> <span class="op">=</span><span class="op">&gt;</span> {
+            (<span class="prelude-val">Ok</span>(<span class="ident">m</span>), <span class="kw">_</span>) <span class="op">=&gt;</span> <span class="ident">m</span>,
+            <span class="ident">m</span> <span class="op">=&gt;</span> {
                 <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">MaxMindDBError</span>::<span class="ident">InvalidDatabaseError</span>(<span class="macro">format</span><span class="macro">!</span>(
                     <span class="string">&quot;metadata of wrong \
                      type: {:?}&quot;</span>,
@@ -1243,13 +1240,13 @@
     <span class="doccomment">/// let city: geoip2::City = reader.lookup(ip).unwrap();</span>
     <span class="doccomment">/// print!(&quot;{:?}&quot;, city);</span>
     <span class="doccomment">/// ```</span>
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">lookup</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;de</span> <span class="self">self</span>, <span class="ident">address</span>: <span class="ident">IpAddr</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">T</span>, <span class="ident">MaxMindDBError</span><span class="op">&gt;</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">lookup</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;de</span> <span class="self">self</span>, <span class="ident">address</span>: <span class="ident">IpAddr</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">T</span>, <span class="ident">MaxMindDBError</span><span class="op">&gt;</span>
     <span class="kw">where</span>
         <span class="ident">T</span>: <span class="ident">Deserialize</span><span class="op">&lt;</span><span class="lifetime">&#39;de</span><span class="op">&gt;</span>,
     {
         <span class="kw">let</span> <span class="ident">ip_bytes</span> <span class="op">=</span> <span class="ident">ip_to_bytes</span>(<span class="ident">address</span>);
         <span class="kw">let</span> <span class="ident">pointer</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">find_address_in_tree</span>(<span class="kw-2">&amp;</span><span class="ident">ip_bytes</span>)<span class="question-mark">?</span>;
-        <span class="kw">if</span> <span class="ident">pointer</span> <span class="op">=</span><span class="op">=</span> <span class="number">0</span> {
+        <span class="kw">if</span> <span class="ident">pointer</span> <span class="op">==</span> <span class="number">0</span> {
             <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">MaxMindDBError</span>::<span class="ident">AddressNotFoundError</span>(
                 <span class="string">&quot;Address not found in database&quot;</span>.<span class="ident">to_owned</span>(),
             ));
@@ -1260,39 +1257,39 @@
         <span class="ident">T</span>::<span class="ident">deserialize</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">decoder</span>)
     }
 
-    <span class="kw">fn</span> <span class="ident">find_address_in_tree</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">ip_address</span>: <span class="kw-2">&amp;</span>[<span class="ident">u8</span>]) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">usize</span>, <span class="ident">MaxMindDBError</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">find_address_in_tree</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">ip_address</span>: <span class="kw-2">&amp;</span>[<span class="ident">u8</span>]) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">usize</span>, <span class="ident">MaxMindDBError</span><span class="op">&gt;</span> {
         <span class="kw">let</span> <span class="ident">bit_count</span> <span class="op">=</span> <span class="ident">ip_address</span>.<span class="ident">len</span>() <span class="op">*</span> <span class="number">8</span>;
         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">node</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">start_node</span>(<span class="ident">bit_count</span>)<span class="question-mark">?</span>;
 
         <span class="kw">let</span> <span class="ident">node_count</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">metadata</span>.<span class="ident">node_count</span> <span class="kw">as</span> <span class="ident">usize</span>;
 
         <span class="kw">for</span> <span class="ident">i</span> <span class="kw">in</span> <span class="number">0</span>..<span class="ident">bit_count</span> {
-            <span class="kw">if</span> <span class="ident">node</span> <span class="op">&gt;</span><span class="op">=</span> <span class="ident">node_count</span> {
+            <span class="kw">if</span> <span class="ident">node</span> <span class="op">&gt;=</span> <span class="ident">node_count</span> {
                 <span class="kw">break</span>;
             }
-            <span class="kw">let</span> <span class="ident">bit</span> <span class="op">=</span> <span class="number">1</span> <span class="op">&amp;</span> (<span class="ident">ip_address</span>[<span class="ident">i</span> <span class="op">&gt;</span><span class="op">&gt;</span> <span class="number">3</span>] <span class="op">&gt;</span><span class="op">&gt;</span> (<span class="number">7</span> <span class="op">-</span> (<span class="ident">i</span> <span class="op">%</span> <span class="number">8</span>)));
+            <span class="kw">let</span> <span class="ident">bit</span> <span class="op">=</span> <span class="number">1</span> <span class="op">&amp;</span> (<span class="ident">ip_address</span>[<span class="ident">i</span> <span class="op">&gt;&gt;</span> <span class="number">3</span>] <span class="op">&gt;&gt;</span> (<span class="number">7</span> <span class="op">-</span> (<span class="ident">i</span> <span class="op">%</span> <span class="number">8</span>)));
 
             <span class="ident">node</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">read_node</span>(<span class="ident">node</span>, <span class="ident">bit</span> <span class="kw">as</span> <span class="ident">usize</span>)<span class="question-mark">?</span>;
         }
         <span class="kw">match</span> <span class="ident">node_count</span> {
-            <span class="ident">n</span> <span class="kw">if</span> <span class="ident">n</span> <span class="op">=</span><span class="op">=</span> <span class="ident">node</span> <span class="op">=</span><span class="op">&gt;</span> <span class="prelude-val">Ok</span>(<span class="number">0</span>),
-            <span class="ident">n</span> <span class="kw">if</span> <span class="ident">node</span> <span class="op">&gt;</span> <span class="ident">n</span> <span class="op">=</span><span class="op">&gt;</span> <span class="prelude-val">Ok</span>(<span class="ident">node</span>),
-            <span class="kw">_</span> <span class="op">=</span><span class="op">&gt;</span> <span class="prelude-val">Err</span>(<span class="ident">MaxMindDBError</span>::<span class="ident">InvalidDatabaseError</span>(
+            <span class="ident">n</span> <span class="kw">if</span> <span class="ident">n</span> <span class="op">==</span> <span class="ident">node</span> <span class="op">=&gt;</span> <span class="prelude-val">Ok</span>(<span class="number">0</span>),
+            <span class="ident">n</span> <span class="kw">if</span> <span class="ident">node</span> <span class="op">&gt;</span> <span class="ident">n</span> <span class="op">=&gt;</span> <span class="prelude-val">Ok</span>(<span class="ident">node</span>),
+            <span class="kw">_</span> <span class="op">=&gt;</span> <span class="prelude-val">Err</span>(<span class="ident">MaxMindDBError</span>::<span class="ident">InvalidDatabaseError</span>(
                 <span class="string">&quot;invalid node in search tree&quot;</span>.<span class="ident">to_owned</span>(),
             )),
         }
     }
 
-    <span class="kw">fn</span> <span class="ident">start_node</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">length</span>: <span class="ident">usize</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">usize</span>, <span class="ident">MaxMindDBError</span><span class="op">&gt;</span> {
-        <span class="kw">if</span> <span class="ident">length</span> <span class="op">=</span><span class="op">=</span> <span class="number">128</span> {
+    <span class="kw">fn</span> <span class="ident">start_node</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">length</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">usize</span>, <span class="ident">MaxMindDBError</span><span class="op">&gt;</span> {
+        <span class="kw">if</span> <span class="ident">length</span> <span class="op">==</span> <span class="number">128</span> {
             <span class="prelude-val">Ok</span>(<span class="number">0</span>)
         } <span class="kw">else</span> {
             <span class="prelude-val">Ok</span>(<span class="self">self</span>.<span class="ident">ipv4_start</span>)
         }
     }
 
-    <span class="kw">fn</span> <span class="ident">find_ipv4_start</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">usize</span>, <span class="ident">MaxMindDBError</span><span class="op">&gt;</span> {
-        <span class="kw">if</span> <span class="self">self</span>.<span class="ident">metadata</span>.<span class="ident">ip_version</span> <span class="op">!</span><span class="op">=</span> <span class="number">6</span> {
+    <span class="kw">fn</span> <span class="ident">find_ipv4_start</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">usize</span>, <span class="ident">MaxMindDBError</span><span class="op">&gt;</span> {
+        <span class="kw">if</span> <span class="self">self</span>.<span class="ident">metadata</span>.<span class="ident">ip_version</span> <span class="op">!=</span> <span class="number">6</span> {
             <span class="kw">return</span> <span class="prelude-val">Ok</span>(<span class="number">0</span>);
         }
 
@@ -1300,7 +1297,7 @@
         <span class="comment">// first 96 nodes.</span>
         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">node</span>: <span class="ident">usize</span> <span class="op">=</span> <span class="number">0usize</span>;
         <span class="kw">for</span> <span class="kw">_</span> <span class="kw">in</span> <span class="number">0u8</span>..<span class="number">96</span> {
-            <span class="kw">if</span> <span class="ident">node</span> <span class="op">&gt;</span><span class="op">=</span> <span class="self">self</span>.<span class="ident">metadata</span>.<span class="ident">node_count</span> <span class="kw">as</span> <span class="ident">usize</span> {
+            <span class="kw">if</span> <span class="ident">node</span> <span class="op">&gt;=</span> <span class="self">self</span>.<span class="ident">metadata</span>.<span class="ident">node_count</span> <span class="kw">as</span> <span class="ident">usize</span> {
                 <span class="kw">break</span>;
             }
             <span class="ident">node</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">read_node</span>(<span class="ident">node</span>, <span class="number">0</span>)<span class="question-mark">?</span>;
@@ -1308,30 +1305,30 @@
         <span class="prelude-val">Ok</span>(<span class="ident">node</span>)
     }
 
-    <span class="kw">fn</span> <span class="ident">read_node</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">node_number</span>: <span class="ident">usize</span>, <span class="ident">index</span>: <span class="ident">usize</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">usize</span>, <span class="ident">MaxMindDBError</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">read_node</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">node_number</span>: <span class="ident">usize</span>, <span class="ident">index</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">usize</span>, <span class="ident">MaxMindDBError</span><span class="op">&gt;</span> {
         <span class="kw">let</span> <span class="ident">buf</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">decoder</span>.<span class="ident">buf</span>.<span class="ident">as_ref</span>();
         <span class="kw">let</span> <span class="ident">base_offset</span> <span class="op">=</span> <span class="ident">node_number</span> <span class="op">*</span> (<span class="self">self</span>.<span class="ident">metadata</span>.<span class="ident">record_size</span> <span class="kw">as</span> <span class="ident">usize</span>) <span class="op">/</span> <span class="number">4</span>;
 
         <span class="kw">let</span> <span class="ident">val</span> <span class="op">=</span> <span class="kw">match</span> <span class="self">self</span>.<span class="ident">metadata</span>.<span class="ident">record_size</span> {
-            <span class="number">24</span> <span class="op">=</span><span class="op">&gt;</span> {
+            <span class="number">24</span> <span class="op">=&gt;</span> {
                 <span class="kw">let</span> <span class="ident">offset</span> <span class="op">=</span> <span class="ident">base_offset</span> <span class="op">+</span> <span class="ident">index</span> <span class="op">*</span> <span class="number">3</span>;
                 <span class="ident">to_usize</span>(<span class="number">0</span>, <span class="kw-2">&amp;</span><span class="ident">buf</span>[<span class="ident">offset</span>..<span class="ident">offset</span> <span class="op">+</span> <span class="number">3</span>])
             }
-            <span class="number">28</span> <span class="op">=</span><span class="op">&gt;</span> {
+            <span class="number">28</span> <span class="op">=&gt;</span> {
                 <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">middle</span> <span class="op">=</span> <span class="ident">buf</span>[<span class="ident">base_offset</span> <span class="op">+</span> <span class="number">3</span>];
-                <span class="kw">if</span> <span class="ident">index</span> <span class="op">!</span><span class="op">=</span> <span class="number">0</span> {
-                    <span class="ident">middle</span> <span class="kw-2">&amp;</span><span class="op">=</span> <span class="number">0x0F</span>
+                <span class="kw">if</span> <span class="ident">index</span> <span class="op">!=</span> <span class="number">0</span> {
+                    <span class="ident">middle</span> <span class="op">&amp;=</span> <span class="number">0x0F</span>
                 } <span class="kw">else</span> {
-                    <span class="ident">middle</span> <span class="op">=</span> (<span class="number">0xF0</span> <span class="op">&amp;</span> <span class="ident">middle</span>) <span class="op">&gt;</span><span class="op">&gt;</span> <span class="number">4</span>
+                    <span class="ident">middle</span> <span class="op">=</span> (<span class="number">0xF0</span> <span class="op">&amp;</span> <span class="ident">middle</span>) <span class="op">&gt;&gt;</span> <span class="number">4</span>
                 }
                 <span class="kw">let</span> <span class="ident">offset</span> <span class="op">=</span> <span class="ident">base_offset</span> <span class="op">+</span> <span class="ident">index</span> <span class="op">*</span> <span class="number">4</span>;
                 <span class="ident">to_usize</span>(<span class="ident">middle</span>, <span class="kw-2">&amp;</span><span class="ident">buf</span>[<span class="ident">offset</span>..<span class="ident">offset</span> <span class="op">+</span> <span class="number">3</span>])
             }
-            <span class="number">32</span> <span class="op">=</span><span class="op">&gt;</span> {
+            <span class="number">32</span> <span class="op">=&gt;</span> {
                 <span class="kw">let</span> <span class="ident">offset</span> <span class="op">=</span> <span class="ident">base_offset</span> <span class="op">+</span> <span class="ident">index</span> <span class="op">*</span> <span class="number">4</span>;
                 <span class="ident">to_usize</span>(<span class="number">0</span>, <span class="kw-2">&amp;</span><span class="ident">buf</span>[<span class="ident">offset</span>..<span class="ident">offset</span> <span class="op">+</span> <span class="number">4</span>])
             }
-            <span class="ident">s</span> <span class="op">=</span><span class="op">&gt;</span> {
+            <span class="ident">s</span> <span class="op">=&gt;</span> {
                 <span class="kw">return</span> <span class="prelude-val">Err</span>(<span class="ident">MaxMindDBError</span>::<span class="ident">InvalidDatabaseError</span>(<span class="macro">format</span><span class="macro">!</span>(
                     <span class="string">&quot;unknown record size: \
                      {:?}&quot;</span>,
@@ -1342,7 +1339,7 @@
         <span class="prelude-val">Ok</span>(<span class="ident">val</span>)
     }
 
-    <span class="kw">fn</span> <span class="ident">resolve_data_pointer</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">pointer</span>: <span class="ident">usize</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span>, <span class="ident">MaxMindDBError</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">resolve_data_pointer</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">pointer</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">decoder</span>::<span class="ident">DataRecord</span>, <span class="ident">MaxMindDBError</span><span class="op">&gt;</span> {
         <span class="kw">let</span> <span class="ident">search_tree_size</span> <span class="op">=</span>
             (<span class="self">self</span>.<span class="ident">metadata</span>.<span class="ident">record_size</span> <span class="kw">as</span> <span class="ident">usize</span>) <span class="op">*</span> (<span class="self">self</span>.<span class="ident">metadata</span>.<span class="ident">node_count</span> <span class="kw">as</span> <span class="ident">usize</span>) <span class="op">/</span> <span class="number">4</span>;
 
@@ -1363,20 +1360,20 @@
 
 <span class="comment">// I haven&#39;t moved all patterns of this form to a generic function as</span>
 <span class="comment">// the FromPrimitive trait is unstable</span>
-<span class="kw">fn</span> <span class="ident">to_usize</span>(<span class="ident">base</span>: <span class="ident">u8</span>, <span class="ident">bytes</span>: <span class="kw-2">&amp;</span>[<span class="ident">u8</span>]) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">usize</span> {
+<span class="kw">fn</span> <span class="ident">to_usize</span>(<span class="ident">base</span>: <span class="ident">u8</span>, <span class="ident">bytes</span>: <span class="kw-2">&amp;</span>[<span class="ident">u8</span>]) <span class="op">-&gt;</span> <span class="ident">usize</span> {
     <span class="ident">bytes</span>
         .<span class="ident">iter</span>()
-        .<span class="ident">fold</span>(<span class="ident">base</span> <span class="kw">as</span> <span class="ident">usize</span>, <span class="op">|</span><span class="ident">acc</span>, <span class="kw-2">&amp;</span><span class="ident">b</span><span class="op">|</span> (<span class="ident">acc</span> <span class="op">&lt;</span><span class="op">&lt;</span> <span class="number">8</span>) <span class="op">|</span> <span class="ident">b</span> <span class="kw">as</span> <span class="ident">usize</span>)
+        .<span class="ident">fold</span>(<span class="ident">base</span> <span class="kw">as</span> <span class="ident">usize</span>, <span class="op">|</span><span class="ident">acc</span>, <span class="kw-2">&amp;</span><span class="ident">b</span><span class="op">|</span> (<span class="ident">acc</span> <span class="op">&lt;&lt;</span> <span class="number">8</span>) <span class="op">|</span> <span class="ident">b</span> <span class="kw">as</span> <span class="ident">usize</span>)
 }
 
-<span class="kw">fn</span> <span class="ident">ip_to_bytes</span>(<span class="ident">address</span>: <span class="ident">IpAddr</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">u8</span><span class="op">&gt;</span> {
+<span class="kw">fn</span> <span class="ident">ip_to_bytes</span>(<span class="ident">address</span>: <span class="ident">IpAddr</span>) <span class="op">-&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">u8</span><span class="op">&gt;</span> {
     <span class="kw">match</span> <span class="ident">address</span> {
-        <span class="ident">IpAddr</span>::<span class="ident">V4</span>(<span class="ident">a</span>) <span class="op">=</span><span class="op">&gt;</span> <span class="ident">a</span>.<span class="ident">octets</span>().<span class="ident">to_vec</span>(),
-        <span class="ident">IpAddr</span>::<span class="ident">V6</span>(<span class="ident">a</span>) <span class="op">=</span><span class="op">&gt;</span> <span class="ident">a</span>.<span class="ident">octets</span>().<span class="ident">to_vec</span>(),
+        <span class="ident">IpAddr</span>::<span class="ident">V4</span>(<span class="ident">a</span>) <span class="op">=&gt;</span> <span class="ident">a</span>.<span class="ident">octets</span>().<span class="ident">to_vec</span>(),
+        <span class="ident">IpAddr</span>::<span class="ident">V6</span>(<span class="ident">a</span>) <span class="op">=&gt;</span> <span class="ident">a</span>.<span class="ident">octets</span>().<span class="ident">to_vec</span>(),
     }
 }
 
-<span class="kw">fn</span> <span class="ident">find_metadata_start</span>(<span class="ident">buf</span>: <span class="kw-2">&amp;</span>[<span class="ident">u8</span>]) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">usize</span>, <span class="ident">MaxMindDBError</span><span class="op">&gt;</span> {
+<span class="kw">fn</span> <span class="ident">find_metadata_start</span>(<span class="ident">buf</span>: <span class="kw-2">&amp;</span>[<span class="ident">u8</span>]) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">usize</span>, <span class="ident">MaxMindDBError</span><span class="op">&gt;</span> {
     <span class="comment">// This is reversed to make the loop below a bit simpler</span>
     <span class="kw">let</span> <span class="ident">metadata_start_marker</span>: [<span class="ident">u8</span>; <span class="number">14</span>] <span class="op">=</span> [
         <span class="number">0x6d</span>, <span class="number">0x6f</span>, <span class="number">0x63</span>, <span class="number">0x2e</span>, <span class="number">0x64</span>, <span class="number">0x6e</span>, <span class="number">0x69</span>, <span class="number">0x4d</span>, <span class="number">0x78</span>, <span class="number">0x61</span>, <span class="number">0x4d</span>, <span class="number">0xEF</span>, <span class="number">0xCD</span>, <span class="number">0xAB</span>,
@@ -1388,7 +1385,7 @@
         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">not_found</span> <span class="op">=</span> <span class="bool-val">false</span>;
         <span class="kw">for</span> (<span class="ident">offset</span>, <span class="ident">marker_byte</span>) <span class="kw">in</span> <span class="ident">metadata_start_marker</span>.<span class="ident">iter</span>().<span class="ident">enumerate</span>() {
             <span class="kw">let</span> <span class="ident">file_byte</span> <span class="op">=</span> <span class="ident">buf</span>[<span class="ident">buf</span>.<span class="ident">len</span>() <span class="op">-</span> <span class="ident">start_position</span> <span class="op">-</span> <span class="ident">offset</span> <span class="op">-</span> <span class="number">1</span>];
-            <span class="kw">if</span> <span class="ident">file_byte</span> <span class="op">!</span><span class="op">=</span> <span class="kw-2">*</span><span class="ident">marker_byte</span> {
+            <span class="kw">if</span> <span class="ident">file_byte</span> <span class="op">!=</span> <span class="kw-2">*</span><span class="ident">marker_byte</span> {
                 <span class="ident">not_found</span> <span class="op">=</span> <span class="bool-val">true</span>;
                 <span class="kw">break</span>;
             }
