@@ -1,6 +1,4 @@
 #![crate_name = "maxminddb"]
-#![crate_type = "dylib"]
-#![crate_type = "rlib"]
 #![deny(
     trivial_casts,
     trivial_numeric_casts,

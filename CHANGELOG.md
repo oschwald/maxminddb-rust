@@ -1,5 +1,11 @@
 # Change Log #
 
+## 0.15.0 - 2020-10-10
+
+* Remove crate options leftover from before Rust 1.0. In particular,
+  this crate no longer specifies `crate_type`. This should allow you to
+  compile it with `panic = "abort"`. Reported by ye2020. GitHub #33.
+
 ## 0.14.0 - 2020-06-07
 
 * BREAKING CHANGE: All Strings in the `geoip2` structs are not returned
