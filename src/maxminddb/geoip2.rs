@@ -123,6 +123,11 @@ pub mod model {
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
     pub struct Traits {
+        pub autonomous_system_number: Option<u32>,
+        pub autonomous_system_organization: Option<String>,
+        pub isp: Option<String>,
+        pub connection_type: Option<String>,
+        pub organization: Option<String>,
         pub is_anonymous_proxy: Option<bool>,
         pub is_satellite_provider: Option<bool>,
     }
