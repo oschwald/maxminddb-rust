@@ -1,7 +1,9 @@
-use super::{MaxMindDBError, Reader};
-
 use std::net::IpAddr;
 use std::str::FromStr;
+
+use serde::Deserialize;
+
+use super::{MaxMindDBError, Reader};
 
 #[allow(clippy::float_cmp)]
 #[test]

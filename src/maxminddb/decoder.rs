@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
+use log::debug;
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
+use serde::forward_to_deserialize_any;
 
 use super::MaxMindDBError;
 use super::MaxMindDBError::DecodingError;

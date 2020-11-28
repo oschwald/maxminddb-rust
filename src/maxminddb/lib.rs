@@ -1,36 +1,19 @@
-#![crate_name = "maxminddb"]
-#![deny(
-    trivial_casts,
-    trivial_numeric_casts,
-    unstable_features,
-    unused_import_braces
-)]
-
-#[macro_use]
-extern crate log;
-
-#[cfg(feature = "mmap")]
-extern crate memmap;
-
-#[macro_use]
-extern crate serde;
-
-#[macro_use]
-extern crate serde_derive;
+#![deny(trivial_casts, trivial_numeric_casts, unused_import_braces)]
 
 use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
 use std::io;
 use std::net::IpAddr;
+use std::path::Path;
+
+use serde::{de, Deserialize};
 
 #[cfg(feature = "mmap")]
 use memmap::Mmap;
 #[cfg(feature = "mmap")]
 use memmap::MmapOptions;
-use serde::{de, Deserialize};
 #[cfg(feature = "mmap")]
 use std::fs::File;
-use std::path::Path;
 
 #[derive(Debug, PartialEq)]
 pub enum MaxMindDBError {
