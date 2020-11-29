@@ -24,10 +24,10 @@ fn test_decoder() {
     };
 
     #[derive(Deserialize, Debug)]
-    struct TestType {
+    struct TestType<'a> {
         array: Vec<u32>,
         boolean: bool,
-        bytes: Vec<u8>,
+        bytes: &'a [u8],
         double: f64,
         float: f32,
         int32: i32,
@@ -35,7 +35,7 @@ fn test_decoder() {
         uint16: u16,
         uint32: u32,
         uint64: u64,
-        uint128: Vec<u8>,
+        uint128: &'a [u8],
         utf8_string: String,
     }
 
@@ -85,7 +85,7 @@ fn test_broken_database() {
     let ip: IpAddr = FromStr::from_str("2001:220::").unwrap();
 
     #[derive(Deserialize, Debug)]
-    struct TestType;
+    struct TestType {}
     match r.lookup::<TestType>(ip) {
         Err(e) => assert_eq!(
             e,

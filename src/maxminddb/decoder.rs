@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use log::debug;
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::forward_to_deserialize_any;
@@ -7,67 +5,345 @@ use serde::forward_to_deserialize_any;
 use super::MaxMindDBError;
 use super::MaxMindDBError::DecodingError;
 
-pub type DbArray<'a> = Vec<DataRecord<'a>>;
-pub type DbMap<'a> = BTreeMap<&'a str, DataRecord<'a>>;
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum DataRecord<'a> {
-    String(&'a str),
-    Double(f64),
-    Byte(u8),
-    Uint16(u16),
-    Uint32(u32),
-    Map(DbMap<'a>),
-    Int32(i32),
-    Uint64(u64),
-    Boolean(bool),
-    Array(DbArray<'a>),
-    Float(f32),
-    Null,
+fn to_usize(base: u8, bytes: &[u8]) -> usize {
+    bytes
+        .iter()
+        .fold(base as usize, |acc, &b| (acc << 8) | b as usize)
 }
-
-use self::DataRecord::{
-    Array, Boolean, Byte, Double, Float, Int32, Map, Null, String, Uint16, Uint32, Uint64,
-};
-
-macro_rules! expect(
-    ($e:expr, $t:ident) => ({
-        match $e {
-            $t(v) => Ok(v),
-            other => Err(DecodingError(format!("Error decoding {:?} as {:?}",
-                         other, stringify!($t))))
-        }
-    })
-);
 
 #[derive(Debug)]
 pub struct Decoder<'de> {
-    stack: Vec<DataRecord<'de>>,
+    buf: &'de [u8],
+    current_ptr: usize,
 }
 
 impl<'de> Decoder<'de> {
     /// Creates a new decoder instance for decoding the specified JSON value.
-    pub fn new(record: DataRecord<'de>) -> Decoder<'de> {
+    pub fn new(buf: &'de [u8], start_ptr: usize) -> Decoder<'de> {
         Decoder {
-            stack: vec![record],
+            buf,
+            current_ptr: start_ptr,
         }
     }
-}
 
-impl<'de> Decoder<'de> {
-    fn pop(&mut self) -> DataRecord<'de> {
-        self.stack.pop().unwrap()
+    fn eat_byte(&mut self) -> u8 {
+        let b = self.buf[self.current_ptr];
+        self.current_ptr += 1;
+        b
     }
 
-    fn peek(&self) -> Option<&DataRecord> {
-        self.stack.last()
+    fn size_from_ctrl_byte(&mut self, ctrl_byte: u8, type_num: u8) -> usize {
+        let size = (ctrl_byte & 0x1f) as usize;
+        // extended
+        if type_num == 0 {
+            return size;
+        }
+
+        let bytes_to_read = if size > 28 { size - 28 } else { 0 };
+
+        let new_offset = self.current_ptr + bytes_to_read;
+        let size_bytes = &self.buf[self.current_ptr..new_offset];
+        self.current_ptr = new_offset;
+
+        match size {
+            s if s < 29 => s,
+            29 => 29usize + size_bytes[0] as usize,
+            30 => 285usize + to_usize(0, size_bytes),
+            _ => 65_821usize + to_usize(0, size_bytes),
+        }
+    }
+
+    fn decode_any<V: Visitor<'de>>(&mut self, visitor: V) -> DecodeResult<V::Value> {
+        let ctrl_byte = self.eat_byte();
+        let mut type_num = ctrl_byte >> 5;
+        // Extended type
+        if type_num == 0 {
+            type_num = self.eat_byte() + 7;
+        }
+        let size = self.size_from_ctrl_byte(ctrl_byte, type_num);
+
+        match type_num {
+            1 => {
+                let new_ptr = self.decode_pointer(size);
+                let prev_ptr = self.current_ptr;
+                self.current_ptr = new_ptr;
+
+                let res = self.decode_any(visitor);
+                self.current_ptr = prev_ptr;
+                res
+            }
+            2 => self.decode_string(visitor, size),
+            3 => self.decode_double(visitor, size),
+            4 => self.decode_bytes(visitor, size),
+            5 => self.decode_uint16(visitor, size),
+            6 => self.decode_uint32(visitor, size),
+            7 => self.decode_map(visitor, size),
+            8 => self.decode_int(visitor, size),
+            9 => self.decode_uint64(visitor, size),
+            // XXX - this is u128. The return value for this is subject to change.
+            10 => self.decode_bytes(visitor, size),
+            11 => self.decode_array(visitor, size),
+            14 => self.decode_bool(visitor, size),
+            15 => self.decode_float(visitor, size),
+            u => Err(MaxMindDBError::InvalidDatabaseError(format!(
+                "Unknown data type: {:?}",
+                u
+            ))),
+        }
+    }
+
+    fn decode_array<V: Visitor<'de>>(&mut self, visitor: V, size: usize) -> DecodeResult<V::Value> {
+        visitor.visit_seq(ArrayAccess {
+            de: self,
+            count: size,
+        })
+    }
+
+    fn decode_bool<V: Visitor<'de>>(&mut self, visitor: V, size: usize) -> DecodeResult<V::Value> {
+        match size {
+            0 | 1 => visitor.visit_bool(size != 0),
+            s => Err(MaxMindDBError::InvalidDatabaseError(format!(
+                "bool of size {:?}",
+                s
+            ))),
+        }
+    }
+
+    fn decode_bytes<V: Visitor<'de>>(&mut self, visitor: V, size: usize) -> DecodeResult<V::Value> {
+        let new_offset = self.current_ptr + size;
+        let u8_slice = &self.buf[self.current_ptr..new_offset];
+        self.current_ptr = new_offset;
+
+        visitor.visit_borrowed_bytes(u8_slice)
+    }
+
+    fn decode_float<V: Visitor<'de>>(&mut self, visitor: V, size: usize) -> DecodeResult<V::Value> {
+        match size {
+            4 => {
+                let new_offset = self.current_ptr + size;
+                let value = self.buf[self.current_ptr..new_offset]
+                    .iter()
+                    .fold(0u32, |acc, &b| (acc << 8) | u32::from(b));
+                self.current_ptr = new_offset;
+
+                let float_value = f32::from_bits(value);
+                visitor.visit_f32(float_value)
+            }
+            s => Err(MaxMindDBError::InvalidDatabaseError(format!(
+                "float of size {:?}",
+                s
+            ))),
+        }
+    }
+
+    fn decode_double<V: Visitor<'de>>(
+        &mut self,
+        visitor: V,
+        size: usize,
+    ) -> DecodeResult<V::Value> {
+        match size {
+            8 => {
+                let new_offset = self.current_ptr + size;
+                let value = self.buf[self.current_ptr..new_offset]
+                    .iter()
+                    .fold(0u64, |acc, &b| (acc << 8) | u64::from(b));
+                self.current_ptr = new_offset;
+
+                let float_value = f64::from_bits(value);
+                visitor.visit_f64(float_value)
+            }
+            s => Err(MaxMindDBError::InvalidDatabaseError(format!(
+                "double of size {:?}",
+                s
+            ))),
+        }
+    }
+
+    fn decode_uint64<V: Visitor<'de>>(
+        &mut self,
+        visitor: V,
+        size: usize,
+    ) -> DecodeResult<V::Value> {
+        match size {
+            s if s <= 8 => {
+                let new_offset = self.current_ptr + size;
+
+                let value = self.buf[self.current_ptr..new_offset]
+                    .iter()
+                    .fold(0u64, |acc, &b| (acc << 8) | u64::from(b));
+                self.current_ptr = new_offset;
+                visitor.visit_u64(value)
+            }
+            s => Err(MaxMindDBError::InvalidDatabaseError(format!(
+                "u64 of size {:?}",
+                s
+            ))),
+        }
+    }
+
+    fn decode_uint32<V: Visitor<'de>>(
+        &mut self,
+        visitor: V,
+        size: usize,
+    ) -> DecodeResult<V::Value> {
+        match size {
+            s if s <= 4 => {
+                let new_offset = self.current_ptr + size;
+
+                let value = self.buf[self.current_ptr..new_offset]
+                    .iter()
+                    .fold(0u32, |acc, &b| (acc << 8) | u32::from(b));
+                self.current_ptr = new_offset;
+                visitor.visit_u32(value)
+            }
+            s => Err(MaxMindDBError::InvalidDatabaseError(format!(
+                "u32 of size {:?}",
+                s
+            ))),
+        }
+    }
+
+    fn decode_uint16<V: Visitor<'de>>(
+        &mut self,
+        visitor: V,
+        size: usize,
+    ) -> DecodeResult<V::Value> {
+        match size {
+            s if s <= 2 => {
+                let new_offset = self.current_ptr + size;
+
+                let value = self.buf[self.current_ptr..new_offset]
+                    .iter()
+                    .fold(0u16, |acc, &b| (acc << 8) | u16::from(b));
+                self.current_ptr = new_offset;
+                visitor.visit_u16(value)
+            }
+            s => Err(MaxMindDBError::InvalidDatabaseError(format!(
+                "u16 of size {:?}",
+                s
+            ))),
+        }
+    }
+
+    fn decode_int<V: Visitor<'de>>(&mut self, visitor: V, size: usize) -> DecodeResult<V::Value> {
+        match size {
+            s if s <= 4 => {
+                let new_offset = self.current_ptr + size;
+
+                let value = self.buf[self.current_ptr..new_offset]
+                    .iter()
+                    .fold(0i32, |acc, &b| (acc << 8) | i32::from(b));
+                self.current_ptr = new_offset;
+                visitor.visit_i32(value)
+            }
+            s => Err(MaxMindDBError::InvalidDatabaseError(format!(
+                "int32 of size {:?}",
+                s
+            ))),
+        }
+    }
+
+    fn decode_map<V: Visitor<'de>>(&mut self, visitor: V, size: usize) -> DecodeResult<V::Value> {
+        visitor.visit_map(MapAccessor {
+            de: self,
+            count: size * 2,
+        })
+    }
+
+    fn decode_pointer(&mut self, size: usize) -> usize {
+        let pointer_value_offset = [0, 0, 2048, 526_336, 0];
+        let pointer_size = ((size >> 3) & 0x3) + 1;
+        let new_offset = self.current_ptr + pointer_size;
+        let pointer_bytes = &self.buf[self.current_ptr..new_offset];
+        self.current_ptr = new_offset;
+
+        let base = if pointer_size == 4 {
+            0
+        } else {
+            (size & 0x7) as u8
+        };
+        let unpacked = to_usize(base, pointer_bytes);
+
+        unpacked + pointer_value_offset[pointer_size]
+    }
+
+    #[cfg(feature = "unsafe-str-decode")]
+    fn decode_string<V: Visitor<'de>>(
+        &mut self,
+        visitor: V,
+        size: usize,
+    ) -> DecodeResult<V::Value> {
+        use std::str::from_utf8_unchecked;
+
+        let new_offset: usize = self.current_ptr + size;
+        let bytes = &self.buf[self.current_ptr..new_offset];
+        self.current_ptr = new_offset;
+        // SAFETY:
+        // A corrupt maxminddb will cause undefined behaviour.
+        // If the caller has verified the integrity of their database and trusts their upstream
+        // provider, they can opt-into the performance gains provided by this unsafe function via
+        // the `unsafe-str-decode` feature flag.
+        // This can provide around 20% performance increase in the lookup benchmark.
+        let v = unsafe { from_utf8_unchecked(bytes) };
+        visitor.visit_borrowed_str(v)
+    }
+
+    #[cfg(not(feature = "unsafe-str-decode"))]
+    fn decode_string<V: Visitor<'de>>(
+        &mut self,
+        visitor: V,
+        size: usize,
+    ) -> DecodeResult<V::Value> {
+        use std::str::from_utf8;
+
+        let new_offset: usize = self.current_ptr + size;
+        let bytes = &self.buf[self.current_ptr..new_offset];
+        self.current_ptr = new_offset;
+        match from_utf8(bytes) {
+            Ok(v) => visitor.visit_borrowed_str(v),
+            Err(_) => Err(MaxMindDBError::InvalidDatabaseError(
+                "error decoding string".to_owned(),
+            )),
+        }
     }
 }
 
 pub type DecodeResult<T> = Result<T, MaxMindDBError>;
 
-// Much of this code was borrowed from the Rust JSON library, Serde Decoder example
 impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
+    type Error = MaxMindDBError;
+
+    fn deserialize_any<V>(self, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        debug!("deserialize_any");
+
+        self.decode_any(visitor)
+    }
+
+    fn deserialize_option<V>(self, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        debug!("deserialize_option");
+
+        visitor.visit_some(self)
+    }
+
+    forward_to_deserialize_any! {
+        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
+        bytes byte_buf unit unit_struct newtype_struct seq tuple
+        tuple_struct map struct enum identifier ignored_any
+    }
+}
+
+struct ByteArray<'de> {
+    slice: &'de [u8],
+    idx: usize,
+}
+
+impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut ByteArray<'de> {
     type Error = MaxMindDBError;
 
     #[inline]
@@ -76,262 +352,41 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
         V: Visitor<'de>,
     {
         debug!("deserialize_any");
-        match self.peek() {
-            Some(&String(_)) => self.deserialize_str(visitor),
-            Some(&Double(_)) => self.deserialize_f64(visitor),
-            Some(&Byte(_)) => self.deserialize_u8(visitor),
-            Some(&Uint16(_)) => self.deserialize_u16(visitor),
-            Some(&Uint32(_)) => self.deserialize_u32(visitor),
-            Some(&Map(_)) => self.deserialize_map(visitor),
-            Some(&Int32(_)) => self.deserialize_i32(visitor),
-            Some(&Uint64(_)) => self.deserialize_u64(visitor),
-            Some(&Boolean(_)) => self.deserialize_bool(visitor),
-            Some(&Array(_)) => self.deserialize_seq(visitor),
-            Some(&Float(_)) => self.deserialize_f32(visitor),
-            Some(&Null) => self.deserialize_unit(visitor),
-            None => Err(DecodingError("nothing left to deserialize".to_owned())),
-        }
-    }
 
-    fn deserialize_u64<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        debug!("read_u64");
-        visitor.visit_u64(expect!(self.pop(), Uint64)?)
-    }
-
-    fn deserialize_u32<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        debug!("read_u32");
-        visitor.visit_u32(expect!(self.pop(), Uint32)?)
-    }
-
-    fn deserialize_u16<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        debug!("read_u16");
-        visitor.visit_u16(expect!(self.pop(), Uint16)?)
-    }
-
-    fn deserialize_u8<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        debug!("read_u8");
-        visitor.visit_u8(expect!(self.pop(), Byte)?)
-    }
-
-    fn deserialize_i64<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        debug!("read_i64");
-        self.deserialize_i32(visitor)
-    }
-
-    fn deserialize_i32<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        debug!("read_i32");
-        visitor.visit_i32(expect!(self.pop(), Int32)?)
-    }
-
-    fn deserialize_bool<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        debug!("read_bool");
-        visitor.visit_bool(expect!(self.pop(), Boolean)?)
-    }
-
-    fn deserialize_f64<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        debug!("read_f64");
-        visitor.visit_f64(expect!(self.pop(), Double)?)
-    }
-
-    fn deserialize_f32<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        debug!("read_f32");
-        visitor.visit_f32(expect!(self.pop(), Float)?)
-    }
-
-    fn deserialize_str<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        let string = expect!(self.pop(), String)?;
-        debug!("read_str: {}", string);
-        visitor.visit_borrowed_str(&string)
-    }
-
-    fn deserialize_string<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        debug!("read_string");
-        self.deserialize_str(visitor)
-    }
-
-    // Structs look just like maps in JSON.
-    //
-    // Notice the `fields` parameter - a "struct" in the Serde data model means
-    // that the `Deserialize` implementation is required to know what the fields
-    // are before even looking at the input data. Any key-value pairing in which
-    // the fields cannot be known ahead of time is probably a map.
-    fn deserialize_struct<V>(
-        self,
-        _name: &'static str,
-        _fields: &'static [&'static str],
-        visitor: V,
-    ) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        self.deserialize_map(visitor)
-    }
-
-    // Tuples look just like sequences in JSON. Some formats may be able to
-    // represent tuples more efficiently.
-    //
-    // As indicated by the length parameter, the `Deserialize` implementation
-    // for a tuple in the Serde data model is required to know the length of the
-    // tuple before even looking at the input data.
-    fn deserialize_tuple<V>(self, _len: usize, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        self.deserialize_seq(visitor)
-    }
-
-    // Tuple structs look just like sequences in JSON.
-    fn deserialize_tuple_struct<V>(
-        self,
-        _name: &'static str,
-        _len: usize,
-        visitor: V,
-    ) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        self.deserialize_seq(visitor)
-    }
-
-    fn deserialize_option<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        debug!("read_option()");
-        match self.pop() {
-            Null => visitor.visit_none(),
-            value => {
-                self.stack.push(value);
-                visitor.visit_some(self)
-            }
-        }
-    }
-
-    // In Serde, unit means an anonymous value containing no data.
-    fn deserialize_unit<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        debug!("read_nil");
-        match self.pop() {
-            Null => visitor.visit_unit(),
-            other => Err(DecodingError(format!("Error decoding Null as {:?}", other))),
-        }
-    }
-
-    // Unit struct means a named value containing no data.
-    fn deserialize_unit_struct<V>(self, _name: &'static str, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        self.deserialize_unit(visitor)
-    }
-
-    // As is done here, serializers are encouraged to treat newtype structs as
-    // insignificant wrappers around the data they contain. That means not
-    // parsing anything other than the contained value.
-    fn deserialize_newtype_struct<V>(
-        self,
-        _name: &'static str,
-        visitor: V,
-    ) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        visitor.visit_newtype_struct(self)
-    }
-
-    // An identifier in Serde is the type that identifies a field of a struct or
-    // the variant of an enum.
-    fn deserialize_identifier<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        self.deserialize_str(visitor)
-    }
-
-    fn deserialize_seq<V>(mut self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        debug!("read_seq()");
-        let list = expect!(self.pop(), Array)?;
-        let len = list.len();
-
-        for v in list.into_iter().rev() {
-            self.stack.push(v);
-        }
-
-        let value = visitor.visit_seq(ArrayAccess::new(&mut self, len))?;
-        Ok(value)
-    }
-
-    // Much like `deserialize_seq` but calls the visitors `visit_map` method
-    // with a `MapAccess` implementation, rather than the visitor's `visit_seq`
-    // method with a `SeqAccess` implementation.
-    fn deserialize_map<V>(mut self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        debug!("read_map()");
-        let obj = expect!(self.pop(), Map)?;
-        let len = obj.len();
-        for (key, value) in obj.into_iter() {
-            self.stack.push(value);
-            self.stack.push(String(key));
-        }
-
-        let value = visitor.visit_map(MapAccessor::new(&mut self, len * 2))?;
-        Ok(value)
+        self.idx += 1;
+        visitor.visit_u8(self.slice[self.idx - 1])
     }
 
     forward_to_deserialize_any! {
-        bytes byte_buf char enum i8 i16 ignored_any
+        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
+        bytes byte_buf option unit unit_struct newtype_struct seq tuple
+        tuple_struct map struct enum identifier ignored_any
+    }
+}
+
+struct ByteArrayAccess<'a, 'de: 'a> {
+    arr: &'a mut ByteArray<'de>,
+}
+
+impl<'a, 'de: 'a> SeqAccess<'de> for ByteArrayAccess<'a, 'de> {
+    type Error = MaxMindDBError;
+
+    fn next_element_seed<T>(&mut self, seed: T) -> DecodeResult<Option<T::Value>>
+    where
+        T: DeserializeSeed<'de>,
+    {
+        // Check if there are no more elements.
+        if self.arr.idx >= self.arr.slice.len() {
+            return Ok(None);
+        }
+
+        seed.deserialize(&mut *self.arr).map(Some)
     }
 }
 
 struct ArrayAccess<'a, 'de: 'a> {
     de: &'a mut Decoder<'de>,
     count: usize,
-}
-
-impl<'a, 'de> ArrayAccess<'a, 'de> {
-    fn new(de: &'a mut Decoder<'de>, count: usize) -> Self {
-        ArrayAccess { de, count }
-    }
 }
 
 // `SeqAccess` is provided to the `Visitor` to give it the ability to iterate
@@ -357,12 +412,6 @@ impl<'de, 'a> SeqAccess<'de> for ArrayAccess<'a, 'de> {
 struct MapAccessor<'a, 'de: 'a> {
     de: &'a mut Decoder<'de>,
     count: usize,
-}
-
-impl<'a, 'de> MapAccessor<'a, 'de> {
-    fn new(de: &'a mut Decoder<'de>, count: usize) -> Self {
-        MapAccessor { de, count }
-    }
 }
 
 // `MapAccess` is provided to the `Visitor` to give it the ability to iterate

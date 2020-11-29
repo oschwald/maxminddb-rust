@@ -57,8 +57,6 @@ impl de::Error for MaxMindDBError {
     }
 }
 
-type BinaryDecodeResult<T> = (Result<T, MaxMindDBError>, usize);
-
 #[derive(Deserialize, Debug)]
 pub struct Metadata {
     pub binary_format_major_version: u16,
@@ -72,332 +70,12 @@ pub struct Metadata {
     pub record_size: u16,
 }
 
-struct BinaryDecoder<T: AsRef<[u8]>> {
-    buf: T,
-    pointer_base: usize,
-}
-
-impl<T: AsRef<[u8]>> BinaryDecoder<T> {
-    fn decode_array(&self, size: usize, offset: usize) -> BinaryDecodeResult<decoder::DataRecord> {
-        let mut array = Vec::with_capacity(size);
-        let mut new_offset = offset;
-
-        for _ in 0..size {
-            let (val, tmp_offset) = match self.decode(new_offset) {
-                (Ok(v), os) => (v, os),
-                (Err(e), os) => return (Err(e), os),
-            };
-            new_offset = tmp_offset;
-            array.push(val);
-        }
-        (Ok(decoder::DataRecord::Array(array)), new_offset)
-    }
-
-    fn decode_bool(&self, size: usize, offset: usize) -> BinaryDecodeResult<decoder::DataRecord> {
-        match size {
-            0 | 1 => (Ok(decoder::DataRecord::Boolean(size != 0)), offset),
-            s => (
-                Err(MaxMindDBError::InvalidDatabaseError(format!(
-                    "float of size {:?}",
-                    s
-                ))),
-                0,
-            ),
-        }
-    }
-
-    fn decode_bytes(&self, size: usize, offset: usize) -> BinaryDecodeResult<decoder::DataRecord> {
-        let new_offset = offset + size;
-        let u8_slice = &self.buf.as_ref()[offset..new_offset];
-
-        let bytes = u8_slice
-            .iter()
-            .map(|&b| decoder::DataRecord::Byte(b))
-            .collect();
-
-        (Ok(decoder::DataRecord::Array(bytes)), new_offset)
-    }
-
-    fn decode_float(&self, size: usize, offset: usize) -> BinaryDecodeResult<decoder::DataRecord> {
-        match size {
-            4 => {
-                let new_offset = offset + size;
-
-                let value = self.buf.as_ref()[offset..new_offset]
-                    .iter()
-                    .fold(0u32, |acc, &b| (acc << 8) | u32::from(b));
-                let float_value: f32 = f32::from_bits(value);
-                (Ok(decoder::DataRecord::Float(float_value)), new_offset)
-            }
-            s => (
-                Err(MaxMindDBError::InvalidDatabaseError(format!(
-                    "float of size {:?}",
-                    s
-                ))),
-                0,
-            ),
-        }
-    }
-
-    fn decode_double(&self, size: usize, offset: usize) -> BinaryDecodeResult<decoder::DataRecord> {
-        match size {
-            8 => {
-                let new_offset = offset + size;
-
-                let value = self.buf.as_ref()[offset..new_offset]
-                    .iter()
-                    .fold(0u64, |acc, &b| (acc << 8) | u64::from(b));
-                let float_value: f64 = f64::from_bits(value);
-                (Ok(decoder::DataRecord::Double(float_value)), new_offset)
-            }
-            s => (
-                Err(MaxMindDBError::InvalidDatabaseError(format!(
-                    "double of size {:?}",
-                    s
-                ))),
-                0,
-            ),
-        }
-    }
-
-    fn decode_uint64(&self, size: usize, offset: usize) -> BinaryDecodeResult<decoder::DataRecord> {
-        match size {
-            s if s <= 8 => {
-                let new_offset = offset + size;
-
-                let value = self.buf.as_ref()[offset..new_offset]
-                    .iter()
-                    .fold(0u64, |acc, &b| (acc << 8) | u64::from(b));
-                (Ok(decoder::DataRecord::Uint64(value)), new_offset)
-            }
-            s => (
-                Err(MaxMindDBError::InvalidDatabaseError(format!(
-                    "u64 of size {:?}",
-                    s
-                ))),
-                0,
-            ),
-        }
-    }
-
-    fn decode_uint32(&self, size: usize, offset: usize) -> BinaryDecodeResult<decoder::DataRecord> {
-        match size {
-            s if s <= 4 => match self.decode_uint64(size, offset) {
-                (Ok(decoder::DataRecord::Uint64(u)), o) => {
-                    (Ok(decoder::DataRecord::Uint32(u as u32)), o)
-                }
-                e => e,
-            },
-            s => (
-                Err(MaxMindDBError::InvalidDatabaseError(format!(
-                    "u32 of size {:?}",
-                    s
-                ))),
-                0,
-            ),
-        }
-    }
-
-    fn decode_uint16(&self, size: usize, offset: usize) -> BinaryDecodeResult<decoder::DataRecord> {
-        match size {
-            s if s <= 4 => match self.decode_uint64(size, offset) {
-                (Ok(decoder::DataRecord::Uint64(u)), o) => {
-                    (Ok(decoder::DataRecord::Uint16(u as u16)), o)
-                }
-                e => e,
-            },
-            s => (
-                Err(MaxMindDBError::InvalidDatabaseError(format!(
-                    "u16 of size {:?}",
-                    s
-                ))),
-                0,
-            ),
-        }
-    }
-
-    fn decode_int(&self, size: usize, offset: usize) -> BinaryDecodeResult<decoder::DataRecord> {
-        match size {
-            s if s <= 4 => {
-                let new_offset = offset + size;
-
-                let value = self.buf.as_ref()[offset..new_offset]
-                    .iter()
-                    .fold(0i32, |acc, &b| (acc << 8) | i32::from(b));
-                (Ok(decoder::DataRecord::Int32(value)), new_offset)
-            }
-            s => (
-                Err(MaxMindDBError::InvalidDatabaseError(format!(
-                    "int32 of size {:?}",
-                    s
-                ))),
-                0,
-            ),
-        }
-    }
-
-    fn decode_map(&self, size: usize, offset: usize) -> BinaryDecodeResult<decoder::DataRecord> {
-        let mut values = BTreeMap::new();
-        let mut new_offset = offset;
-
-        for _ in 0..size {
-            let (key, val_offset) = match self.decode(new_offset) {
-                (Ok(v), os) => (v, os),
-                (Err(e), os) => return (Err(e), os),
-            };
-            let (val, tmp_offset) = match self.decode(val_offset) {
-                (Ok(v), os) => (v, os),
-                (Err(e), os) => return (Err(e), os),
-            };
-            new_offset = tmp_offset;
-
-            let str_key = match key {
-                decoder::DataRecord::String(s) => s,
-                v => {
-                    return (
-                        Err(MaxMindDBError::InvalidDatabaseError(format!(
-                            "unexpected map \
-                             key type {:?}",
-                            v
-                        ))),
-                        0,
-                    )
-                }
-            };
-            values.insert(str_key, val);
-        }
-        (Ok(decoder::DataRecord::Map(values)), new_offset)
-    }
-
-    fn decode_pointer(
-        &self,
-        size: usize,
-        offset: usize,
-    ) -> BinaryDecodeResult<decoder::DataRecord> {
-        let pointer_value_offset = [0, 0, 2048, 526_336, 0];
-        let pointer_size = ((size >> 3) & 0x3) + 1;
-        let new_offset = offset + pointer_size;
-        let pointer_bytes = &self.buf.as_ref()[offset..new_offset];
-
-        let base = if pointer_size == 4 {
-            0
-        } else {
-            (size & 0x7) as u8
-        };
-        let unpacked = to_usize(base, pointer_bytes);
-        let pointer = unpacked + self.pointer_base + pointer_value_offset[pointer_size];
-
-        // XXX fix cast. Use usize everywhere?
-        let (result, _) = self.decode(pointer);
-        (result, new_offset)
-    }
-
-    #[cfg(feature = "unsafe-str-decode")]
-    fn decode_string(&self, size: usize, offset: usize) -> BinaryDecodeResult<decoder::DataRecord> {
-        use std::str::from_utf8_unchecked;
-        let new_offset: usize = offset + size;
-        let bytes = &self.buf.as_ref()[offset..new_offset];
-        // SAFETY:
-        // A corrupt maxminddb will cause undefined behaviour.
-        // If the caller has verified the integrity of their database and trusts their upstream
-        // provider, they can opt-into the performance gains provided by this unsafe function via
-        // the `unsafe-str-decode` feature flag.
-        // This can provide around 20% performance increase in the lookup benchmark.
-        let v = unsafe { from_utf8_unchecked(bytes) };
-        (Ok(decoder::DataRecord::String(v)), new_offset)
-    }
-
-    #[cfg(not(feature = "unsafe-str-decode"))]
-    fn decode_string(&self, size: usize, offset: usize) -> BinaryDecodeResult<decoder::DataRecord> {
-        use std::str::from_utf8;
-
-        let new_offset: usize = offset + size;
-        let bytes = &self.buf.as_ref()[offset..new_offset];
-        match from_utf8(bytes) {
-            Ok(v) => (Ok(decoder::DataRecord::String(v)), new_offset),
-            Err(_) => (
-                Err(MaxMindDBError::InvalidDatabaseError(
-                    "error decoding string".to_owned(),
-                )),
-                new_offset,
-            ),
-        }
-    }
-
-    fn decode(&self, offset: usize) -> BinaryDecodeResult<decoder::DataRecord> {
-        let mut new_offset = offset + 1;
-        let ctrl_byte = self.buf.as_ref()[offset];
-
-        let mut type_num = ctrl_byte >> 5;
-
-        // Extended type
-        if type_num == 0 {
-            type_num = self.buf.as_ref()[new_offset] + 7;
-            new_offset += 1;
-        }
-
-        let (size, value_offset) = self.size_from_ctrl_byte(ctrl_byte, new_offset, type_num);
-        self.decode_from_type(type_num, size, value_offset)
-    }
-
-    fn size_from_ctrl_byte(&self, ctrl_byte: u8, offset: usize, type_num: u8) -> (usize, usize) {
-        let mut size = (ctrl_byte & 0x1f) as usize;
-        // extended
-        if type_num == 0 {
-            return (size, offset);
-        }
-
-        let bytes_to_read = if size > 28 { size - 28 } else { 0 };
-
-        let new_offset = offset + bytes_to_read;
-        let size_bytes = &self.buf.as_ref()[offset..new_offset];
-
-        size = match size {
-            s if s < 29 => s,
-            29 => 29usize + size_bytes[0] as usize,
-            30 => 285usize + to_usize(0, size_bytes),
-            _ => 65_821usize + to_usize(0, size_bytes),
-        };
-        (size, new_offset)
-    }
-
-    fn decode_from_type(
-        &self,
-        data_type: u8,
-        size: usize,
-        offset: usize,
-    ) -> BinaryDecodeResult<decoder::DataRecord> {
-        match data_type {
-            1 => self.decode_pointer(size, offset),
-            2 => self.decode_string(size, offset),
-            3 => self.decode_double(size, offset),
-            4 => self.decode_bytes(size, offset),
-            5 => self.decode_uint16(size, offset),
-            6 => self.decode_uint32(size, offset),
-            7 => self.decode_map(size, offset),
-            8 => self.decode_int(size, offset),
-            9 => self.decode_uint64(size, offset),
-            // XXX - this is u128. The return value for this is subject to change.
-            10 => self.decode_bytes(size, offset),
-            11 => self.decode_array(size, offset),
-            14 => self.decode_bool(size, offset),
-            15 => self.decode_float(size, offset),
-            u => (
-                Err(MaxMindDBError::InvalidDatabaseError(format!(
-                    "Unknown data type: {:?}",
-                    u
-                ))),
-                offset,
-            ),
-        }
-    }
-}
-
 /// A reader for the MaxMind DB format. The lifetime `'data` is tied to the lifetime of the underlying buffer holding the contents of the database file.
 pub struct Reader<S: AsRef<[u8]>> {
-    decoder: BinaryDecoder<S>,
+    buf: S,
     pub metadata: Metadata,
     ipv4_start: usize,
+    pointer_base: usize,
 }
 
 #[cfg(feature = "mmap")]
@@ -446,34 +124,14 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let data_section_separator_size = 16;
 
         let metadata_start = find_metadata_start(buf.as_ref())?;
-
-        let metadata_decoder = BinaryDecoder {
-            buf,
-            pointer_base: metadata_start,
-        };
-
-        let raw_metadata = match metadata_decoder.decode(metadata_start) {
-            (Ok(m), _) => m,
-            m => {
-                return Err(MaxMindDBError::InvalidDatabaseError(format!(
-                    "metadata of wrong \
-                     type: {:?}",
-                    m
-                )))
-            }
-        };
-
-        let mut type_decoder = decoder::Decoder::new(raw_metadata);
+        let mut type_decoder = decoder::Decoder::new(buf.as_ref(), metadata_start);
         let metadata = Metadata::deserialize(&mut type_decoder)?;
 
         let search_tree_size = (metadata.node_count as usize) * (metadata.record_size as usize) / 4;
-        let decoder = BinaryDecoder {
-            buf: metadata_decoder.buf,
-            pointer_base: search_tree_size + data_section_separator_size,
-        };
 
         let mut reader = Reader {
-            decoder,
+            buf,
+            pointer_base: search_tree_size + data_section_separator_size,
             metadata,
             ipv4_start: 0,
         };
@@ -509,7 +167,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
             ));
         }
         let rec = self.resolve_data_pointer(pointer)?;
-        let mut decoder = decoder::Decoder::new(rec);
+        let mut decoder = decoder::Decoder::new(&self.buf.as_ref()[self.pointer_base..], rec);
 
         T::deserialize(&mut decoder)
     }
@@ -563,7 +221,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     }
 
     fn read_node(&self, node_number: usize, index: usize) -> Result<usize, MaxMindDBError> {
-        let buf = self.decoder.buf.as_ref();
+        let buf = self.buf.as_ref();
         let base_offset = node_number * (self.metadata.record_size as usize) / 4;
 
         let val = match self.metadata.record_size {
@@ -596,13 +254,10 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         Ok(val)
     }
 
-    fn resolve_data_pointer(&self, pointer: usize) -> Result<decoder::DataRecord, MaxMindDBError> {
-        let search_tree_size =
-            (self.metadata.record_size as usize) * (self.metadata.node_count as usize) / 4;
+    fn resolve_data_pointer(&self, pointer: usize) -> Result<usize, MaxMindDBError> {
+        let resolved = pointer - (self.metadata.node_count as usize) - 16;
 
-        let resolved = pointer - (self.metadata.node_count as usize) + search_tree_size;
-
-        if resolved > self.decoder.buf.as_ref().len() {
+        if resolved > self.buf.as_ref().len() {
             return Err(MaxMindDBError::InvalidDatabaseError(
                 "the MaxMind DB file's search tree \
                  is corrupt"
@@ -610,8 +265,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
             ));
         }
 
-        let (record, _) = self.decoder.decode(resolved);
-        record
+        Ok(resolved)
     }
 }
 
