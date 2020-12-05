@@ -18,7 +18,6 @@ pub struct Decoder<'de> {
 }
 
 impl<'de> Decoder<'de> {
-    /// Creates a new decoder instance for decoding the specified JSON value.
     pub fn new(buf: &'de [u8], start_ptr: usize) -> Decoder<'de> {
         Decoder {
             buf,
