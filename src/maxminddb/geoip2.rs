@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 /// GeoIP2 Country record
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Country<'a> {
@@ -70,6 +72,7 @@ pub struct Asn<'a> {
 }
 
 pub mod model {
+    use serde::{Deserialize, Serialize};
     use std::collections::BTreeMap;
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
