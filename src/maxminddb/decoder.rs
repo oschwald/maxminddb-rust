@@ -338,52 +338,6 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
     }
 }
 
-struct ByteArray<'de> {
-    slice: &'de [u8],
-    idx: usize,
-}
-
-impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut ByteArray<'de> {
-    type Error = MaxMindDBError;
-
-    #[inline]
-    fn deserialize_any<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        debug!("deserialize_any");
-
-        self.idx += 1;
-        visitor.visit_u8(self.slice[self.idx - 1])
-    }
-
-    forward_to_deserialize_any! {
-        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
-        bytes byte_buf option unit unit_struct newtype_struct seq tuple
-        tuple_struct map struct enum identifier ignored_any
-    }
-}
-
-struct ByteArrayAccess<'a, 'de: 'a> {
-    arr: &'a mut ByteArray<'de>,
-}
-
-impl<'a, 'de: 'a> SeqAccess<'de> for ByteArrayAccess<'a, 'de> {
-    type Error = MaxMindDBError;
-
-    fn next_element_seed<T>(&mut self, seed: T) -> DecodeResult<Option<T::Value>>
-    where
-        T: DeserializeSeed<'de>,
-    {
-        // Check if there are no more elements.
-        if self.arr.idx >= self.arr.slice.len() {
-            return Ok(None);
-        }
-
-        seed.deserialize(&mut *self.arr).map(Some)
-    }
-}
-
 struct ArrayAccess<'a, 'de: 'a> {
     de: &'a mut Decoder<'de>,
     count: usize,
