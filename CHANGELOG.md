@@ -1,5 +1,10 @@
 # Change Log #
 
+## 0.16.0 - 2020-12-05
+
+* This release includes major performance improvements and code cleanup.
+  Pull request by Sebastian Mayr. GitHub #37.
+
 ## 0.15.0 - 2020-10-10
 
 * Remove crate options leftover from before Rust 1.0. In particular,
