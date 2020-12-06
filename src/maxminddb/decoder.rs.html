@@ -403,7 +403,6 @@
 <span id="400">400</span>
 <span id="401">401</span>
 <span id="402">402</span>
-<span id="403">403</span>
 </pre><div class="example-wrap"><pre class="rust ">
 <span class="kw">use</span> <span class="ident">log</span>::<span class="ident">debug</span>;
 <span class="kw">use</span> <span class="ident">serde</span>::<span class="ident">de</span>::{<span class="self">self</span>, <span class="ident">DeserializeSeed</span>, <span class="ident">MapAccess</span>, <span class="ident">SeqAccess</span>, <span class="ident">Visitor</span>};
@@ -425,7 +424,6 @@
 }
 
 <span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;de</span><span class="op">&gt;</span> <span class="ident">Decoder</span><span class="op">&lt;</span><span class="lifetime">&#39;de</span><span class="op">&gt;</span> {
-    <span class="doccomment">/// Creates a new decoder instance for decoding the specified JSON value.</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">new</span>(<span class="ident">buf</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;de</span> [<span class="ident">u8</span>], <span class="ident">start_ptr</span>: <span class="ident">usize</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">Decoder</span><span class="op">&lt;</span><span class="lifetime">&#39;de</span><span class="op">&gt;</span> {
         <span class="ident">Decoder</span> {
             <span class="ident">buf</span>,
