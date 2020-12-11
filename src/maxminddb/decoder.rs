@@ -80,7 +80,7 @@ impl<'de> Decoder<'de> {
             8 => self.decode_int(visitor, size),
             9 => self.decode_uint64(visitor, size),
             // XXX - this is u128. The return value for this is subject to change.
-            10 => self.decode_bytes(visitor, size),
+            10 => self.decode_uint128(visitor, size),
             11 => self.decode_array(visitor, size),
             14 => self.decode_bool(visitor, size),
             15 => self.decode_float(visitor, size),
@@ -175,6 +175,28 @@ impl<'de> Decoder<'de> {
             }
             s => Err(MaxMindDBError::InvalidDatabaseError(format!(
                 "u64 of size {:?}",
+                s
+            ))),
+        }
+    }
+
+    fn decode_uint128<V: Visitor<'de>>(
+        &mut self,
+        visitor: V,
+        size: usize,
+    ) -> DecodeResult<V::Value> {
+        match size {
+            s if s <= 16 => {
+                let new_offset = self.current_ptr + size;
+
+                let value = self.buf[self.current_ptr..new_offset]
+                    .iter()
+                    .fold(0u128, |acc, &b| (acc << 8) | u128::from(b));
+                self.current_ptr = new_offset;
+                visitor.visit_u128(value)
+            }
+            s => Err(MaxMindDBError::InvalidDatabaseError(format!(
+                "u128 of size {:?}",
                 s
             ))),
         }
