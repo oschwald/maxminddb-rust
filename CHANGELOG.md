@@ -1,5 +1,10 @@
 # Change Log #
 
+## 0.17.0 - 2020-12-12
+
+* Unsigned 128-bit integers are now decoded to a `u128` rather than a
+  `[u8]`. Pull request by moschroe. GitHub #40.
+
 ## 0.16.0 - 2020-12-05
 
 * This release includes major performance improvements and code cleanup.
