@@ -35,7 +35,7 @@ fn test_decoder() {
         uint16: u16,
         uint32: u32,
         uint64: u64,
-        uint128: &'a [u8],
+        uint128: u128,
         utf8_string: String,
     }
 
@@ -69,7 +69,7 @@ fn test_decoder() {
     assert_eq!(result.uint64, 1_152_921_504_606_846_976);
     assert_eq!(
         result.uint128,
-        vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        1_329_227_995_784_915_872_903_807_060_280_344_576
     );
 
     assert_eq!(result.utf8_string, "unicode! ☯ - ♫".to_string());
