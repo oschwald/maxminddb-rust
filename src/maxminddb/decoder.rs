@@ -79,7 +79,6 @@ impl<'de> Decoder<'de> {
             7 => self.decode_map(visitor, size),
             8 => self.decode_int(visitor, size),
             9 => self.decode_uint64(visitor, size),
-            // XXX - this is u128. The return value for this is subject to change.
             10 => self.decode_uint128(visitor, size),
             11 => self.decode_array(visitor, size),
             14 => self.decode_bool(visitor, size),
