@@ -424,7 +424,6 @@
 <span id="421">421</span>
 <span id="422">422</span>
 <span id="423">423</span>
-<span id="424">424</span>
 </pre><div class="example-wrap"><pre class="rust ">
 <span class="kw">use</span> <span class="ident">log</span>::<span class="ident">debug</span>;
 <span class="kw">use</span> <span class="ident">serde</span>::<span class="ident">de</span>::{<span class="self">self</span>, <span class="ident">DeserializeSeed</span>, <span class="ident">MapAccess</span>, <span class="ident">SeqAccess</span>, <span class="ident">Visitor</span>};
@@ -507,7 +506,6 @@
             <span class="number">7</span> <span class="op">=</span><span class="op">&gt;</span> <span class="self">self</span>.<span class="ident">decode_map</span>(<span class="ident">visitor</span>, <span class="ident">size</span>),
             <span class="number">8</span> <span class="op">=</span><span class="op">&gt;</span> <span class="self">self</span>.<span class="ident">decode_int</span>(<span class="ident">visitor</span>, <span class="ident">size</span>),
             <span class="number">9</span> <span class="op">=</span><span class="op">&gt;</span> <span class="self">self</span>.<span class="ident">decode_uint64</span>(<span class="ident">visitor</span>, <span class="ident">size</span>),
-            <span class="comment">// XXX - this is u128. The return value for this is subject to change.</span>
             <span class="number">10</span> <span class="op">=</span><span class="op">&gt;</span> <span class="self">self</span>.<span class="ident">decode_uint128</span>(<span class="ident">visitor</span>, <span class="ident">size</span>),
             <span class="number">11</span> <span class="op">=</span><span class="op">&gt;</span> <span class="self">self</span>.<span class="ident">decode_array</span>(<span class="ident">visitor</span>, <span class="ident">size</span>),
             <span class="number">14</span> <span class="op">=</span><span class="op">&gt;</span> <span class="self">self</span>.<span class="ident">decode_bool</span>(<span class="ident">visitor</span>, <span class="ident">size</span>),
