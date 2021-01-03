@@ -1,6 +1,7 @@
 use log::debug;
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::forward_to_deserialize_any;
+use serde::serde_if_integer128;
 
 use super::MaxMindDBError;
 use super::MaxMindDBError::DecodingError;
@@ -79,7 +80,14 @@ impl<'de> Decoder<'de> {
             7 => self.decode_map(visitor, size),
             8 => self.decode_int(visitor, size),
             9 => self.decode_uint64(visitor, size),
-            10 => self.decode_uint128(visitor, size),
+            10 => {
+                serde_if_integer128! {
+                    return self.decode_uint128(visitor, size);
+                }
+
+                #[allow(unreachable_code)]
+                self.decode_bytes(visitor, size)
+            }
             11 => self.decode_array(visitor, size),
             14 => self.decode_bool(visitor, size),
             15 => self.decode_float(visitor, size),
@@ -179,25 +187,27 @@ impl<'de> Decoder<'de> {
         }
     }
 
-    fn decode_uint128<V: Visitor<'de>>(
-        &mut self,
-        visitor: V,
-        size: usize,
-    ) -> DecodeResult<V::Value> {
-        match size {
-            s if s <= 16 => {
-                let new_offset = self.current_ptr + size;
+    serde_if_integer128! {
+        fn decode_uint128<V: Visitor<'de>>(
+            &mut self,
+            visitor: V,
+            size: usize,
+        ) -> DecodeResult<V::Value> {
+            match size {
+                s if s <= 16 => {
+                    let new_offset = self.current_ptr + size;
 
-                let value = self.buf[self.current_ptr..new_offset]
-                    .iter()
-                    .fold(0u128, |acc, &b| (acc << 8) | u128::from(b));
-                self.current_ptr = new_offset;
-                visitor.visit_u128(value)
+                    let value = self.buf[self.current_ptr..new_offset]
+                        .iter()
+                        .fold(0u128, |acc, &b| (acc << 8) | u128::from(b));
+                    self.current_ptr = new_offset;
+                    visitor.visit_u128(value)
+                }
+                s => Err(MaxMindDBError::InvalidDatabaseError(format!(
+                    "u128 of size {:?}",
+                    s
+                ))),
             }
-            s => Err(MaxMindDBError::InvalidDatabaseError(format!(
-                "u128 of size {:?}",
-                s
-            ))),
         }
     }
 
