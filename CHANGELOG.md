@@ -1,5 +1,10 @@
 # Change Log #
 
+## 0.17.1 - 2021-01-03
+
+* Restore compatibility with targets that don't support 128-bit integers.
+  Pull request by Filip. GitHub #41.
+
 ## 0.17.0 - 2020-12-12
 
 * Unsigned 128-bit integers are now decoded to a `u128` rather than a
