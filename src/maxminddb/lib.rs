@@ -174,7 +174,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
 
     fn find_address_in_tree(&self, ip_address: &[u8]) -> Result<usize, MaxMindDBError> {
         let bit_count = ip_address.len() * 8;
-        let mut node = self.start_node(bit_count)?;
+        let mut node = self.start_node(bit_count);
 
         let node_count = self.metadata.node_count as usize;
 
@@ -195,11 +195,11 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         }
     }
 
-    fn start_node(&self, length: usize) -> Result<usize, MaxMindDBError> {
+    fn start_node(&self, length: usize) -> usize {
         if length == 128 {
-            Ok(0)
+            0
         } else {
-            Ok(self.ipv4_start)
+            self.ipv4_start
         }
     }
 
