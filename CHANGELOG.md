@@ -1,5 +1,9 @@
 # Change Log #
 
+## 0.17.2 - 2021-02-11
+
+* Minor cleanup.
+
 ## 0.17.1 - 2021-01-03
 
 * Restore compatibility with targets that don't support 128-bit integers.
