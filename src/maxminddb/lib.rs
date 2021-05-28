@@ -285,29 +285,15 @@ fn ip_to_bytes(address: IpAddr) -> Vec<u8> {
 }
 
 fn find_metadata_start(buf: &[u8]) -> Result<usize, MaxMindDBError> {
-    // This is reversed to make the loop below a bit simpler
-    let metadata_start_marker: [u8; 14] = [
-        0x6d, 0x6f, 0x63, 0x2e, 0x64, 0x6e, 0x69, 0x4d, 0x78, 0x61, 0x4d, 0xEF, 0xCD, 0xAB,
-    ];
-    let marker_length = metadata_start_marker.len();
+    const METADATA_START_MARKER: &[u8] = b"\xab\xcd\xefMaxMind.com";
 
-    // XXX - ugly code
-    for start_position in marker_length..buf.len() - 1 {
-        let mut not_found = false;
-        for (offset, marker_byte) in metadata_start_marker.iter().enumerate() {
-            let file_byte = buf[buf.len() - start_position - offset - 1];
-            if file_byte != *marker_byte {
-                not_found = true;
-                break;
-            }
-        }
-        if !not_found {
-            return Ok(buf.len() - start_position);
-        }
-    }
-    Err(MaxMindDBError::InvalidDatabaseError(
-        "Could not find MaxMind DB metadata in file.".to_owned(),
-    ))
+    memchr::memmem::rfind(&buf, METADATA_START_MARKER)
+        .map(|x| x + METADATA_START_MARKER.len())
+        .ok_or_else(|| {
+            MaxMindDBError::InvalidDatabaseError(
+                "Could not find MaxMind DB metadata in file.".to_owned(),
+            )
+        })
 }
 
 mod decoder;
