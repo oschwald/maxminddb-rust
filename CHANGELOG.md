@@ -1,5 +1,10 @@
 # Change Log #
 
+## 0.18.0 - 2021-05-29
+
+* The `memchr` crate is now used to improve the performance of finding
+  the metadata start. Pull request by Markus Westerlind. GitHub #44.
+
 ## 0.17.3 - 2021-05-29
 
 * Correct handling of pointers in the database metadata section. This
