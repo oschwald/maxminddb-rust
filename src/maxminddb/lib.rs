@@ -124,7 +124,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let data_section_separator_size = 16;
 
         let metadata_start = find_metadata_start(buf.as_ref())?;
-        let mut type_decoder = decoder::Decoder::new(buf.as_ref(), metadata_start);
+        let mut type_decoder = decoder::Decoder::new(&buf.as_ref()[metadata_start..], 0);
         let metadata = Metadata::deserialize(&mut type_decoder)?;
 
         let search_tree_size = (metadata.node_count as usize) * (metadata.record_size as usize) / 4;

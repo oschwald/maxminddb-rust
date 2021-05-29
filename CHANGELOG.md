@@ -1,5 +1,12 @@
 # Change Log #
 
+## 0.17.3 - 2021-05-29
+
+* Correct handling of pointers in the database metadata section. This
+  bug caused the latest GeoIP2 ISP database from MaxMind to fail to
+  load with an `InvalidDatabaseError` due to an invalid data type.
+  Reported by Marwes-Imperva. GitHub #45.
+
 ## 0.17.2 - 2021-02-11
 
 * Minor cleanup.
