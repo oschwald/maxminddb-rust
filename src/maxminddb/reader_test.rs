@@ -47,9 +47,9 @@ fn test_decoder() {
     let ip: IpAddr = FromStr::from_str("1.1.1.0").unwrap();
     let result: TestType = r.lookup(ip).unwrap();
 
-    assert_eq!(result.array, vec![1u32, 2u32, 3u32]);
+    assert_eq!(result.array, vec![1_u32, 2_u32, 3_u32]);
     assert_eq!(result.boolean, true);
-    assert_eq!(result.bytes, vec![0u8, 0u8, 0u8, 42u8]);
+    assert_eq!(result.bytes, vec![0_u8, 0_u8, 0_u8, 42_u8]);
     assert_eq!(result.double, 42.123_456);
     assert_eq!(result.float, 1.1);
     assert_eq!(result.int32, -268_435_456);
@@ -72,7 +72,10 @@ fn test_decoder() {
         1_329_227_995_784_915_872_903_807_060_280_344_576
     );
 
-    assert_eq!(result.utf8_string, "unicode! ☯ - ♫".to_string());
+    assert_eq!(
+        result.utf8_string,
+        "unicode! \u{262f} - \u{266b}".to_string()
+    );
 }
 
 #[test]
@@ -132,10 +135,10 @@ fn test_non_database() {
 fn test_reader() {
     let _ = env_logger::try_init();
 
-    let sizes = [24usize, 28, 32];
-    for record_size in sizes.iter() {
-        let versions = [4usize, 6];
-        for ip_version in versions.iter() {
+    let sizes = [24_usize, 28, 32];
+    for record_size in &sizes {
+        let versions = [4_usize, 6];
+        for ip_version in &versions {
             let filename = format!(
                 "test-data/test-data/MaxMind-DB-test-ipv{}-{}.mmdb",
                 ip_version, record_size
@@ -153,10 +156,10 @@ fn test_reader() {
 fn test_reader_readfile() {
     let _ = env_logger::try_init();
 
-    let sizes = [24usize, 28, 32];
-    for record_size in sizes.iter() {
-        let versions = [4usize, 6];
-        for ip_version in versions.iter() {
+    let sizes = [24_usize, 28, 32];
+    for record_size in &sizes {
+        let versions = [4_usize, 6];
+        for ip_version in &versions {
             let filename = format!(
                 "test-data/test-data/MaxMind-DB-test-ipv{}-{}.mmdb",
                 ip_version, record_size
@@ -325,9 +328,9 @@ fn test_lookup_asn() {
 fn check_metadata<T: AsRef<[u8]>>(reader: &Reader<T>, ip_version: usize, record_size: usize) {
     let metadata = &reader.metadata;
 
-    assert_eq!(metadata.binary_format_major_version, 2u16);
+    assert_eq!(metadata.binary_format_major_version, 2_u16);
 
-    assert_eq!(metadata.binary_format_minor_version, 0u16);
+    assert_eq!(metadata.binary_format_minor_version, 0_u16);
     assert!(metadata.build_epoch >= 1_397_457_605);
     assert_eq!(metadata.database_type, "Test".to_string());
 
@@ -380,7 +383,7 @@ fn check_ip<T: AsRef<[u8]>>(reader: &Reader<T>, ip_version: usize) {
         ip: String,
     }
 
-    for subnet in subnets.iter() {
+    for subnet in &subnets {
         let ip: IpAddr = FromStr::from_str(&subnet).unwrap();
         let value: IpType = reader.lookup(ip).unwrap();
 
@@ -389,7 +392,7 @@ fn check_ip<T: AsRef<[u8]>>(reader: &Reader<T>, ip_version: usize) {
 
     let no_record = ["1.1.1.33", "255.254.253.123", "89fa::"];
 
-    for &address in no_record.iter() {
+    for &address in &no_record {
         let ip: IpAddr = FromStr::from_str(address).unwrap();
         match reader.lookup::<IpType>(ip) {
             Ok(v) => panic!("received an unexpected value: {:?}", v),

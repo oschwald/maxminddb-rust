@@ -5,7 +5,7 @@ extern crate maxminddb;
 extern crate rayon;
 
 use criterion::Criterion;
-use fake::faker::internet::raw::*;
+use fake::faker::internet::raw::IPv4;
 use fake::locales::EN;
 use fake::Fake;
 use maxminddb::geoip2;
@@ -15,6 +15,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 // Generate `count` IPv4 addresses
+#[must_use]
 pub fn generate_ipv4(count: u64) -> Vec<IpAddr> {
     let mut ips = Vec::new();
     for _i in 0..count {
@@ -27,9 +28,9 @@ pub fn generate_ipv4(count: u64) -> Vec<IpAddr> {
 
 // Single-threaded
 pub fn bench_maxminddb(ips: &[IpAddr], reader: &maxminddb::Reader<Vec<u8>>) {
-    ips.iter().for_each(|ip| {
+    for ip in ips.iter() {
         let _ = reader.lookup::<geoip2::City>(*ip);
-    });
+    }
 }
 
 // Using rayon for parallel execution

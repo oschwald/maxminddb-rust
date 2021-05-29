@@ -47,9 +47,9 @@ impl<'de> Decoder<'de> {
 
         match size {
             s if s < 29 => s,
-            29 => 29usize + size_bytes[0] as usize,
-            30 => 285usize + to_usize(0, size_bytes),
-            _ => 65_821usize + to_usize(0, size_bytes),
+            29 => 29_usize + size_bytes[0] as usize,
+            30 => 285_usize + to_usize(0, size_bytes),
+            _ => 65_821_usize + to_usize(0, size_bytes),
         }
     }
 
@@ -129,7 +129,7 @@ impl<'de> Decoder<'de> {
                 let new_offset = self.current_ptr + size;
                 let value = self.buf[self.current_ptr..new_offset]
                     .iter()
-                    .fold(0u32, |acc, &b| (acc << 8) | u32::from(b));
+                    .fold(0_u32, |acc, &b| (acc << 8) | u32::from(b));
                 self.current_ptr = new_offset;
 
                 let float_value = f32::from_bits(value);
@@ -152,7 +152,7 @@ impl<'de> Decoder<'de> {
                 let new_offset = self.current_ptr + size;
                 let value = self.buf[self.current_ptr..new_offset]
                     .iter()
-                    .fold(0u64, |acc, &b| (acc << 8) | u64::from(b));
+                    .fold(0_u64, |acc, &b| (acc << 8) | u64::from(b));
                 self.current_ptr = new_offset;
 
                 let float_value = f64::from_bits(value);
@@ -176,7 +176,7 @@ impl<'de> Decoder<'de> {
 
                 let value = self.buf[self.current_ptr..new_offset]
                     .iter()
-                    .fold(0u64, |acc, &b| (acc << 8) | u64::from(b));
+                    .fold(0_u64, |acc, &b| (acc << 8) | u64::from(b));
                 self.current_ptr = new_offset;
                 visitor.visit_u64(value)
             }
@@ -199,7 +199,7 @@ impl<'de> Decoder<'de> {
 
                     let value = self.buf[self.current_ptr..new_offset]
                         .iter()
-                        .fold(0u128, |acc, &b| (acc << 8) | u128::from(b));
+                        .fold(0_u128, |acc, &b| (acc << 8) | u128::from(b));
                     self.current_ptr = new_offset;
                     visitor.visit_u128(value)
                 }
@@ -222,7 +222,7 @@ impl<'de> Decoder<'de> {
 
                 let value = self.buf[self.current_ptr..new_offset]
                     .iter()
-                    .fold(0u32, |acc, &b| (acc << 8) | u32::from(b));
+                    .fold(0_u32, |acc, &b| (acc << 8) | u32::from(b));
                 self.current_ptr = new_offset;
                 visitor.visit_u32(value)
             }
@@ -244,7 +244,7 @@ impl<'de> Decoder<'de> {
 
                 let value = self.buf[self.current_ptr..new_offset]
                     .iter()
-                    .fold(0u16, |acc, &b| (acc << 8) | u16::from(b));
+                    .fold(0_u16, |acc, &b| (acc << 8) | u16::from(b));
                 self.current_ptr = new_offset;
                 visitor.visit_u16(value)
             }
@@ -262,7 +262,7 @@ impl<'de> Decoder<'de> {
 
                 let value = self.buf[self.current_ptr..new_offset]
                     .iter()
-                    .fold(0i32, |acc, &b| (acc << 8) | i32::from(b));
+                    .fold(0_i32, |acc, &b| (acc << 8) | i32::from(b));
                 self.current_ptr = new_offset;
                 visitor.visit_i32(value)
             }

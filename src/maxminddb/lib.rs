@@ -210,8 +210,8 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
 
         // We are looking up an IPv4 address in an IPv6 tree. Skip over the
         // first 96 nodes.
-        let mut node: usize = 0usize;
-        for _ in 0u8..96 {
+        let mut node: usize = 0_usize;
+        for _ in 0_u8..96 {
             if node >= self.metadata.node_count as usize {
                 break;
             }
