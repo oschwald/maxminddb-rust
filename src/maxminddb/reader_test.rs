@@ -48,7 +48,7 @@ fn test_decoder() {
     let result: TestType = r.lookup(ip).unwrap();
 
     assert_eq!(result.array, vec![1_u32, 2_u32, 3_u32]);
-    assert_eq!(result.boolean, true);
+    assert!(result.boolean);
     assert_eq!(result.bytes, vec![0_u8, 0_u8, 0_u8, 42_u8]);
     assert_eq!(result.double, 42.123_456);
     assert_eq!(result.float, 1.1);
