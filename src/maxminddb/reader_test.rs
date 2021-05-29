@@ -15,13 +15,13 @@ fn test_decoder() {
     struct MapXType {
         arrayX: Vec<u32>,
         utf8_stringX: String,
-    };
+    }
 
     #[allow(non_snake_case)]
     #[derive(Deserialize, Debug, Eq, PartialEq)]
     struct MapType {
         mapX: MapXType,
-    };
+    }
 
     #[derive(Deserialize, Debug)]
     struct TestType<'a> {
@@ -41,7 +41,7 @@ fn test_decoder() {
 
     let r = Reader::open_readfile("test-data/test-data/MaxMind-DB-test-decoder.mmdb");
     if let Err(err) = r {
-        panic!(format!("error opening mmdb: {:?}", err));
+        panic!("error opening mmdb: {:?}", err);
     }
     let r = r.unwrap();
     let ip: IpAddr = FromStr::from_str("1.1.1.0").unwrap();
