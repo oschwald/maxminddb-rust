@@ -79,6 +79,17 @@ fn test_decoder() {
 }
 
 #[test]
+fn test_pointers_in_metadata() {
+    let _ = env_logger::try_init();
+
+    let r = Reader::open_readfile("test-data/test-data/MaxMind-DB-test-metadata-pointers.mmdb");
+    if let Err(err) = r {
+        panic!("error opening mmdb: {:?}", err);
+    }
+}
+
+
+#[test]
 fn test_broken_database() {
     let _ = env_logger::try_init();
 
