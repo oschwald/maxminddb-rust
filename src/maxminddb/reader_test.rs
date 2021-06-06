@@ -88,7 +88,6 @@ fn test_pointers_in_metadata() {
     }
 }
 
-
 #[test]
 fn test_broken_database() {
     let _ = env_logger::try_init();
