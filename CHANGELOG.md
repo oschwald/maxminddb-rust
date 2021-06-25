@@ -1,5 +1,10 @@
 # Change Log #
 
+## 0.19.0 - 2021-06-25
+
+* Switch from `memmap` to `memmap2`. Pull request by Gleb Pomykalov.
+  GitHub #46.
+
 ## 0.18.0 - 2021-05-29
 
 * The `memchr` crate is now used to improve the performance of finding
