@@ -9,9 +9,9 @@ use std::path::Path;
 use serde::{de, Deserialize};
 
 #[cfg(feature = "mmap")]
-use memmap::Mmap;
+use memmap2::Mmap;
 #[cfg(feature = "mmap")]
-use memmap::MmapOptions;
+use memmap2::MmapOptions;
 #[cfg(feature = "mmap")]
 use std::fs::File;
 
