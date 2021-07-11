@@ -2,6 +2,7 @@ use log::debug;
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::forward_to_deserialize_any;
 use serde::serde_if_integer128;
+use std::convert::TryInto;
 
 use super::MaxMindDBError;
 use super::MaxMindDBError::DecodingError;
@@ -124,22 +125,18 @@ impl<'de> Decoder<'de> {
     }
 
     fn decode_float<V: Visitor<'de>>(&mut self, visitor: V, size: usize) -> DecodeResult<V::Value> {
-        match size {
-            4 => {
-                let new_offset = self.current_ptr + size;
-                let value = self.buf[self.current_ptr..new_offset]
-                    .iter()
-                    .fold(0_u32, |acc, &b| (acc << 8) | u32::from(b));
-                self.current_ptr = new_offset;
-
-                let float_value = f32::from_bits(value);
-                visitor.visit_f32(float_value)
-            }
-            s => Err(MaxMindDBError::InvalidDatabaseError(format!(
-                "float of size {:?}",
-                s
-            ))),
-        }
+        let new_offset = self.current_ptr + size;
+        let value: [u8; 4] = self.buf[self.current_ptr..new_offset]
+            .try_into()
+            .map_err(|_| {
+                MaxMindDBError::InvalidDatabaseError(format!(
+                    "float of size {:?}",
+                    new_offset - self.current_ptr
+                ))
+            })?;
+        self.current_ptr = new_offset;
+        let float_value = f32::from_be_bytes(value);
+        visitor.visit_f32(float_value)
     }
 
     fn decode_double<V: Visitor<'de>>(
@@ -147,22 +144,18 @@ impl<'de> Decoder<'de> {
         visitor: V,
         size: usize,
     ) -> DecodeResult<V::Value> {
-        match size {
-            8 => {
-                let new_offset = self.current_ptr + size;
-                let value = self.buf[self.current_ptr..new_offset]
-                    .iter()
-                    .fold(0_u64, |acc, &b| (acc << 8) | u64::from(b));
-                self.current_ptr = new_offset;
-
-                let float_value = f64::from_bits(value);
-                visitor.visit_f64(float_value)
-            }
-            s => Err(MaxMindDBError::InvalidDatabaseError(format!(
-                "double of size {:?}",
-                s
-            ))),
-        }
+        let new_offset = self.current_ptr + size;
+        let value: [u8; 8] = self.buf[self.current_ptr..new_offset]
+            .try_into()
+            .map_err(|_| {
+                MaxMindDBError::InvalidDatabaseError(format!(
+                    "double of size {:?}",
+                    new_offset - self.current_ptr
+                ))
+            })?;
+        self.current_ptr = new_offset;
+        let float_value = f64::from_be_bytes(value);
+        visitor.visit_f64(float_value)
     }
 
     fn decode_uint64<V: Visitor<'de>>(
