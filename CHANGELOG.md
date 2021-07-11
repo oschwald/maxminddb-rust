@@ -1,5 +1,10 @@
 # Change Log #
 
+## 0.20.0 - 2021-07-11
+
+* Use `try_into` when decoding floating point values. Pull request
+  by Sebastian Mayr. GitHub #47.
+
 ## 0.19.0 - 2021-06-25
 
 * Switch from `memmap` to `memmap2`. Pull request by Gleb Pomykalov.
