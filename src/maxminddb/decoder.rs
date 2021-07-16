@@ -54,7 +54,7 @@ impl<'de> Decoder<'de> {
         }
     }
 
-    fn decode_any<V: Visitor<'de>>(&mut self, visitor: V) -> DecodeResult<V::Value> {
+    fn size_and_type(&mut self) -> (usize, u8) {
         let ctrl_byte = self.eat_byte();
         let mut type_num = ctrl_byte >> 5;
         // Extended type
@@ -62,6 +62,11 @@ impl<'de> Decoder<'de> {
             type_num = self.eat_byte() + 7;
         }
         let size = self.size_from_ctrl_byte(ctrl_byte, type_num);
+        (size, type_num)
+    }
+
+    fn decode_any<V: Visitor<'de>>(&mut self, visitor: V) -> DecodeResult<V::Value> {
+        let (size, type_num) = self.size_and_type();
 
         match type_num {
             1 => {
