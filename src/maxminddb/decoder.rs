@@ -13,6 +13,22 @@ fn to_usize(base: u8, bytes: &[u8]) -> usize {
         .fold(base as usize, |acc, &b| (acc << 8) | b as usize)
 }
 
+enum Value<'a, 'de> {
+    Any { prev_ptr: usize },
+    Bytes(&'de [u8]),
+    String(&'de str),
+    Bool(bool),
+    I32(i32),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+    U128(u128),
+    F64(f64),
+    F32(f32),
+    Map(MapAccessor<'a, 'de>),
+    Array(ArrayAccess<'a, 'de>),
+}
+
 #[derive(Debug)]
 pub struct Decoder<'de> {
     buf: &'de [u8],
@@ -66,46 +82,68 @@ impl<'de> Decoder<'de> {
     }
 
     fn decode_any<V: Visitor<'de>>(&mut self, visitor: V) -> DecodeResult<V::Value> {
+        match self.decode_any_value()? {
+            Value::Any { prev_ptr } => {
+                let res = self.decode_any(visitor);
+                self.current_ptr = prev_ptr;
+                res
+            }
+            Value::Bool(x) => visitor.visit_bool(x),
+            Value::Bytes(x) => visitor.visit_borrowed_bytes(x),
+            Value::String(x) => visitor.visit_borrowed_str(x),
+            Value::I32(x) => visitor.visit_i32(x),
+            Value::U16(x) => visitor.visit_u16(x),
+            Value::U32(x) => visitor.visit_u32(x),
+            Value::U64(x) => visitor.visit_u64(x),
+            Value::U128(x) => visitor.visit_u128(x),
+            Value::F64(x) => visitor.visit_f64(x),
+            Value::F32(x) => visitor.visit_f32(x),
+            Value::Map(x) => visitor.visit_map(x),
+            Value::Array(x) => visitor.visit_seq(x),
+        }
+    }
+
+    fn decode_any_value(&mut self) -> DecodeResult<Value<'_, 'de>> {
         let (size, type_num) = self.size_and_type();
 
-        match type_num {
+        Ok(match type_num {
             1 => {
                 let new_ptr = self.decode_pointer(size);
                 let prev_ptr = self.current_ptr;
                 self.current_ptr = new_ptr;
 
-                let res = self.decode_any(visitor);
-                self.current_ptr = prev_ptr;
-                res
+                Value::Any { prev_ptr }
             }
-            2 => visitor.visit_borrowed_str(self.decode_string(size)?),
-            3 => visitor.visit_f64(self.decode_double(size)?),
-            4 => visitor.visit_borrowed_bytes(self.decode_bytes(size)?),
-            5 => visitor.visit_u16(self.decode_uint16(size)?),
-            6 => visitor.visit_u32(self.decode_uint32(size)?),
-            7 => self.decode_map(visitor, size),
-            8 => visitor.visit_i32(self.decode_int(size)?),
-            9 => visitor.visit_u64(self.decode_uint64(size)?),
+            2 => Value::String(self.decode_string(size)?),
+            3 => Value::F64(self.decode_double(size)?),
+            4 => Value::Bytes(self.decode_bytes(size)?),
+            5 => Value::U16(self.decode_uint16(size)?),
+            6 => Value::U32(self.decode_uint32(size)?),
+            7 => self.decode_map(size),
+            8 => Value::I32(self.decode_int(size)?),
+            9 => Value::U64(self.decode_uint64(size)?),
             10 => {
                 serde_if_integer128! {
-                    return visitor.visit_u128(self.decode_uint128(size)?);
+                    return Ok(Value::U128(self.decode_uint128(size)?));
                 }
 
                 #[allow(unreachable_code)]
-                visitor.visit_borrowed_bytes(self.decode_bytes(size)?)
+                Value::Bytes(self.decode_bytes(size)?)
             }
-            11 => self.decode_array(visitor, size),
-            14 => visitor.visit_bool(self.decode_bool(size)?),
-            15 => visitor.visit_f32(self.decode_float(size)?),
-            u => Err(MaxMindDBError::InvalidDatabaseError(format!(
-                "Unknown data type: {:?}",
-                u
-            ))),
-        }
+            11 => self.decode_array(size),
+            14 => Value::Bool(self.decode_bool(size)?),
+            15 => Value::F32(self.decode_float(size)?),
+            u => {
+                return Err(MaxMindDBError::InvalidDatabaseError(format!(
+                    "Unknown data type: {:?}",
+                    u
+                )))
+            }
+        })
     }
 
-    fn decode_array<V: Visitor<'de>>(&mut self, visitor: V, size: usize) -> DecodeResult<V::Value> {
-        visitor.visit_seq(ArrayAccess {
+    fn decode_array(&mut self, size: usize) -> Value<'_, 'de> {
+        Value::Array(ArrayAccess {
             de: self,
             count: size,
         })
@@ -254,8 +292,8 @@ impl<'de> Decoder<'de> {
         }
     }
 
-    fn decode_map<V: Visitor<'de>>(&mut self, visitor: V, size: usize) -> DecodeResult<V::Value> {
-        visitor.visit_map(MapAccessor {
+    fn decode_map(&mut self, size: usize) -> Value<'_, 'de> {
+        Value::Map(MapAccessor {
             de: self,
             count: size * 2,
         })
