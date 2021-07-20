@@ -1,7 +1,6 @@
 use ipnetwork::IpNetwork;
 
 use maxminddb::geoip2;
-use maxminddb::Within;
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
@@ -20,10 +19,10 @@ fn main() -> Result<(), String> {
     } else {
         IpNetwork::V4(cidr.parse().unwrap())
     };
-    // TODO: is there a way to omit the _, it should be discernable from the reader
-    let within: Within<geoip2::City, _> = reader.within(ip_net).unwrap();
-    for item in within {
-        println!("item={:#?}", item);
+    // TODO: error handling
+    for i in reader.within(ip_net).unwrap() {
+        let (ip_net, info): (IpNetwork, geoip2::City) = (i.ip_net, i.info);
+        println!("ip_net={}, info={:#?}", ip_net, info);
     }
     Ok(())
 }
