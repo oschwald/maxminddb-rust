@@ -13,6 +13,22 @@ fn to_usize(base: u8, bytes: &[u8]) -> usize {
         .fold(base as usize, |acc, &b| (acc << 8) | b as usize)
 }
 
+enum Value<'a, 'de> {
+    Any { prev_ptr: usize },
+    Bytes(&'de [u8]),
+    String(&'de str),
+    Bool(bool),
+    I32(i32),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+    U128(u128),
+    F64(f64),
+    F32(f32),
+    Map(MapAccessor<'a, 'de>),
+    Array(ArrayAccess<'a, 'de>),
+}
+
 #[derive(Debug)]
 pub struct Decoder<'de> {
     buf: &'de [u8],
@@ -54,7 +70,7 @@ impl<'de> Decoder<'de> {
         }
     }
 
-    fn decode_any<V: Visitor<'de>>(&mut self, visitor: V) -> DecodeResult<V::Value> {
+    fn size_and_type(&mut self) -> (usize, u8) {
         let ctrl_byte = self.eat_byte();
         let mut type_num = ctrl_byte >> 5;
         // Extended type
@@ -62,53 +78,80 @@ impl<'de> Decoder<'de> {
             type_num = self.eat_byte() + 7;
         }
         let size = self.size_from_ctrl_byte(ctrl_byte, type_num);
+        (size, type_num)
+    }
 
-        match type_num {
+    fn decode_any<V: Visitor<'de>>(&mut self, visitor: V) -> DecodeResult<V::Value> {
+        match self.decode_any_value()? {
+            Value::Any { prev_ptr } => {
+                let res = self.decode_any(visitor);
+                self.current_ptr = prev_ptr;
+                res
+            }
+            Value::Bool(x) => visitor.visit_bool(x),
+            Value::Bytes(x) => visitor.visit_borrowed_bytes(x),
+            Value::String(x) => visitor.visit_borrowed_str(x),
+            Value::I32(x) => visitor.visit_i32(x),
+            Value::U16(x) => visitor.visit_u16(x),
+            Value::U32(x) => visitor.visit_u32(x),
+            Value::U64(x) => visitor.visit_u64(x),
+            Value::U128(x) => visitor.visit_u128(x),
+            Value::F64(x) => visitor.visit_f64(x),
+            Value::F32(x) => visitor.visit_f32(x),
+            Value::Map(x) => visitor.visit_map(x),
+            Value::Array(x) => visitor.visit_seq(x),
+        }
+    }
+
+    fn decode_any_value(&mut self) -> DecodeResult<Value<'_, 'de>> {
+        let (size, type_num) = self.size_and_type();
+
+        Ok(match type_num {
             1 => {
                 let new_ptr = self.decode_pointer(size);
                 let prev_ptr = self.current_ptr;
                 self.current_ptr = new_ptr;
 
-                let res = self.decode_any(visitor);
-                self.current_ptr = prev_ptr;
-                res
+                Value::Any { prev_ptr }
             }
-            2 => self.decode_string(visitor, size),
-            3 => self.decode_double(visitor, size),
-            4 => self.decode_bytes(visitor, size),
-            5 => self.decode_uint16(visitor, size),
-            6 => self.decode_uint32(visitor, size),
-            7 => self.decode_map(visitor, size),
-            8 => self.decode_int(visitor, size),
-            9 => self.decode_uint64(visitor, size),
+            2 => Value::String(self.decode_string(size)?),
+            3 => Value::F64(self.decode_double(size)?),
+            4 => Value::Bytes(self.decode_bytes(size)?),
+            5 => Value::U16(self.decode_uint16(size)?),
+            6 => Value::U32(self.decode_uint32(size)?),
+            7 => self.decode_map(size),
+            8 => Value::I32(self.decode_int(size)?),
+            9 => Value::U64(self.decode_uint64(size)?),
             10 => {
                 serde_if_integer128! {
-                    return self.decode_uint128(visitor, size);
+                    return Ok(Value::U128(self.decode_uint128(size)?));
                 }
 
                 #[allow(unreachable_code)]
-                self.decode_bytes(visitor, size)
+                Value::Bytes(self.decode_bytes(size)?)
             }
-            11 => self.decode_array(visitor, size),
-            14 => self.decode_bool(visitor, size),
-            15 => self.decode_float(visitor, size),
-            u => Err(MaxMindDBError::InvalidDatabaseError(format!(
-                "Unknown data type: {:?}",
-                u
-            ))),
-        }
+            11 => self.decode_array(size),
+            14 => Value::Bool(self.decode_bool(size)?),
+            15 => Value::F32(self.decode_float(size)?),
+            u => {
+                return Err(MaxMindDBError::InvalidDatabaseError(format!(
+                    "Unknown data type: {:?}",
+                    u
+                )))
+            }
+        })
     }
 
-    fn decode_array<V: Visitor<'de>>(&mut self, visitor: V, size: usize) -> DecodeResult<V::Value> {
-        visitor.visit_seq(ArrayAccess {
+    fn decode_array(&mut self, size: usize) -> Value<'_, 'de> {
+        Value::Array(ArrayAccess {
             de: self,
             count: size,
         })
     }
 
-    fn decode_bool<V: Visitor<'de>>(&mut self, visitor: V, size: usize) -> DecodeResult<V::Value> {
+    fn decode_bool(&mut self, size: usize) -> DecodeResult<bool> {
         match size {
-            0 | 1 => visitor.visit_bool(size != 0),
+            0 | 1 => Ok(size != 0),
             s => Err(MaxMindDBError::InvalidDatabaseError(format!(
                 "bool of size {:?}",
                 s
@@ -116,15 +159,15 @@ impl<'de> Decoder<'de> {
         }
     }
 
-    fn decode_bytes<V: Visitor<'de>>(&mut self, visitor: V, size: usize) -> DecodeResult<V::Value> {
+    fn decode_bytes(&mut self, size: usize) -> DecodeResult<&'de [u8]> {
         let new_offset = self.current_ptr + size;
         let u8_slice = &self.buf[self.current_ptr..new_offset];
         self.current_ptr = new_offset;
 
-        visitor.visit_borrowed_bytes(u8_slice)
+        Ok(u8_slice)
     }
 
-    fn decode_float<V: Visitor<'de>>(&mut self, visitor: V, size: usize) -> DecodeResult<V::Value> {
+    fn decode_float(&mut self, size: usize) -> DecodeResult<f32> {
         let new_offset = self.current_ptr + size;
         let value: [u8; 4] = self.buf[self.current_ptr..new_offset]
             .try_into()
@@ -136,14 +179,10 @@ impl<'de> Decoder<'de> {
             })?;
         self.current_ptr = new_offset;
         let float_value = f32::from_be_bytes(value);
-        visitor.visit_f32(float_value)
+        Ok(float_value)
     }
 
-    fn decode_double<V: Visitor<'de>>(
-        &mut self,
-        visitor: V,
-        size: usize,
-    ) -> DecodeResult<V::Value> {
+    fn decode_double(&mut self, size: usize) -> DecodeResult<f64> {
         let new_offset = self.current_ptr + size;
         let value: [u8; 8] = self.buf[self.current_ptr..new_offset]
             .try_into()
@@ -155,14 +194,10 @@ impl<'de> Decoder<'de> {
             })?;
         self.current_ptr = new_offset;
         let float_value = f64::from_be_bytes(value);
-        visitor.visit_f64(float_value)
+        Ok(float_value)
     }
 
-    fn decode_uint64<V: Visitor<'de>>(
-        &mut self,
-        visitor: V,
-        size: usize,
-    ) -> DecodeResult<V::Value> {
+    fn decode_uint64(&mut self, size: usize) -> DecodeResult<u64> {
         match size {
             s if s <= 8 => {
                 let new_offset = self.current_ptr + size;
@@ -171,7 +206,7 @@ impl<'de> Decoder<'de> {
                     .iter()
                     .fold(0_u64, |acc, &b| (acc << 8) | u64::from(b));
                 self.current_ptr = new_offset;
-                visitor.visit_u64(value)
+                Ok(value)
             }
             s => Err(MaxMindDBError::InvalidDatabaseError(format!(
                 "u64 of size {:?}",
@@ -181,11 +216,10 @@ impl<'de> Decoder<'de> {
     }
 
     serde_if_integer128! {
-        fn decode_uint128<V: Visitor<'de>>(
+        fn decode_uint128(
             &mut self,
-            visitor: V,
             size: usize,
-        ) -> DecodeResult<V::Value> {
+        ) -> DecodeResult<u128> {
             match size {
                 s if s <= 16 => {
                     let new_offset = self.current_ptr + size;
@@ -194,7 +228,7 @@ impl<'de> Decoder<'de> {
                         .iter()
                         .fold(0_u128, |acc, &b| (acc << 8) | u128::from(b));
                     self.current_ptr = new_offset;
-                    visitor.visit_u128(value)
+                    Ok(value)
                 }
                 s => Err(MaxMindDBError::InvalidDatabaseError(format!(
                     "u128 of size {:?}",
@@ -204,11 +238,7 @@ impl<'de> Decoder<'de> {
         }
     }
 
-    fn decode_uint32<V: Visitor<'de>>(
-        &mut self,
-        visitor: V,
-        size: usize,
-    ) -> DecodeResult<V::Value> {
+    fn decode_uint32(&mut self, size: usize) -> DecodeResult<u32> {
         match size {
             s if s <= 4 => {
                 let new_offset = self.current_ptr + size;
@@ -217,7 +247,7 @@ impl<'de> Decoder<'de> {
                     .iter()
                     .fold(0_u32, |acc, &b| (acc << 8) | u32::from(b));
                 self.current_ptr = new_offset;
-                visitor.visit_u32(value)
+                Ok(value)
             }
             s => Err(MaxMindDBError::InvalidDatabaseError(format!(
                 "u32 of size {:?}",
@@ -226,11 +256,7 @@ impl<'de> Decoder<'de> {
         }
     }
 
-    fn decode_uint16<V: Visitor<'de>>(
-        &mut self,
-        visitor: V,
-        size: usize,
-    ) -> DecodeResult<V::Value> {
+    fn decode_uint16(&mut self, size: usize) -> DecodeResult<u16> {
         match size {
             s if s <= 2 => {
                 let new_offset = self.current_ptr + size;
@@ -239,7 +265,7 @@ impl<'de> Decoder<'de> {
                     .iter()
                     .fold(0_u16, |acc, &b| (acc << 8) | u16::from(b));
                 self.current_ptr = new_offset;
-                visitor.visit_u16(value)
+                Ok(value)
             }
             s => Err(MaxMindDBError::InvalidDatabaseError(format!(
                 "u16 of size {:?}",
@@ -248,7 +274,7 @@ impl<'de> Decoder<'de> {
         }
     }
 
-    fn decode_int<V: Visitor<'de>>(&mut self, visitor: V, size: usize) -> DecodeResult<V::Value> {
+    fn decode_int(&mut self, size: usize) -> DecodeResult<i32> {
         match size {
             s if s <= 4 => {
                 let new_offset = self.current_ptr + size;
@@ -257,7 +283,7 @@ impl<'de> Decoder<'de> {
                     .iter()
                     .fold(0_i32, |acc, &b| (acc << 8) | i32::from(b));
                 self.current_ptr = new_offset;
-                visitor.visit_i32(value)
+                Ok(value)
             }
             s => Err(MaxMindDBError::InvalidDatabaseError(format!(
                 "int32 of size {:?}",
@@ -266,8 +292,8 @@ impl<'de> Decoder<'de> {
         }
     }
 
-    fn decode_map<V: Visitor<'de>>(&mut self, visitor: V, size: usize) -> DecodeResult<V::Value> {
-        visitor.visit_map(MapAccessor {
+    fn decode_map(&mut self, size: usize) -> Value<'_, 'de> {
+        Value::Map(MapAccessor {
             de: self,
             count: size * 2,
         })
@@ -291,11 +317,7 @@ impl<'de> Decoder<'de> {
     }
 
     #[cfg(feature = "unsafe-str-decode")]
-    fn decode_string<V: Visitor<'de>>(
-        &mut self,
-        visitor: V,
-        size: usize,
-    ) -> DecodeResult<V::Value> {
+    fn decode_string(&mut self, size: usize) -> DecodeResult<&'de str> {
         use std::str::from_utf8_unchecked;
 
         let new_offset: usize = self.current_ptr + size;
@@ -308,22 +330,18 @@ impl<'de> Decoder<'de> {
         // the `unsafe-str-decode` feature flag.
         // This can provide around 20% performance increase in the lookup benchmark.
         let v = unsafe { from_utf8_unchecked(bytes) };
-        visitor.visit_borrowed_str(v)
+        Ok(v)
     }
 
     #[cfg(not(feature = "unsafe-str-decode"))]
-    fn decode_string<V: Visitor<'de>>(
-        &mut self,
-        visitor: V,
-        size: usize,
-    ) -> DecodeResult<V::Value> {
+    fn decode_string(&mut self, size: usize) -> DecodeResult<&'de str> {
         use std::str::from_utf8;
 
         let new_offset: usize = self.current_ptr + size;
         let bytes = &self.buf[self.current_ptr..new_offset];
         self.current_ptr = new_offset;
         match from_utf8(bytes) {
-            Ok(v) => visitor.visit_borrowed_str(v),
+            Ok(v) => Ok(v),
             Err(_) => Err(MaxMindDBError::InvalidDatabaseError(
                 "error decoding string".to_owned(),
             )),
