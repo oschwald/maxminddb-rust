@@ -72,6 +72,7 @@ pub struct Metadata {
 }
 
 /// A reader for the MaxMind DB format. The lifetime `'data` is tied to the lifetime of the underlying buffer holding the contents of the database file.
+#[derive(Debug)]
 pub struct Reader<S: AsRef<[u8]>> {
     buf: S,
     pub metadata: Metadata,
@@ -116,6 +117,60 @@ struct WithinNode {
     node: usize,
     ip_bytes: Vec<u8>,
     prefix_len: usize,
+}
+
+#[derive(Debug)]
+pub struct Within<'de, S: AsRef<[u8]>, T: Deserialize<'de>> {
+    reader: &'de Reader<S>,
+    stack: Vec<WithinNode>,
+    // TODO: how do i prevent unused T warnings
+    _out: Option<T>,
+}
+
+impl<'de, S: AsRef<[u8]>, T: Deserialize<'de>> Iterator for Within<'de, S, T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // TODO: should we move any of these to member vars
+        let node_count = self.reader.metadata.node_count as usize;
+
+        while !self.stack.is_empty() {
+            let current = self.stack.pop().unwrap();
+//            println!("    current={:#?}", current);
+            let bit_count = current.ip_bytes.len() * 8;
+
+            if current.node > node_count {
+                // This is a data node, emit it and we're done (until the following next call)
+                let _net = bytes_and_prefix_to_net(&current.ip_bytes, current.prefix_len as u8);
+//                println!("      emit: current={:#?}, net={}", current, net);
+                // TODO: error handling
+                let rec = self.reader.resolve_data_pointer(current.node).unwrap();
+                let mut decoder = decoder::Decoder::new(&self.reader.buf.as_ref()[self.reader.pointer_base..], rec);
+                return Some(T::deserialize(&mut decoder).unwrap())
+            } else if current.node == node_count {
+                // Dead end, nothing to do
+            } else {
+                // In order traversal of our children
+                // right/1-bit
+                let mut right_ip_bytes = current.ip_bytes.clone();
+                right_ip_bytes[current.prefix_len >> 3] |= 1 << ((bit_count - current.prefix_len - 1) % 8);
+                self.stack.push(WithinNode {
+                    // TODO: error handling
+                    node: self.reader.read_node(current.node, 1).unwrap(),
+                    ip_bytes: right_ip_bytes,
+                    prefix_len: current.prefix_len + 1,
+                });
+                // left/0-bit
+                self.stack.push(WithinNode {
+                    // TODO: error handling
+                    node: self.reader.read_node(current.node, 0).unwrap(),
+                    ip_bytes: current.ip_bytes.clone(),
+                    prefix_len: current.prefix_len + 1,
+                });
+            }
+        }
+        None
+    }
 }
 
 impl<'de, S: AsRef<[u8]>> Reader<S> {
@@ -180,82 +235,60 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         T::deserialize(&mut decoder)
     }
 
-    pub fn within(&'de self, cidr: IpNetwork)
+    pub fn within<T>(&'de self, cidr: IpNetwork) -> Result<Within<S, T>, MaxMindDBError>
+    where
+        T: Deserialize<'de>,
     {
-        println!("within: cidr={}", cidr);
+//        println!("within: cidr={}", cidr);
         let ip_address = cidr.network();
-        println!("  ip_address={}", ip_address);
+//        println!("  ip_address={}", ip_address);
         let prefix_len =cidr.prefix() as usize;
-        println!("  prefix={}", prefix_len);
+//        println!("  prefix={}", prefix_len);
         let ip_bytes = ip_to_bytes(ip_address);
-        println!("  ip_bytes={:#?}", ip_bytes);
+//        println!("  ip_bytes={:#?}", ip_bytes);
         let bit_count = ip_bytes.len() * 8;
-        println!("  bit_count={:#?}", bit_count);
+//        println!("  bit_count={:#?}", bit_count);
 
         let mut node = self.start_node(bit_count);
-        println!("  node={}", node);
+//        println!("  node={}", node);
         let node_count = self.metadata.node_count as usize;
-        println!("  node_count={}", node_count);
+//        println!("  node_count={}", node_count);
+
+        let mut stack: Vec<WithinNode> = Vec::with_capacity(bit_count - prefix_len);
 
         // Traverse down the tree to the level that matches the cidr mark
         let mut i = 0_usize;
         while i < prefix_len {
-            println!("  i={}", i);
+//            println!("  i={}", i);
             let bit = 1 & (ip_bytes[i >> 3] >> 7 - (i % 8)) as usize;
-            println!("    bit={}", bit);
+//            println!("    bit={}", bit);
             // TODO: error handling
             node = self.read_node(node, bit).unwrap();
-            println!("    node={}", node);
+//            println!("    node={}", node);
             if node >= node_count {
-                // TODO: error handling
-                println!("bailing, nothing within");
-                return;
+                // We've hit a dead end before we exhausted our prefix
+                break
             }
 
             i += 1;
         }
 
-        // Ok, now anything that's below node in the tree is "within", start with the node we
-        // traversed to as our to be processed stack.
-        let mut stack: Vec<WithinNode> = Vec::with_capacity(bit_count - prefix_len);
-        stack.push(WithinNode { node, ip_bytes, prefix_len });
-        println!("  stack={:#?}", stack);
-
-        while !stack.is_empty() {
-            // We just checked is_empty so save to unwrap
-            let current = stack.pop().unwrap();
-            println!("    current={:#?}", current);
-            if current.node > node_count {
-                // This is a data node, emit it
-                let net = bytes_and_prefix_to_net(&current.ip_bytes, current.prefix_len as u8);
-                println!("      emit: current={:#?}, net={}", current, net);
-                // TODO: error handling
-                let rec = self.resolve_data_pointer(current.node).unwrap();
-                let mut decoder = decoder::Decoder::new(&self.buf.as_ref()[self.pointer_base..], rec);
-                let city: geoip2::City = geoip2::City::deserialize(&mut decoder).unwrap();
-                println!("      city={:#?}", city);
-            } else if current.node == node_count {
-                // Dead end, nothing to do
-            } else {
-                // In order traversal of our children
-                // right/1-bit
-                let mut right_ip_bytes = current.ip_bytes.clone();
-                right_ip_bytes[current.prefix_len >> 3] |= 1 << ((bit_count - current.prefix_len - 1) % 8);
-                stack.push(WithinNode {
-                    // TODO: error handling
-                    node: self.read_node(current.node, 1).unwrap(),
-                    ip_bytes: right_ip_bytes,
-                    prefix_len: current.prefix_len + 1,
-                });
-                // left/0-bit
-                stack.push(WithinNode {
-                    // TODO: error handling
-                    node: self.read_node(current.node, 0).unwrap(),
-                    ip_bytes: current.ip_bytes.clone(),
-                    prefix_len: current.prefix_len + 1,
-                });
-            }
+        if node < node_count {
+            // Ok, now anything that's below node in the tree is "within", start with the node we
+            // traversed to as our to be processed stack.
+            stack.push(WithinNode { node, ip_bytes, prefix_len });
         }
+        // else the stack will be empty and we'll be returning an iterator that visits nothing,
+        // which makes sense.
+
+//        println!("  stack={:#?}", stack);
+        let within: Within<S, T> = Within {
+            reader: self,
+            stack,
+            _out: None,
+        };
+
+        Ok(within)
     }
 
     fn find_address_in_tree(&self, ip_address: &[u8]) -> Result<usize, MaxMindDBError> {
