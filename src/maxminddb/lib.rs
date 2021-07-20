@@ -127,8 +127,14 @@ pub struct Within<'de, S: AsRef<[u8]>, T: Deserialize<'de>> {
     _out: Option<T>,
 }
 
+#[derive(Debug)]
+pub struct WithinItem<T> {
+    pub ip_net: IpNetwork,
+    pub info: T
+}
+
 impl<'de, S: AsRef<[u8]>, T: Deserialize<'de>> Iterator for Within<'de, S, T> {
-    type Item = T;
+    type Item = WithinItem<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         // TODO: should we move any of these to member vars
@@ -141,12 +147,15 @@ impl<'de, S: AsRef<[u8]>, T: Deserialize<'de>> Iterator for Within<'de, S, T> {
 
             if current.node > node_count {
                 // This is a data node, emit it and we're done (until the following next call)
-                let _net = bytes_and_prefix_to_net(&current.ip_bytes, current.prefix_len as u8);
+                let ip_net = bytes_and_prefix_to_net(&current.ip_bytes, current.prefix_len as u8);
 //                println!("      emit: current={:#?}, net={}", current, net);
                 // TODO: error handling
                 let rec = self.reader.resolve_data_pointer(current.node).unwrap();
                 let mut decoder = decoder::Decoder::new(&self.reader.buf.as_ref()[self.reader.pointer_base..], rec);
-                return Some(T::deserialize(&mut decoder).unwrap())
+                return Some(WithinItem {
+                    ip_net,
+                    info: T::deserialize(&mut decoder).unwrap(),
+                })
             } else if current.node == node_count {
                 // Dead end, nothing to do
             } else {
