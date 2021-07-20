@@ -3,9 +3,10 @@
 use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
 use std::io;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::Path;
 
+use ipnetwork::IpNetwork;
 use serde::{de, Deserialize};
 
 #[cfg(feature = "mmap")]
@@ -110,6 +111,13 @@ impl<'de> Reader<Vec<u8>> {
     }
 }
 
+#[derive(Debug)]
+struct WithinNode {
+    node: usize,
+    ip_bytes: Vec<u8>,
+    prefix_len: usize,
+}
+
 impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// Open a MaxMind DB database from anything that implements AsRef<[u8]>
     ///
@@ -170,6 +178,84 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let mut decoder = decoder::Decoder::new(&self.buf.as_ref()[self.pointer_base..], rec);
 
         T::deserialize(&mut decoder)
+    }
+
+    pub fn within(&'de self, cidr: IpNetwork)
+    {
+        println!("within: cidr={}", cidr);
+        let ip_address = cidr.network();
+        println!("  ip_address={}", ip_address);
+        let prefix_len =cidr.prefix() as usize;
+        println!("  prefix={}", prefix_len);
+        let ip_bytes = ip_to_bytes(ip_address);
+        println!("  ip_bytes={:#?}", ip_bytes);
+        let bit_count = ip_bytes.len() * 8;
+        println!("  bit_count={:#?}", bit_count);
+
+        let mut node = self.start_node(bit_count);
+        println!("  node={}", node);
+        let node_count = self.metadata.node_count as usize;
+        println!("  node_count={}", node_count);
+
+        // Traverse down the tree to the level that matches the cidr mark
+        let mut i = 0_usize;
+        while i < prefix_len {
+            println!("  i={}", i);
+            let bit = 1 & (ip_bytes[i >> 3] >> 7 - (i % 8)) as usize;
+            println!("    bit={}", bit);
+            // TODO: error handling
+            node = self.read_node(node, bit).unwrap();
+            println!("    node={}", node);
+            if node >= node_count {
+                // TODO: error handling
+                println!("bailing, nothing within");
+                return;
+            }
+
+            i += 1;
+        }
+
+        // Ok, now anything that's below node in the tree is "within", start with the node we
+        // traversed to as our to be processed stack.
+        let mut stack: Vec<WithinNode> = Vec::with_capacity(bit_count - prefix_len);
+        stack.push(WithinNode { node, ip_bytes, prefix_len });
+        println!("  stack={:#?}", stack);
+
+        while !stack.is_empty() {
+            // We just checked is_empty so save to unwrap
+            let current = stack.pop().unwrap();
+            println!("    current={:#?}", current);
+            if current.node > node_count {
+                // This is a data node, emit it
+                let net = bytes_and_prefix_to_net(&current.ip_bytes, current.prefix_len as u8);
+                println!("      emit: current={:#?}, net={}", current, net);
+                // TODO: error handling
+                let rec = self.resolve_data_pointer(current.node).unwrap();
+                let mut decoder = decoder::Decoder::new(&self.buf.as_ref()[self.pointer_base..], rec);
+                let city: geoip2::City = geoip2::City::deserialize(&mut decoder).unwrap();
+                println!("      city={:#?}", city);
+            } else if current.node == node_count {
+                // Dead end, nothing to do
+            } else {
+                // In order traversal of our children
+                // right/1-bit
+                let mut right_ip_bytes = current.ip_bytes.clone();
+                right_ip_bytes[current.prefix_len >> 3] |= 1 << ((bit_count - current.prefix_len - 1) % 8);
+                stack.push(WithinNode {
+                    // TODO: error handling
+                    node: self.read_node(current.node, 1).unwrap(),
+                    ip_bytes: right_ip_bytes,
+                    prefix_len: current.prefix_len + 1,
+                });
+                // left/0-bit
+                stack.push(WithinNode {
+                    // TODO: error handling
+                    node: self.read_node(current.node, 0).unwrap(),
+                    ip_bytes: current.ip_bytes.clone(),
+                    prefix_len: current.prefix_len + 1,
+                });
+            }
+        }
     }
 
     fn find_address_in_tree(&self, ip_address: &[u8]) -> Result<usize, MaxMindDBError> {
@@ -282,6 +368,27 @@ fn ip_to_bytes(address: IpAddr) -> Vec<u8> {
         IpAddr::V4(a) => a.octets().to_vec(),
         IpAddr::V6(a) => a.octets().to_vec(),
     }
+}
+
+fn bytes_and_prefix_to_net(bytes: &Vec<u8>, prefix: u8) -> IpNetwork {
+    let ip = match bytes.len() {
+        4 => IpAddr::V4(Ipv4Addr::new(bytes[0], bytes[1], bytes[2], bytes[3])),
+        16 => {
+            let a = (bytes[0] as u16) << 8 | bytes[1] as u16;
+            let b = (bytes[2] as u16) << 8 | bytes[3] as u16;
+            let c = (bytes[4] as u16) << 8 | bytes[5] as u16;
+            let d = (bytes[6] as u16) << 8 | bytes[7] as u16;
+            let e = (bytes[8] as u16) << 8 | bytes[9] as u16;
+            let f = (bytes[10] as u16) << 8 | bytes[11] as u16;
+            let g = (bytes[12] as u16) << 8 | bytes[13] as u16;
+            let h = (bytes[14] as u16) << 8 | bytes[15] as u16;
+            IpAddr::V6(Ipv6Addr::new(a, b, c, d, e, f, g, h))
+        },
+        // TODO: error handling
+        _ => IpAddr::V4(Ipv4Addr::new(0x00, 0x00, 0x00, 0x00)),
+    };
+    // TODO: Error handling
+    IpNetwork::new(ip, prefix).unwrap()
 }
 
 fn find_metadata_start(buf: &[u8]) -> Result<usize, MaxMindDBError> {
