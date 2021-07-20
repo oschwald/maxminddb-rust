@@ -120,7 +120,7 @@ struct WithinNode {
 }
 
 #[derive(Debug)]
-pub struct Within<'de, S: AsRef<[u8]>, T: Deserialize<'de>> {
+pub struct Within<'de, T: Deserialize<'de>, S: AsRef<[u8]>> {
     reader: &'de Reader<S>,
     stack: Vec<WithinNode>,
     // TODO: how do i prevent unused T warnings
@@ -133,7 +133,7 @@ pub struct WithinItem<T> {
     pub info: T
 }
 
-impl<'de, S: AsRef<[u8]>, T: Deserialize<'de>> Iterator for Within<'de, S, T> {
+impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
     type Item = WithinItem<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -244,7 +244,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         T::deserialize(&mut decoder)
     }
 
-    pub fn within<T>(&'de self, cidr: IpNetwork) -> Result<Within<S, T>, MaxMindDBError>
+    pub fn within<T>(&'de self, cidr: IpNetwork) -> Result<Within<T, S>, MaxMindDBError>
     where
         T: Deserialize<'de>,
     {
@@ -291,7 +291,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         // which makes sense.
 
 //        println!("  stack={:#?}", stack);
-        let within: Within<S, T> = Within {
+        let within: Within<T, S> = Within {
             reader: self,
             stack,
             _out: None,

@@ -20,7 +20,8 @@ fn main() -> Result<(), String> {
     } else {
         IpNetwork::V4(cidr.parse().unwrap())
     };
-    let within: Within<_, geoip2::City> = reader.within(ip_net).unwrap();
+    // TODO: is there a way to omit the _, it should be discernable from the reader
+    let within: Within<geoip2::City, _> = reader.within(ip_net).unwrap();
     for item in within {
         println!("item={:#?}", item);
     }
