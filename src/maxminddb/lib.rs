@@ -1,8 +1,8 @@
-#![deny(trivial_casts, trivial_numeric_casts, unused_import_braces)]
 
 use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
 use std::io;
+use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::Path;
 
@@ -123,8 +123,7 @@ struct WithinNode {
 pub struct Within<'de, T: Deserialize<'de>, S: AsRef<[u8]>> {
     reader: &'de Reader<S>,
     stack: Vec<WithinNode>,
-    // TODO: how do i prevent unused T warnings
-    _out: Option<T>,
+    phantom: PhantomData<&'de T>,
 }
 
 #[derive(Debug)]
@@ -149,7 +148,7 @@ impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
                 // This is a data node, emit it and we're done (until the following next call)
                 let ip_net = bytes_and_prefix_to_net(&current.ip_bytes, current.prefix_len as u8);
 //                println!("      emit: current={:#?}, net={}", current, net);
-                // TODO: error handling
+                // TODO: error handling (should this be a method?)
                 let rec = self.reader.resolve_data_pointer(current.node).unwrap();
                 let mut decoder = decoder::Decoder::new(&self.reader.buf.as_ref()[self.reader.pointer_base..], rec);
                 return Some(WithinItem {
@@ -294,7 +293,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let within: Within<T, S> = Within {
             reader: self,
             stack,
-            _out: None,
+            phantom: PhantomData,
         };
 
         Ok(within)
