@@ -19,8 +19,7 @@ fn main() -> Result<(), String> {
     } else {
         IpNetwork::V4(cidr.parse().unwrap())
     };
-    // TODO: error handling
-    for i in reader.within(ip_net).unwrap() {
+    for i in reader.within(ip_net).map_err(|e| e.to_string())? {
         let (ip_net, info): (IpNetwork, geoip2::City) = (i.ip_net, i.info);
         println!("ip_net={}, info={:#?}", ip_net, info);
     }
