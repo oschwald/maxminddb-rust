@@ -1,4 +1,3 @@
-
 use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
 use std::io;
@@ -130,37 +129,40 @@ pub struct Within<'de, T: Deserialize<'de>, S: AsRef<[u8]>> {
 #[derive(Debug)]
 pub struct WithinItem<T> {
     pub ip_net: IpNetwork,
-    pub info: T
+    pub info: T,
 }
 
 impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
     type Item = WithinItem<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
-
         while !self.stack.is_empty() {
             let current = self.stack.pop().unwrap();
-//            println!("    current={:#?}", current);
+            //println!("    current={:#?}", current);
             let bit_count = current.ip_bytes.len() * 8;
 
             if current.node > self.node_count {
                 // This is a data node, emit it and we're done (until the following next call)
                 let ip_net = bytes_and_prefix_to_net(&current.ip_bytes, current.prefix_len as u8);
-//                println!("      emit: current={:#?}, net={}", current, net);
+                //println!("      emit: current={:#?}, net={}", current, net);
                 // TODO: error handling (should this be a method?)
                 let rec = self.reader.resolve_data_pointer(current.node).unwrap();
-                let mut decoder = decoder::Decoder::new(&self.reader.buf.as_ref()[self.reader.pointer_base..], rec);
+                let mut decoder = decoder::Decoder::new(
+                    &self.reader.buf.as_ref()[self.reader.pointer_base..],
+                    rec,
+                );
                 return Some(WithinItem {
                     ip_net,
                     info: T::deserialize(&mut decoder).unwrap(),
-                })
+                });
             } else if current.node == self.node_count {
                 // Dead end, nothing to do
             } else {
                 // In order traversal of our children
                 // right/1-bit
                 let mut right_ip_bytes = current.ip_bytes.clone();
-                right_ip_bytes[current.prefix_len >> 3] |= 1 << ((bit_count - current.prefix_len - 1) % 8);
+                right_ip_bytes[current.prefix_len >> 3] |=
+                    1 << ((bit_count - current.prefix_len - 1) % 8);
                 self.stack.push(WithinNode {
                     // TODO: error handling
                     node: self.reader.read_node(current.node, 1).unwrap(),
@@ -246,35 +248,35 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     where
         T: Deserialize<'de>,
     {
-//        println!("within: cidr={}", cidr);
+        //println!("within: cidr={}", cidr);
         let ip_address = cidr.network();
-//        println!("  ip_address={}", ip_address);
-        let prefix_len =cidr.prefix() as usize;
-//        println!("  prefix={}", prefix_len);
+        //println!("  ip_address={}", ip_address);
+        let prefix_len = cidr.prefix() as usize;
+        //println!("  prefix={}", prefix_len);
         let ip_bytes = ip_to_bytes(ip_address);
-//        println!("  ip_bytes={:#?}", ip_bytes);
+        //println!("  ip_bytes={:#?}", ip_bytes);
         let bit_count = ip_bytes.len() * 8;
-//        println!("  bit_count={:#?}", bit_count);
+        //println!("  bit_count={:#?}", bit_count);
 
         let mut node = self.start_node(bit_count);
-//        println!("  node={}", node);
+        //println!("  node={}", node);
         let node_count = self.metadata.node_count as usize;
-//        println!("  node_count={}", node_count);
+        //println!("  node_count={}", node_count);
 
         let mut stack: Vec<WithinNode> = Vec::with_capacity(bit_count - prefix_len);
 
         // Traverse down the tree to the level that matches the cidr mark
         let mut i = 0_usize;
         while i < prefix_len {
-//            println!("  i={}", i);
+            //println!("  i={}", i);
             let bit = 1 & (ip_bytes[i >> 3] >> 7 - (i % 8)) as usize;
-//            println!("    bit={}", bit);
+            //println!("    bit={}", bit);
             // TODO: error handling
             node = self.read_node(node, bit).unwrap();
-//            println!("    node={}", node);
+            //println!("    node={}", node);
             if node >= node_count {
                 // We've hit a dead end before we exhausted our prefix
-                break
+                break;
             }
 
             i += 1;
@@ -283,12 +285,16 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         if node < node_count {
             // Ok, now anything that's below node in the tree is "within", start with the node we
             // traversed to as our to be processed stack.
-            stack.push(WithinNode { node, ip_bytes, prefix_len });
+            stack.push(WithinNode {
+                node,
+                ip_bytes,
+                prefix_len,
+            });
         }
         // else the stack will be empty and we'll be returning an iterator that visits nothing,
         // which makes sense.
 
-//        println!("  stack={:#?}", stack);
+        //println!("  stack={:#?}", stack);
         let within: Within<T, S> = Within {
             reader: self,
             node_count,
@@ -424,7 +430,7 @@ fn bytes_and_prefix_to_net(bytes: &Vec<u8>, prefix: u8) -> IpNetwork {
             let g = (bytes[12] as u16) << 8 | bytes[13] as u16;
             let h = (bytes[14] as u16) << 8 | bytes[15] as u16;
             IpAddr::V6(Ipv6Addr::new(a, b, c, d, e, f, g, h))
-        },
+        }
         // TODO: error handling
         _ => IpAddr::V4(Ipv4Addr::new(0x00, 0x00, 0x00, 0x00)),
     };
