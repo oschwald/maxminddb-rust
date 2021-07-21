@@ -22,6 +22,7 @@ pub enum MaxMindDBError {
     IoError(String),
     MapError(String),
     DecodingError(String),
+    InvalidNetworkError(String),
 }
 
 impl From<io::Error> for MaxMindDBError {
@@ -43,6 +44,9 @@ impl Display for MaxMindDBError {
             MaxMindDBError::IoError(msg) => write!(fmt, "IoError: {}", msg)?,
             MaxMindDBError::MapError(msg) => write!(fmt, "MapError: {}", msg)?,
             MaxMindDBError::DecodingError(msg) => write!(fmt, "DecodingError: {}", msg)?,
+            MaxMindDBError::InvalidNetworkError(msg) => {
+                write!(fmt, "InvalidNetworkError: {}", msg)?
+            }
         }
         Ok(())
     }
@@ -143,7 +147,9 @@ impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
 
             if current.node > self.node_count {
                 // This is a data node, emit it and we're done (until the following next call)
-                let ip_net = bytes_and_prefix_to_net(&current.ip_bytes, current.prefix_len as u8);
+                // TODO: error handling
+                let ip_net =
+                    bytes_and_prefix_to_net(&current.ip_bytes, current.prefix_len as u8).unwrap();
                 //println!("      emit: current={:#?}, net={}", current, net);
                 // TODO: error handling (should this be a method?)
                 let rec = self.reader.resolve_data_pointer(current.node).unwrap();
@@ -271,8 +277,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
             //println!("  i={}", i);
             let bit = 1 & (ip_bytes[i >> 3] >> 7 - (i % 8)) as usize;
             //println!("    bit={}", bit);
-            // TODO: error handling
-            node = self.read_node(node, bit).unwrap();
+            node = self.read_node(node, bit)?;
             //println!("    node={}", node);
             if node >= node_count {
                 // We've hit a dead end before we exhausted our prefix
@@ -417,7 +422,7 @@ fn ip_to_bytes(address: IpAddr) -> Vec<u8> {
     }
 }
 
-fn bytes_and_prefix_to_net(bytes: &Vec<u8>, prefix: u8) -> IpNetwork {
+fn bytes_and_prefix_to_net(bytes: &Vec<u8>, prefix: u8) -> Result<IpNetwork, MaxMindDBError> {
     let ip = match bytes.len() {
         4 => IpAddr::V4(Ipv4Addr::new(bytes[0], bytes[1], bytes[2], bytes[3])),
         16 => {
@@ -431,11 +436,14 @@ fn bytes_and_prefix_to_net(bytes: &Vec<u8>, prefix: u8) -> IpNetwork {
             let h = (bytes[14] as u16) << 8 | bytes[15] as u16;
             IpAddr::V6(Ipv6Addr::new(a, b, c, d, e, f, g, h))
         }
-        // TODO: error handling
-        _ => IpAddr::V4(Ipv4Addr::new(0x00, 0x00, 0x00, 0x00)),
+        // This should never happen
+        _ => {
+            return Err(MaxMindDBError::InvalidNetworkError(
+                "invalid address".to_owned(),
+            ))
+        }
     };
-    // TODO: Error handling
-    IpNetwork::new(ip, prefix).unwrap()
+    IpNetwork::new(ip, prefix).map_err(|e| MaxMindDBError::InvalidNetworkError(e.to_string()))
 }
 
 fn find_metadata_start(buf: &[u8]) -> Result<usize, MaxMindDBError> {
