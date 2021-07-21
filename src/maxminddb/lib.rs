@@ -122,6 +122,7 @@ struct WithinNode {
 #[derive(Debug)]
 pub struct Within<'de, T: Deserialize<'de>, S: AsRef<[u8]>> {
     reader: &'de Reader<S>,
+    node_count: usize,
     stack: Vec<WithinNode>,
     phantom: PhantomData<&'de T>,
 }
@@ -136,15 +137,13 @@ impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
     type Item = WithinItem<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // TODO: should we move any of these to member vars
-        let node_count = self.reader.metadata.node_count as usize;
 
         while !self.stack.is_empty() {
             let current = self.stack.pop().unwrap();
 //            println!("    current={:#?}", current);
             let bit_count = current.ip_bytes.len() * 8;
 
-            if current.node > node_count {
+            if current.node > self.node_count {
                 // This is a data node, emit it and we're done (until the following next call)
                 let ip_net = bytes_and_prefix_to_net(&current.ip_bytes, current.prefix_len as u8);
 //                println!("      emit: current={:#?}, net={}", current, net);
@@ -155,7 +154,7 @@ impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
                     ip_net,
                     info: T::deserialize(&mut decoder).unwrap(),
                 })
-            } else if current.node == node_count {
+            } else if current.node == self.node_count {
                 // Dead end, nothing to do
             } else {
                 // In order traversal of our children
@@ -292,6 +291,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
 //        println!("  stack={:#?}", stack);
         let within: Within<T, S> = Within {
             reader: self,
+            node_count,
             stack,
             phantom: PhantomData,
         };
