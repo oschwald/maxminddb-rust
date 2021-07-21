@@ -1,3 +1,5 @@
+#![deny(trivial_casts, trivial_numeric_casts, unused_import_braces)]
+
 use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
 use std::io;
@@ -153,6 +155,7 @@ impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
                         Err(e) => return Some(Err(e)),
                     };
                 //println!("      emit: current={:#?}, net={}", current, net);
+                // TODO: should this block become a helper method on reader?
                 let rec = match self.reader.resolve_data_pointer(current.node) {
                     Ok(rec) => rec,
                     Err(e) => return Some(Err(e)),
