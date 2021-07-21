@@ -137,7 +137,7 @@ pub struct WithinItem<T> {
 }
 
 impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
-    type Item = WithinItem<T>;
+    type Item = Result<WithinItem<T>, MaxMindDBError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         while !self.stack.is_empty() {
@@ -147,20 +147,24 @@ impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
 
             if current.node > self.node_count {
                 // This is a data node, emit it and we're done (until the following next call)
-                // TODO: error handling
                 let ip_net =
-                    bytes_and_prefix_to_net(&current.ip_bytes, current.prefix_len as u8).unwrap();
+                    match bytes_and_prefix_to_net(&current.ip_bytes, current.prefix_len as u8) {
+                        Ok(ip_net) => ip_net,
+                        Err(e) => return Some(Err(e)),
+                    };
                 //println!("      emit: current={:#?}, net={}", current, net);
-                // TODO: error handling (should this be a method?)
-                let rec = self.reader.resolve_data_pointer(current.node).unwrap();
+                let rec = match self.reader.resolve_data_pointer(current.node) {
+                    Ok(rec) => rec,
+                    Err(e) => return Some(Err(e)),
+                };
                 let mut decoder = decoder::Decoder::new(
                     &self.reader.buf.as_ref()[self.reader.pointer_base..],
                     rec,
                 );
-                return Some(WithinItem {
+                return Some(Ok(WithinItem {
                     ip_net,
                     info: T::deserialize(&mut decoder).unwrap(),
-                });
+                }));
             } else if current.node == self.node_count {
                 // Dead end, nothing to do
             } else {
@@ -169,16 +173,22 @@ impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
                 let mut right_ip_bytes = current.ip_bytes.clone();
                 right_ip_bytes[current.prefix_len >> 3] |=
                     1 << ((bit_count - current.prefix_len - 1) % 8);
+                let node = match self.reader.read_node(current.node, 1) {
+                    Ok(node) => node,
+                    Err(e) => return Some(Err(e)),
+                };
                 self.stack.push(WithinNode {
-                    // TODO: error handling
-                    node: self.reader.read_node(current.node, 1).unwrap(),
+                    node,
                     ip_bytes: right_ip_bytes,
                     prefix_len: current.prefix_len + 1,
                 });
                 // left/0-bit
+                let node = match self.reader.read_node(current.node, 0) {
+                    Ok(node) => node,
+                    Err(e) => return Some(Err(e)),
+                };
                 self.stack.push(WithinNode {
-                    // TODO: error handling
-                    node: self.reader.read_node(current.node, 0).unwrap(),
+                    node,
                     ip_bytes: current.ip_bytes.clone(),
                     prefix_len: current.prefix_len + 1,
                 });
