@@ -1,5 +1,5 @@
 use ipnetwork::IpNetwork;
-use maxminddb::{Within, geoip2};
+use maxminddb::{geoip2, Within};
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);

@@ -76,47 +76,6 @@ pub struct Metadata {
     pub record_size: u16,
 }
 
-/// A reader for the MaxMind DB format. The lifetime `'data` is tied to the lifetime of the underlying buffer holding the contents of the database file.
-#[derive(Debug)]
-pub struct Reader<S: AsRef<[u8]>> {
-    buf: S,
-    pub metadata: Metadata,
-    ipv4_start: usize,
-    pointer_base: usize,
-}
-
-#[cfg(feature = "mmap")]
-impl<'de> Reader<Mmap> {
-    /// Open a MaxMind DB database file by memory mapping it.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// let reader = maxminddb::Reader::open_mmap("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
-    /// ```
-    pub fn open_mmap<P: AsRef<Path>>(database: P) -> Result<Reader<Mmap>, MaxMindDBError> {
-        let file_read = File::open(database)?;
-        let mmap = unsafe { MmapOptions::new().map(&file_read) }?;
-        Reader::from_source(mmap)
-    }
-}
-
-impl<'de> Reader<Vec<u8>> {
-    /// Open a MaxMind DB database file by loading it into memory.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// let reader = maxminddb::Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
-    /// ```
-    pub fn open_readfile<P: AsRef<Path>>(database: P) -> Result<Reader<Vec<u8>>, MaxMindDBError> {
-        use std::fs;
-
-        let buf: Vec<u8> = fs::read(&database)?;
-        Reader::from_source(buf)
-    }
-}
-
 #[derive(Debug)]
 struct WithinNode {
     node: usize,
@@ -201,6 +160,47 @@ impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
     }
 }
 
+/// A reader for the MaxMind DB format. The lifetime `'data` is tied to the lifetime of the underlying buffer holding the contents of the database file.
+#[derive(Debug)]
+pub struct Reader<S: AsRef<[u8]>> {
+    buf: S,
+    pub metadata: Metadata,
+    ipv4_start: usize,
+    pointer_base: usize,
+}
+
+#[cfg(feature = "mmap")]
+impl<'de> Reader<Mmap> {
+    /// Open a MaxMind DB database file by memory mapping it.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let reader = maxminddb::Reader::open_mmap("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    /// ```
+    pub fn open_mmap<P: AsRef<Path>>(database: P) -> Result<Reader<Mmap>, MaxMindDBError> {
+        let file_read = File::open(database)?;
+        let mmap = unsafe { MmapOptions::new().map(&file_read) }?;
+        Reader::from_source(mmap)
+    }
+}
+
+impl<'de> Reader<Vec<u8>> {
+    /// Open a MaxMind DB database file by loading it into memory.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let reader = maxminddb::Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    /// ```
+    pub fn open_readfile<P: AsRef<Path>>(database: P) -> Result<Reader<Vec<u8>>, MaxMindDBError> {
+        use std::fs;
+
+        let buf: Vec<u8> = fs::read(&database)?;
+        Reader::from_source(buf)
+    }
+}
+
 impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// Open a MaxMind DB database from anything that implements AsRef<[u8]>
     ///
@@ -263,6 +263,21 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         T::deserialize(&mut decoder)
     }
 
+    /// Iterate over blocks of IP networks in the opened MaxMind DB
+    ///
+    /// Example:
+    ///
+    /// ```
+    /// use ipnetwork::IpNetwork;
+    /// use maxminddb::{geoip2, Within};
+    ///
+    /// let ip_net = IpNetwork::V6("::/0");
+    /// let mut iter: Within<geoip2::City, _> = reader.within(ip_net).map_err(|e| e.to_string())?;
+    /// while let Some(next) = iter.next() {
+    ///     let item = next.map_err(|e| e.to_string())?;
+    ///     println!("ip_net={}, city={:?}", item.ip_net, city)
+    /// }
+    /// ```
     pub fn within<T>(&'de self, cidr: IpNetwork) -> Result<Within<T, S>, MaxMindDBError>
     where
         T: Deserialize<'de>,
