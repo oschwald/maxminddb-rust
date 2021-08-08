@@ -1,6 +1,5 @@
 use ipnetwork::IpNetwork;
-
-use maxminddb::geoip2;
+use maxminddb::{Within, geoip2};
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
@@ -11,7 +10,7 @@ fn main() -> Result<(), String> {
     .unwrap();
     let cidr: String = args
         .next()
-        .ok_or("Second argument must be the IP address and mask in CIDR notation")?
+        .ok_or("Second argument must be the IP address and mask in CIDR notation, e.g. 0.0.0.0/0 or ::/0")?
         .parse()
         .unwrap();
     let ip_net = if cidr.contains(":") {
@@ -19,10 +18,27 @@ fn main() -> Result<(), String> {
     } else {
         IpNetwork::V4(cidr.parse().unwrap())
     };
-    for r in reader.within(ip_net).map_err(|e| e.to_string())? {
-        let i = r.map_err(|e| e.to_string())?;
-        let (ip_net, info): (IpNetwork, geoip2::City) = (i.ip_net, i.info);
-        println!("ip_net={}, info={:#?}", ip_net, info);
+
+    let mut n = 0;
+    let mut iter: Within<geoip2::City, _> = reader.within(ip_net).map_err(|e| e.to_string())?;
+    while let Some(next) = iter.next() {
+        let item = next.map_err(|e| e.to_string())?;
+        let continent = item.info.continent.and_then(|c| c.code).unwrap_or("");
+        let country = item.info.country.and_then(|c| c.iso_code).unwrap_or("");
+        let city = match item.info.city.and_then(|c| c.names) {
+            Some(names) => names.get("en").unwrap_or(&""),
+            None => "",
+        };
+        if !city.is_empty() {
+            println!("{} {}-{}-{}", item.ip_net, continent, country, city);
+        } else if !country.is_empty() {
+            println!("{} {}-{}", item.ip_net, continent, country);
+        } else if !continent.is_empty() {
+            println!("{} {}", item.ip_net, continent);
+        }
+        n += 1;
     }
+    eprintln!("processed {} items", n);
+
     Ok(())
 }
