@@ -271,11 +271,13 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// use ipnetwork::IpNetwork;
     /// use maxminddb::{geoip2, Within};
     ///
-    /// let ip_net = IpNetwork::V6("::/0");
-    /// let mut iter: Within<geoip2::City, _> = reader.within(ip_net).map_err(|e| e.to_string())?;
+    /// let reader = maxminddb::Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    ///
+    /// let ip_net = IpNetwork::V6("::/0".parse().unwrap());
+    /// let mut iter: Within<geoip2::City, _> = reader.within(ip_net).unwrap();
     /// while let Some(next) = iter.next() {
-    ///     let item = next.map_err(|e| e.to_string())?;
-    ///     println!("ip_net={}, city={:?}", item.ip_net, city)
+    ///     let item = next.unwrap();
+    ///     println!("ip_net={}, city={:?}", item.ip_net, item.info);
     /// }
     /// ```
     pub fn within<T>(&'de self, cidr: IpNetwork) -> Result<Within<T, S>, MaxMindDBError>
