@@ -103,7 +103,6 @@ impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
     fn next(&mut self) -> Option<Self::Item> {
         while !self.stack.is_empty() {
             let current = self.stack.pop().unwrap();
-            //println!("    current={:#?}", current);
             let bit_count = current.ip_bytes.len() * 8;
 
             if current.node > self.node_count {
@@ -113,7 +112,6 @@ impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
                         Ok(ip_net) => ip_net,
                         Err(e) => return Some(Err(e)),
                     };
-                //println!("      emit: current={:#?}, net={}", current, net);
                 // TODO: should this block become a helper method on reader?
                 let rec = match self.reader.resolve_data_pointer(current.node) {
                     Ok(rec) => rec,
@@ -284,31 +282,21 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     where
         T: Deserialize<'de>,
     {
-        //println!("within: cidr={}", cidr);
         let ip_address = cidr.network();
-        //println!("  ip_address={}", ip_address);
         let prefix_len = cidr.prefix() as usize;
-        //println!("  prefix={}", prefix_len);
         let ip_bytes = ip_to_bytes(ip_address);
-        //println!("  ip_bytes={:#?}", ip_bytes);
         let bit_count = ip_bytes.len() * 8;
-        //println!("  bit_count={:#?}", bit_count);
 
         let mut node = self.start_node(bit_count);
-        //println!("  node={}", node);
         let node_count = self.metadata.node_count as usize;
-        //println!("  node_count={}", node_count);
 
         let mut stack: Vec<WithinNode> = Vec::with_capacity(bit_count - prefix_len);
 
         // Traverse down the tree to the level that matches the cidr mark
         let mut i = 0_usize;
         while i < prefix_len {
-            //println!("  i={}", i);
             let bit = 1 & (ip_bytes[i >> 3] >> 7 - (i % 8)) as usize;
-            //println!("    bit={}", bit);
             node = self.read_node(node, bit)?;
-            //println!("    node={}", node);
             if node >= node_count {
                 // We've hit a dead end before we exhausted our prefix
                 break;
@@ -329,7 +317,6 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         // else the stack will be empty and we'll be returning an iterator that visits nothing,
         // which makes sense.
 
-        //println!("  stack={:#?}", stack);
         let within: Within<T, S> = Within {
             reader: self,
             node_count,
