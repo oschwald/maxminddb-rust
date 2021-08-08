@@ -386,6 +386,26 @@ fn test_within_city() {
     }
 }
 
+#[test]
+fn test_within_broken_database() {
+    use super::geoip2::City;
+    use ipnetwork::IpNetwork;
+
+    let r = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test-Broken-Double-Format.mmdb")
+        .ok()
+        .unwrap();
+
+    let ip_net = IpNetwork::V6("::/0".parse().unwrap());
+    let mut iter = r.within::<City>(ip_net).unwrap();
+    match iter.next().unwrap() {
+        Err(e) => assert_eq!(
+            e,
+            MaxMindDBError::InvalidDatabaseError("double of size 7".to_string())
+        ),
+        Ok(_) => panic!("Error expected"),
+    };
+}
+
 fn check_metadata<T: AsRef<[u8]>>(reader: &Reader<T>, ip_version: usize, record_size: usize) {
     let metadata = &reader.metadata;
 
