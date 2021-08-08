@@ -453,18 +453,42 @@ fn ip_to_bytes(address: IpAddr) -> Vec<u8> {
 }
 
 fn bytes_and_prefix_to_net(bytes: &Vec<u8>, prefix: u8) -> Result<IpNetwork, MaxMindDBError> {
-    let ip = match bytes.len() {
-        4 => IpAddr::V4(Ipv4Addr::new(bytes[0], bytes[1], bytes[2], bytes[3])),
+    let (ip, pre) = match bytes.len() {
+        4 => (
+            IpAddr::V4(Ipv4Addr::new(bytes[0], bytes[1], bytes[2], bytes[3])),
+            prefix,
+        ),
         16 => {
-            let a = (bytes[0] as u16) << 8 | bytes[1] as u16;
-            let b = (bytes[2] as u16) << 8 | bytes[3] as u16;
-            let c = (bytes[4] as u16) << 8 | bytes[5] as u16;
-            let d = (bytes[6] as u16) << 8 | bytes[7] as u16;
-            let e = (bytes[8] as u16) << 8 | bytes[9] as u16;
-            let f = (bytes[10] as u16) << 8 | bytes[11] as u16;
-            let g = (bytes[12] as u16) << 8 | bytes[13] as u16;
-            let h = (bytes[14] as u16) << 8 | bytes[15] as u16;
-            IpAddr::V6(Ipv6Addr::new(a, b, c, d, e, f, g, h))
+            if bytes[0] == 0
+                && bytes[1] == 0
+                && bytes[2] == 0
+                && bytes[3] == 0
+                && bytes[4] == 0
+                && bytes[5] == 0
+                && bytes[6] == 0
+                && bytes[7] == 0
+                && bytes[8] == 0
+                && bytes[9] == 0
+                && bytes[10] == 0
+                && bytes[11] == 0
+            {
+                // It's actually v4, but in v6 form, convert would be nice if ipnetwork had this
+                // logic.
+                (
+                    IpAddr::V4(Ipv4Addr::new(bytes[12], bytes[13], bytes[14], bytes[15])),
+                    prefix - 96,
+                )
+            } else {
+                let a = (bytes[0] as u16) << 8 | bytes[1] as u16;
+                let b = (bytes[2] as u16) << 8 | bytes[3] as u16;
+                let c = (bytes[4] as u16) << 8 | bytes[5] as u16;
+                let d = (bytes[6] as u16) << 8 | bytes[7] as u16;
+                let e = (bytes[8] as u16) << 8 | bytes[9] as u16;
+                let f = (bytes[10] as u16) << 8 | bytes[11] as u16;
+                let g = (bytes[12] as u16) << 8 | bytes[13] as u16;
+                let h = (bytes[14] as u16) << 8 | bytes[15] as u16;
+                (IpAddr::V6(Ipv6Addr::new(a, b, c, d, e, f, g, h)), prefix)
+            }
         }
         // This should never happen
         _ => {
@@ -473,7 +497,7 @@ fn bytes_and_prefix_to_net(bytes: &Vec<u8>, prefix: u8) -> Result<IpNetwork, Max
             ))
         }
     };
-    IpNetwork::new(ip, prefix).map_err(|e| MaxMindDBError::InvalidNetworkError(e.to_string()))
+    IpNetwork::new(ip, pre).map_err(|e| MaxMindDBError::InvalidNetworkError(e.to_string()))
 }
 
 fn find_metadata_start(buf: &[u8]) -> Result<usize, MaxMindDBError> {
