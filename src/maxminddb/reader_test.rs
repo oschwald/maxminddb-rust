@@ -335,6 +335,57 @@ fn test_lookup_asn() {
     assert_eq!(asn.autonomous_system_organization, Some("Telstra Pty Ltd"));
 }
 
+#[test]
+fn test_within_city() {
+    use super::geoip2::City;
+    use super::Within;
+    use ipnetwork::IpNetwork;
+
+    let _ = env_logger::try_init();
+
+    let filename = "test-data/test-data/GeoIP2-City-Test.mmdb";
+
+    let reader = Reader::open_readfile(filename).unwrap();
+
+    let ip_net = IpNetwork::V6("::/0".parse().unwrap());
+
+    let mut iter: Within<City, _> = reader.within(ip_net).unwrap();
+
+    // Make sure the first is what we expect it to be
+    let item = iter.next().unwrap().unwrap();
+    assert_eq!(
+        item.ip_net,
+        IpNetwork::V4("2.125.160.216/29".parse().unwrap())
+    );
+    assert_eq!(item.info.continent.unwrap().code, Some("EU"));
+    assert_eq!(item.info.country.unwrap().iso_code, Some("GB"));
+
+    let mut n = 1;
+    while let Some(_) = iter.next() {
+        n += 1;
+    }
+
+    // Make sure we had the expected number
+    assert_eq!(n, 273);
+
+    // A second run through this time a specific network
+    let specific = IpNetwork::V4("81.2.69.0/24".parse().unwrap());
+    let mut iter: Within<City, _> = reader.within(specific).unwrap();
+    // Make sure we have the expected blocks/info
+    let mut expected = vec![
+        // Note: reversed so we can use pop
+        IpNetwork::V4("81.2.69.192/28".parse().unwrap()),
+        IpNetwork::V4("81.2.69.160/27".parse().unwrap()),
+        IpNetwork::V4("81.2.69.144/28".parse().unwrap()),
+        IpNetwork::V4("81.2.69.142/31".parse().unwrap()),
+    ];
+    while expected.len() > 0 {
+        let e = expected.pop().unwrap();
+        let item = iter.next().unwrap().unwrap();
+        assert_eq!(item.ip_net, e);
+    }
+}
+
 fn check_metadata<T: AsRef<[u8]>>(reader: &Reader<T>, ip_version: usize, record_size: usize) {
     let metadata = &reader.metadata;
 
