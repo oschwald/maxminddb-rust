@@ -123,10 +123,10 @@ impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
                     &self.reader.buf.as_ref()[self.reader.pointer_base..],
                     rec,
                 );
-                return Some(Ok(WithinItem {
-                    ip_net,
-                    info: T::deserialize(&mut decoder).unwrap(),
-                }));
+                return match T::deserialize(&mut decoder) {
+                    Ok(info) => Some(Ok(WithinItem { ip_net, info })),
+                    Err(e) => Some(Err(e)),
+                };
             } else if current.node == self.node_count {
                 // Dead end, nothing to do
             } else {
