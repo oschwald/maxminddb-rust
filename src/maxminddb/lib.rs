@@ -9,7 +9,7 @@ use std::path::Path;
 use serde::{de, Deserialize};
 
 #[cfg(feature = "mmap")]
-use memmap2::Mmap;
+pub use memmap2::Mmap;
 #[cfg(feature = "mmap")]
 use memmap2::MmapOptions;
 #[cfg(feature = "mmap")]
