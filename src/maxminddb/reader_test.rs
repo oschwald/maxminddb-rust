@@ -394,7 +394,7 @@ fn check_ip<T: AsRef<[u8]>>(reader: &Reader<T>, ip_version: usize) {
     }
 
     for subnet in &subnets {
-        let ip: IpAddr = FromStr::from_str(&subnet).unwrap();
+        let ip: IpAddr = FromStr::from_str(subnet).unwrap();
         let value: IpType = reader.lookup(ip).unwrap();
 
         assert_eq!(value.ip, *subnet);

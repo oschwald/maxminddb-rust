@@ -287,7 +287,7 @@ fn ip_to_bytes(address: IpAddr) -> Vec<u8> {
 fn find_metadata_start(buf: &[u8]) -> Result<usize, MaxMindDBError> {
     const METADATA_START_MARKER: &[u8] = b"\xab\xcd\xefMaxMind.com";
 
-    memchr::memmem::rfind(&buf, METADATA_START_MARKER)
+    memchr::memmem::rfind(buf, METADATA_START_MARKER)
         .map(|x| x + METADATA_START_MARKER.len())
         .ok_or_else(|| {
             MaxMindDBError::InvalidDatabaseError(
