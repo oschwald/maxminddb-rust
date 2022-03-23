@@ -353,12 +353,8 @@ fn test_within_city() {
 
     // Make sure the first is what we expect it to be
     let item = iter.next().unwrap().unwrap();
-    assert_eq!(
-        item.ip_net,
-        IpNetwork::V4("2.125.160.216/29".parse().unwrap())
-    );
-    assert_eq!(item.info.continent.unwrap().code, Some("EU"));
-    assert_eq!(item.info.country.unwrap().iso_code, Some("GB"));
+    assert_eq!(item.ip_net, IpNetwork::V4("2.2.3.0/24".parse().unwrap()));
+    assert_eq!(item.info.city.unwrap().geoname_id, Some(2655045));
 
     let mut n = 1;
     while let Some(_) = iter.next() {
@@ -366,7 +362,7 @@ fn test_within_city() {
     }
 
     // Make sure we had the expected number
-    assert_eq!(n, 273);
+    assert_eq!(n, 243);
 
     // A second run through this time a specific network
     let specific = IpNetwork::V4("81.2.69.0/24".parse().unwrap());
@@ -384,26 +380,6 @@ fn test_within_city() {
         let item = iter.next().unwrap().unwrap();
         assert_eq!(item.ip_net, e);
     }
-}
-
-#[test]
-fn test_within_broken_database() {
-    use super::geoip2::City;
-    use ipnetwork::IpNetwork;
-
-    let r = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test-Broken-Double-Format.mmdb")
-        .ok()
-        .unwrap();
-
-    let ip_net = IpNetwork::V6("::/0".parse().unwrap());
-    let mut iter = r.within::<City>(ip_net).unwrap();
-    match iter.next().unwrap() {
-        Err(e) => assert_eq!(
-            e,
-            MaxMindDBError::InvalidDatabaseError("double of size 7".to_string())
-        ),
-        Ok(_) => panic!("Error expected"),
-    };
 }
 
 fn check_metadata<T: AsRef<[u8]>>(reader: &Reader<T>, ip_version: usize, record_size: usize) {
