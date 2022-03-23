@@ -4,26 +4,26 @@ use serde::{Deserialize, Serialize};
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Country<'a> {
     #[serde(borrow)]
-    pub continent: Option<model::Continent<'a>>,
-    pub country: Option<model::Country<'a>>,
-    pub registered_country: Option<model::Country<'a>>,
-    pub represented_country: Option<model::RepresentedCountry<'a>>,
-    pub traits: Option<model::Traits>,
+    pub continent: Option<country::Continent<'a>>,
+    pub country: Option<country::Country<'a>>,
+    pub registered_country: Option<country::Country<'a>>,
+    pub represented_country: Option<country::RepresentedCountry<'a>>,
+    pub traits: Option<country::Traits>,
 }
 
 /// GeoIP2 City record
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct City<'a> {
-    pub city: Option<model::City<'a>>,
+    pub city: Option<city::City<'a>>,
     #[serde(borrow)]
-    pub continent: Option<model::Continent<'a>>,
-    pub country: Option<model::Country<'a>>,
-    pub location: Option<model::Location<'a>>,
-    pub postal: Option<model::Postal<'a>>,
-    pub registered_country: Option<model::Country<'a>>,
-    pub represented_country: Option<model::RepresentedCountry<'a>>,
-    pub subdivisions: Option<Vec<model::Subdivision<'a>>>,
-    pub traits: Option<model::Traits>,
+    pub continent: Option<city::Continent<'a>>,
+    pub country: Option<city::Country<'a>>,
+    pub location: Option<city::Location<'a>>,
+    pub postal: Option<city::Postal<'a>>,
+    pub registered_country: Option<city::Country<'a>>,
+    pub represented_country: Option<city::RepresentedCountry<'a>>,
+    pub subdivisions: Option<Vec<city::Subdivision<'a>>>,
+    pub traits: Option<city::Traits>,
 }
 
 /// GeoIP2 Enterprise record
@@ -89,17 +89,10 @@ pub struct Asn<'a> {
     pub autonomous_system_organization: Option<&'a str>,
 }
 
-/// Country and City model structs
-pub mod model {
+/// Country model structs
+pub mod country {
     use serde::{Deserialize, Serialize};
     use std::collections::BTreeMap;
-
-    #[derive(Deserialize, Serialize, Clone, Debug)]
-    pub struct City<'a> {
-        pub geoname_id: Option<u32>,
-        #[serde(borrow)]
-        pub names: Option<BTreeMap<&'a str, &'a str>>,
-    }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
     pub struct Continent<'a> {
@@ -117,20 +110,6 @@ pub mod model {
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
-    pub struct Location<'a> {
-        pub accuracy_radius: Option<u16>,
-        pub latitude: Option<f64>,
-        pub longitude: Option<f64>,
-        pub metro_code: Option<u16>,
-        pub time_zone: Option<&'a str>,
-    }
-
-    #[derive(Deserialize, Serialize, Clone, Debug)]
-    pub struct Postal<'a> {
-        pub code: Option<&'a str>,
-    }
-
-    #[derive(Deserialize, Serialize, Clone, Debug)]
     pub struct RepresentedCountry<'a> {
         pub geoname_id: Option<u32>,
         pub is_in_european_union: Option<bool>,
@@ -138,13 +117,6 @@ pub mod model {
         pub names: Option<BTreeMap<&'a str, &'a str>>,
         #[serde(rename = "type")]
         pub representation_type: Option<&'a str>,
-    }
-
-    #[derive(Deserialize, Serialize, Clone, Debug)]
-    pub struct Subdivision<'a> {
-        pub geoname_id: Option<u32>,
-        pub iso_code: Option<&'a str>,
-        pub names: Option<BTreeMap<&'a str, &'a str>>,
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -154,23 +126,54 @@ pub mod model {
     }
 }
 
-/// Enterprise model structs
-pub mod enterprise {
+/// Country model structs
+pub mod city {
     use serde::{Deserialize, Serialize};
     use std::collections::BTreeMap;
 
+    pub use super::country::{Continent, Country, RepresentedCountry, Traits};
+
     #[derive(Deserialize, Serialize, Clone, Debug)]
     pub struct City<'a> {
-        pub confidence: Option<u8>,
         pub geoname_id: Option<u32>,
         #[serde(borrow)]
         pub names: Option<BTreeMap<&'a str, &'a str>>,
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
-    pub struct Continent<'a> {
+    pub struct Location<'a> {
+        pub accuracy_radius: Option<u16>,
+        pub latitude: Option<f64>,
+        pub longitude: Option<f64>,
+        pub metro_code: Option<u16>,
+        pub time_zone: Option<&'a str>,
+    }
+
+    #[derive(Deserialize, Serialize, Clone, Debug)]
+    pub struct Postal<'a> {
         pub code: Option<&'a str>,
+    }
+
+    #[derive(Deserialize, Serialize, Clone, Debug)]
+    pub struct Subdivision<'a> {
         pub geoname_id: Option<u32>,
+        pub iso_code: Option<&'a str>,
+        pub names: Option<BTreeMap<&'a str, &'a str>>,
+    }
+}
+
+/// Enterprise model structs
+pub mod enterprise {
+    use serde::{Deserialize, Serialize};
+    use std::collections::BTreeMap;
+
+    pub use super::country::{Continent, RepresentedCountry};
+
+    #[derive(Deserialize, Serialize, Clone, Debug)]
+    pub struct City<'a> {
+        pub confidence: Option<u8>,
+        pub geoname_id: Option<u32>,
+        #[serde(borrow)]
         pub names: Option<BTreeMap<&'a str, &'a str>>,
     }
 
@@ -196,16 +199,6 @@ pub mod enterprise {
     pub struct Postal<'a> {
         pub confidence: Option<u8>,
         pub code: Option<&'a str>,
-    }
-
-    #[derive(Deserialize, Serialize, Clone, Debug)]
-    pub struct RepresentedCountry<'a> {
-        pub geoname_id: Option<u32>,
-        pub is_in_european_union: Option<bool>,
-        pub iso_code: Option<&'a str>,
-        pub names: Option<BTreeMap<&'a str, &'a str>>,
-        #[serde(rename = "type")]
-        pub representation_type: Option<&'a str>,
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]

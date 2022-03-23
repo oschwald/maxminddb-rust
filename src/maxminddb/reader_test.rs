@@ -231,7 +231,7 @@ fn test_lookup_country() {
 
     let ip: IpAddr = FromStr::from_str("89.160.20.112").unwrap();
     let country: Country = reader.lookup(ip).unwrap();
-    let country: super::geoip2::model::Country = country.country.unwrap();
+    let country = country.country.unwrap();
 
     assert_eq!(country.iso_code, Some("SE"));
     assert_eq!(country.is_in_european_union, Some(true));
