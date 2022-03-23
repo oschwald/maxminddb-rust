@@ -1,5 +1,6 @@
 #![deny(trivial_casts, trivial_numeric_casts, unused_import_braces)]
 
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
 use std::io;
@@ -114,53 +115,59 @@ impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
                 continue;
             }
 
-            if current.node > self.node_count {
-                // This is a data node, emit it and we're done (until the following next call)
-                let ip_net =
-                    match bytes_and_prefix_to_net(&current.ip_bytes, current.prefix_len as u8) {
+            match current.node.cmp(&self.node_count) {
+                Ordering::Greater => {
+                    // This is a data node, emit it and we're done (until the following next call)
+                    let ip_net = match bytes_and_prefix_to_net(
+                        &current.ip_bytes,
+                        current.prefix_len as u8,
+                    ) {
                         Ok(ip_net) => ip_net,
                         Err(e) => return Some(Err(e)),
                     };
-                // TODO: should this block become a helper method on reader?
-                let rec = match self.reader.resolve_data_pointer(current.node) {
-                    Ok(rec) => rec,
-                    Err(e) => return Some(Err(e)),
-                };
-                let mut decoder = decoder::Decoder::new(
-                    &self.reader.buf.as_ref()[self.reader.pointer_base..],
-                    rec,
-                );
-                return match T::deserialize(&mut decoder) {
-                    Ok(info) => Some(Ok(WithinItem { ip_net, info })),
-                    Err(e) => Some(Err(e)),
-                };
-            } else if current.node == self.node_count {
-                // Dead end, nothing to do
-            } else {
-                // In order traversal of our children
-                // right/1-bit
-                let mut right_ip_bytes = current.ip_bytes.clone();
-                right_ip_bytes[current.prefix_len >> 3] |=
-                    1 << ((bit_count - current.prefix_len - 1) % 8);
-                let node = match self.reader.read_node(current.node, 1) {
-                    Ok(node) => node,
-                    Err(e) => return Some(Err(e)),
-                };
-                self.stack.push(WithinNode {
-                    node,
-                    ip_bytes: right_ip_bytes,
-                    prefix_len: current.prefix_len + 1,
-                });
-                // left/0-bit
-                let node = match self.reader.read_node(current.node, 0) {
-                    Ok(node) => node,
-                    Err(e) => return Some(Err(e)),
-                };
-                self.stack.push(WithinNode {
-                    node,
-                    ip_bytes: current.ip_bytes.clone(),
-                    prefix_len: current.prefix_len + 1,
-                });
+                    // TODO: should this block become a helper method on reader?
+                    let rec = match self.reader.resolve_data_pointer(current.node) {
+                        Ok(rec) => rec,
+                        Err(e) => return Some(Err(e)),
+                    };
+                    let mut decoder = decoder::Decoder::new(
+                        &self.reader.buf.as_ref()[self.reader.pointer_base..],
+                        rec,
+                    );
+                    return match T::deserialize(&mut decoder) {
+                        Ok(info) => Some(Ok(WithinItem { ip_net, info })),
+                        Err(e) => Some(Err(e)),
+                    };
+                }
+                Ordering::Equal => {
+                    // Dead end, nothing to do
+                }
+                Ordering::Less => {
+                    // In order traversal of our children
+                    // right/1-bit
+                    let mut right_ip_bytes = current.ip_bytes.clone();
+                    right_ip_bytes[current.prefix_len >> 3] |=
+                        1 << ((bit_count - current.prefix_len - 1) % 8);
+                    let node = match self.reader.read_node(current.node, 1) {
+                        Ok(node) => node,
+                        Err(e) => return Some(Err(e)),
+                    };
+                    self.stack.push(WithinNode {
+                        node,
+                        ip_bytes: right_ip_bytes,
+                        prefix_len: current.prefix_len + 1,
+                    });
+                    // left/0-bit
+                    let node = match self.reader.read_node(current.node, 0) {
+                        Ok(node) => node,
+                        Err(e) => return Some(Err(e)),
+                    };
+                    self.stack.push(WithinNode {
+                        node,
+                        ip_bytes: current.ip_bytes.clone(),
+                        prefix_len: current.prefix_len + 1,
+                    });
+                }
             }
         }
         None
@@ -448,7 +455,7 @@ fn ip_to_bytes(address: IpAddr) -> Vec<u8> {
     }
 }
 
-fn bytes_and_prefix_to_net(bytes: &Vec<u8>, prefix: u8) -> Result<IpNetwork, MaxMindDBError> {
+fn bytes_and_prefix_to_net(bytes: &[u8], prefix: u8) -> Result<IpNetwork, MaxMindDBError> {
     let (ip, pre) = match bytes.len() {
         4 => (
             IpAddr::V4(Ipv4Addr::new(bytes[0], bytes[1], bytes[2], bytes[3])),

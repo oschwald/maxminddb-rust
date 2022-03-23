@@ -20,7 +20,7 @@ fn main() -> Result<(), String> {
     };
 
     let mut n = 0;
-    let mut iter: Within<geoip2::City, _> = reader.within(ip_net).map_err(|e| e.to_string())?;
+    let iter: Within<geoip2::City, _> = reader.within(ip_net).map_err(|e| e.to_string())?;
     for next in iter {
         let item = next.map_err(|e| e.to_string())?;
         let continent = item.info.continent.and_then(|c| c.code).unwrap_or("");
