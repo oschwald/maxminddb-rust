@@ -304,7 +304,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         // Traverse down the tree to the level that matches the cidr mark
         let mut i = 0_usize;
         while i < prefix_len {
-            let bit = 1 & (ip_bytes[i >> 3] >> 7 - (i % 8)) as usize;
+            let bit = 1 & (ip_bytes[i >> 3] >> (7 - (i % 8))) as usize;
             node = self.read_node(node, bit)?;
             if node >= node_count {
                 // We've hit a dead end before we exhausted our prefix

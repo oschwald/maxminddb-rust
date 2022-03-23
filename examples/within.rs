@@ -13,7 +13,7 @@ fn main() -> Result<(), String> {
         .ok_or("Second argument must be the IP address and mask in CIDR notation, e.g. 0.0.0.0/0 or ::/0")?
         .parse()
         .unwrap();
-    let ip_net = if cidr.contains(":") {
+    let ip_net = if cidr.contains(':') {
         IpNetwork::V6(cidr.parse().unwrap())
     } else {
         IpNetwork::V4(cidr.parse().unwrap())
@@ -21,7 +21,7 @@ fn main() -> Result<(), String> {
 
     let mut n = 0;
     let mut iter: Within<geoip2::City, _> = reader.within(ip_net).map_err(|e| e.to_string())?;
-    while let Some(next) = iter.next() {
+    for next in iter {
         let item = next.map_err(|e| e.to_string())?;
         let continent = item.info.continent.and_then(|c| c.code).unwrap_or("");
         let country = item.info.country.and_then(|c| c.iso_code).unwrap_or("");

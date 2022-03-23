@@ -357,7 +357,7 @@ fn test_within_city() {
     assert_eq!(item.info.city.unwrap().geoname_id, Some(2655045));
 
     let mut n = 1;
-    while let Some(_) = iter.next() {
+    for _ in iter {
         n += 1;
     }
 
@@ -375,7 +375,7 @@ fn test_within_city() {
         IpNetwork::V4("81.2.69.144/28".parse().unwrap()),
         IpNetwork::V4("81.2.69.142/31".parse().unwrap()),
     ];
-    while expected.len() > 0 {
+    while !expected.is_empty() {
         let e = expected.pop().unwrap();
         let item = iter.next().unwrap().unwrap();
         assert_eq!(item.ip_net, e);
