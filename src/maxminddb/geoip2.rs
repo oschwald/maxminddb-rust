@@ -14,8 +14,8 @@ pub struct Country<'a> {
 /// GeoIP2 City record
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct City<'a> {
-    pub city: Option<city::City<'a>>,
     #[serde(borrow)]
+    pub city: Option<city::City<'a>>,
     pub continent: Option<city::Continent<'a>>,
     pub country: Option<city::Country<'a>>,
     pub location: Option<city::Location<'a>>,
@@ -29,8 +29,8 @@ pub struct City<'a> {
 /// GeoIP2 Enterprise record
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Enterprise<'a> {
-    pub city: Option<enterprise::City<'a>>,
     #[serde(borrow)]
+    pub city: Option<enterprise::City<'a>>,
     pub continent: Option<enterprise::Continent<'a>>,
     pub country: Option<enterprise::Country<'a>>,
     pub location: Option<enterprise::Location<'a>>,
@@ -197,8 +197,8 @@ pub mod enterprise {
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
     pub struct Postal<'a> {
-        pub confidence: Option<u8>,
         pub code: Option<&'a str>,
+        pub confidence: Option<u8>,
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
