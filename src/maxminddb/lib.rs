@@ -105,6 +105,15 @@ impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
             let current = self.stack.pop().unwrap();
             let bit_count = current.ip_bytes.len() * 8;
 
+            // Skip networks that are aliases for the IPv4 network
+            if self.reader.ipv4_start != 0
+                && current.node == self.reader.ipv4_start
+                && bit_count == 128
+                && current.ip_bytes[..12].iter().any(|&b| b != 0)
+            {
+                continue;
+            }
+
             if current.node > self.node_count {
                 // This is a data node, emit it and we're done (until the following next call)
                 let ip_net =
