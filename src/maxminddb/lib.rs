@@ -264,17 +264,40 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     where
         T: Deserialize<'de>,
     {
+        self.lookup_prefix(address).map(|(v, _)| v)
+    }
+
+    /// Lookup the socket address in the opened MaxMind DB
+    ///
+    /// Example:
+    ///
+    /// ```
+    /// use maxminddb::geoip2;
+    /// use std::net::IpAddr;
+    /// use std::str::FromStr;
+    ///
+    /// let reader = maxminddb::Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    ///
+    /// let ip: IpAddr = "89.160.20.128".parse().unwrap();
+    /// let (city, prefix_len) = reader.lookup_prefix::<geoip2::City>(ip).unwrap();
+    /// print!("{:?}, prefix length: {}", city, prefix_len);
+    /// ```
+    pub fn lookup_prefix<T>(&'de self, address: IpAddr) -> Result<(T, usize), MaxMindDBError>
+    where
+        T: Deserialize<'de>,
+    {
         let ip_bytes = ip_to_bytes(address);
-        let pointer = self.find_address_in_tree(&ip_bytes)?;
+        let (pointer, prefix_len) = self.find_address_in_tree(&ip_bytes)?;
         if pointer == 0 {
             return Err(MaxMindDBError::AddressNotFoundError(
                 "Address not found in database".to_owned(),
             ));
         }
+
         let rec = self.resolve_data_pointer(pointer)?;
         let mut decoder = decoder::Decoder::new(&self.buf.as_ref()[self.pointer_base..], rec);
 
-        T::deserialize(&mut decoder)
+        T::deserialize(&mut decoder).map(|v| (v, prefix_len))
     }
 
     /// Iterate over blocks of IP networks in the opened MaxMind DB
@@ -343,14 +366,16 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         Ok(within)
     }
 
-    fn find_address_in_tree(&self, ip_address: &[u8]) -> Result<usize, MaxMindDBError> {
+    fn find_address_in_tree(&self, ip_address: &[u8]) -> Result<(usize, usize), MaxMindDBError> {
         let bit_count = ip_address.len() * 8;
         let mut node = self.start_node(bit_count);
 
         let node_count = self.metadata.node_count as usize;
+        let mut prefix_len = bit_count;
 
         for i in 0..bit_count {
             if node >= node_count {
+                prefix_len = i;
                 break;
             }
             let bit = 1 & (ip_address[i >> 3] >> (7 - (i % 8)));
@@ -358,8 +383,8 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
             node = self.read_node(node, bit as usize)?;
         }
         match node_count {
-            n if n == node => Ok(0),
-            n if node > n => Ok(node),
+            n if n == node => Ok((0, prefix_len)),
+            n if node > n => Ok((node, prefix_len)),
             _ => Err(MaxMindDBError::InvalidDatabaseError(
                 "invalid node in search tree".to_owned(),
             )),
@@ -455,6 +480,7 @@ fn ip_to_bytes(address: IpAddr) -> Vec<u8> {
     }
 }
 
+#[allow(clippy::many_single_char_names)]
 fn bytes_and_prefix_to_net(bytes: &[u8], prefix: u8) -> Result<IpNetwork, MaxMindDBError> {
     let (ip, pre) = match bytes.len() {
         4 => (
