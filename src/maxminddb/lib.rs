@@ -199,7 +199,7 @@ impl<'de> Reader<Mmap> {
     }
 }
 
-impl<'de> Reader<Vec<u8>> {
+impl Reader<Vec<u8>> {
     /// Open a MaxMind DB database file by loading it into memory.
     ///
     /// # Example
