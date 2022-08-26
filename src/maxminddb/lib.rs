@@ -18,7 +18,7 @@ use memmap2::MmapOptions;
 #[cfg(feature = "mmap")]
 use std::fs::File;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum MaxMindDBError {
     AddressNotFoundError(String),
     InvalidDatabaseError(String),
