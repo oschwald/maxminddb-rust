@@ -18,7 +18,7 @@ use memmap2::MmapOptions;
 #[cfg(feature = "mmap")]
 use std::fs::File;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum MaxMindDBError {
     AddressNotFoundError(String),
     InvalidDatabaseError(String),
@@ -199,7 +199,7 @@ impl<'de> Reader<Mmap> {
     }
 }
 
-impl<'de> Reader<Vec<u8>> {
+impl Reader<Vec<u8>> {
     /// Open a MaxMind DB database file by loading it into memory.
     ///
     /// # Example
