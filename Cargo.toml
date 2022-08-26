@@ -23,7 +23,7 @@ name ="maxminddb"
 path = "src/maxminddb/lib.rs"
 
 [dependencies]
-ipnetwork = "0.19.0"
+ipnetwork = "0.20.0"
 log = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 memchr = "2.4"
