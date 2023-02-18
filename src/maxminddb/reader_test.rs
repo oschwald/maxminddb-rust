@@ -149,9 +149,8 @@ fn test_reader() {
     for record_size in &sizes {
         let versions = [4_usize, 6];
         for ip_version in &versions {
-            let filename = format!(
-                "test-data/test-data/MaxMind-DB-test-ipv{ip_version}-{record_size}.mmdb"
-            );
+            let filename =
+                format!("test-data/test-data/MaxMind-DB-test-ipv{ip_version}-{record_size}.mmdb");
             let reader = Reader::open_readfile(filename).ok().unwrap();
 
             check_metadata(&reader, *ip_version, *record_size);
@@ -169,9 +168,8 @@ fn test_reader_readfile() {
     for record_size in &sizes {
         let versions = [4_usize, 6];
         for ip_version in &versions {
-            let filename = format!(
-                "test-data/test-data/MaxMind-DB-test-ipv{ip_version}-{record_size}.mmdb"
-            );
+            let filename =
+                format!("test-data/test-data/MaxMind-DB-test-ipv{ip_version}-{record_size}.mmdb");
             let reader = Reader::open_readfile(filename).ok().unwrap();
 
             check_metadata(&reader, *ip_version, *record_size);

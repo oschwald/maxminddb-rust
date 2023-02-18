@@ -47,9 +47,7 @@ impl Display for MaxMindDBError {
             MaxMindDBError::IoError(msg) => write!(fmt, "IoError: {msg}")?,
             MaxMindDBError::MapError(msg) => write!(fmt, "MapError: {msg}")?,
             MaxMindDBError::DecodingError(msg) => write!(fmt, "DecodingError: {msg}")?,
-            MaxMindDBError::InvalidNetworkError(msg) => {
-                write!(fmt, "InvalidNetworkError: {msg}")?
-            }
+            MaxMindDBError::InvalidNetworkError(msg) => write!(fmt, "InvalidNetworkError: {msg}")?,
         }
         Ok(())
     }
