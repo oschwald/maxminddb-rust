@@ -15,6 +15,6 @@ fn main() -> Result<(), String> {
         .parse()
         .unwrap();
     let city: geoip2::City = reader.lookup(ip).unwrap();
-    println!("{:#?}", city);
+    println!("{city:#?}");
     Ok(())
 }

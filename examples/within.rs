@@ -38,7 +38,7 @@ fn main() -> Result<(), String> {
         }
         n += 1;
     }
-    eprintln!("processed {} items", n);
+    eprintln!("processed {n} items");
 
     Ok(())
 }

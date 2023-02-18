@@ -135,8 +135,7 @@ impl<'de> Decoder<'de> {
             15 => Value::F32(self.decode_float(size)?),
             u => {
                 return Err(MaxMindDBError::InvalidDatabaseError(format!(
-                    "Unknown data type: {:?}",
-                    u
+                    "Unknown data type: {u:?}"
                 )))
             }
         })
@@ -153,8 +152,7 @@ impl<'de> Decoder<'de> {
         match size {
             0 | 1 => Ok(size != 0),
             s => Err(MaxMindDBError::InvalidDatabaseError(format!(
-                "bool of size {:?}",
-                s
+                "bool of size {s:?}"
             ))),
         }
     }
@@ -209,8 +207,7 @@ impl<'de> Decoder<'de> {
                 Ok(value)
             }
             s => Err(MaxMindDBError::InvalidDatabaseError(format!(
-                "u64 of size {:?}",
-                s
+                "u64 of size {s:?}"
             ))),
         }
     }
@@ -231,8 +228,7 @@ impl<'de> Decoder<'de> {
                     Ok(value)
                 }
                 s => Err(MaxMindDBError::InvalidDatabaseError(format!(
-                    "u128 of size {:?}",
-                    s
+                    "u128 of size {s:?}"
                 ))),
             }
         }
@@ -250,8 +246,7 @@ impl<'de> Decoder<'de> {
                 Ok(value)
             }
             s => Err(MaxMindDBError::InvalidDatabaseError(format!(
-                "u32 of size {:?}",
-                s
+                "u32 of size {s:?}"
             ))),
         }
     }
@@ -268,8 +263,7 @@ impl<'de> Decoder<'de> {
                 Ok(value)
             }
             s => Err(MaxMindDBError::InvalidDatabaseError(format!(
-                "u16 of size {:?}",
-                s
+                "u16 of size {s:?}"
             ))),
         }
     }
@@ -286,8 +280,7 @@ impl<'de> Decoder<'de> {
                 Ok(value)
             }
             s => Err(MaxMindDBError::InvalidDatabaseError(format!(
-                "int32 of size {:?}",
-                s
+                "int32 of size {s:?}"
             ))),
         }
     }
