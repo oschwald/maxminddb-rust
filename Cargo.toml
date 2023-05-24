@@ -27,7 +27,7 @@ ipnetwork = "0.20.0"
 log = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 memchr = "2.4"
-memmap2 = { version = "0.5.0", optional = true }
+memmap2 = { version = "0.6.2", optional = true }
 
 [dev-dependencies]
 env_logger = "0.10"
