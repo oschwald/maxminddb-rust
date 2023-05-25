@@ -31,7 +31,7 @@ memmap2 = { version = "0.6.2", optional = true }
 
 [dev-dependencies]
 env_logger = "0.10"
-criterion = "0.4"
+criterion = "0.5"
 fake = "2.4"
 rayon = "1.5"
 
