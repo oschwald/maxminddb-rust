@@ -100,8 +100,7 @@ impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
     type Item = Result<WithinItem<T>, MaxMindDBError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while !self.stack.is_empty() {
-            let current = self.stack.pop().unwrap();
+        while let Some(current) = self.stack.pop() {
             let bit_count = current.ip_bytes.len() * 8;
 
             // Skip networks that are aliases for the IPv4 network

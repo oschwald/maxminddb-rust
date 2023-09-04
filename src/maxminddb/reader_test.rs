@@ -399,8 +399,7 @@ fn test_within_city() {
         IpNetwork::V4("81.2.69.144/28".parse().unwrap()),
         IpNetwork::V4("81.2.69.142/31".parse().unwrap()),
     ];
-    while !expected.is_empty() {
-        let e = expected.pop().unwrap();
+    while let Some(e) = expected.pop() {
         let item = iter.next().unwrap().unwrap();
         assert_eq!(item.ip_net, e);
     }
