@@ -1,5 +1,10 @@
 # Change Log #
 
+## 0.24.0 - 2024-01-09
+
+* Added the `is_anycast` field to the `Traits` struct. Pull request
+  by Skye. GitHub #73.
+
 ## 0.23.0 - 2022-04-03
 
 * Added `lookup_prefix` to return the prefix length for the network
