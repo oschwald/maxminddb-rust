@@ -127,7 +127,7 @@ pub mod country {
     }
 }
 
-/// Country model structs
+/// City model structs
 pub mod city {
     use serde::{Deserialize, Serialize};
     use std::collections::BTreeMap;
