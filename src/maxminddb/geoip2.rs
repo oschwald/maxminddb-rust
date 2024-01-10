@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
 #[cfg(feature = "schema")]
 use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 /// GeoIP2 Country record
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -102,12 +102,11 @@ pub struct Asn<'a> {
 
 /// Country model structs
 pub mod country {
-    use serde::{Deserialize, Serialize};
-    use std::collections::BTreeMap;
     #[cfg(feature = "schema")]
     use schemars::JsonSchema;
-    
-    
+    use serde::{Deserialize, Serialize};
+    use std::collections::BTreeMap;
+
     #[derive(Deserialize, Serialize, Clone, Debug)]
     #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct Continent<'a> {
@@ -118,7 +117,7 @@ pub mod country {
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
     #[cfg_attr(feature = "schema", derive(JsonSchema))]
-pub struct Country<'a> {
+    pub struct Country<'a> {
         pub geoname_id: Option<u32>,
         pub is_in_european_union: Option<bool>,
         pub iso_code: Option<&'a str>,
@@ -146,11 +145,11 @@ pub struct Country<'a> {
 
 /// Country model structs
 pub mod city {
-    use serde::{Deserialize, Serialize};
-    use std::collections::BTreeMap;
     #[cfg(feature = "schema")]
     use schemars::JsonSchema;
-    
+    use serde::{Deserialize, Serialize};
+    use std::collections::BTreeMap;
+
     pub use super::country::{Continent, Country, RepresentedCountry, Traits};
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -188,11 +187,11 @@ pub mod city {
 
 /// Enterprise model structs
 pub mod enterprise {
-    use serde::{Deserialize, Serialize};
-    use std::collections::BTreeMap;
     #[cfg(feature = "schema")]
     use schemars::JsonSchema;
-    
+    use serde::{Deserialize, Serialize};
+    use std::collections::BTreeMap;
+
     pub use super::country::{Continent, RepresentedCountry};
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
