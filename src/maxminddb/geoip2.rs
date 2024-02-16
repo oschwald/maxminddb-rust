@@ -1,7 +1,10 @@
+#[cfg(feature = "schema")]
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// GeoIP2 Country record
 #[derive(Deserialize, Serialize, Clone, Debug)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Country<'a> {
     #[serde(borrow)]
     pub continent: Option<country::Continent<'a>>,
@@ -13,6 +16,7 @@ pub struct Country<'a> {
 
 /// GeoIP2 City record
 #[derive(Deserialize, Serialize, Clone, Debug)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct City<'a> {
     #[serde(borrow)]
     pub city: Option<city::City<'a>>,
@@ -28,6 +32,7 @@ pub struct City<'a> {
 
 /// GeoIP2 Enterprise record
 #[derive(Deserialize, Serialize, Clone, Debug)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Enterprise<'a> {
     #[serde(borrow)]
     pub city: Option<enterprise::City<'a>>,
@@ -43,6 +48,7 @@ pub struct Enterprise<'a> {
 
 /// GeoIP2 ISP record
 #[derive(Deserialize, Serialize, Clone, Debug)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Isp<'a> {
     pub autonomous_system_number: Option<u32>,
     pub autonomous_system_organization: Option<&'a str>,
@@ -54,12 +60,14 @@ pub struct Isp<'a> {
 
 /// GeoIP2 Connection-Type record
 #[derive(Deserialize, Serialize, Clone, Debug)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct ConnectionType<'a> {
     pub connection_type: Option<&'a str>,
 }
 
 /// GeoIP2 Anonymous Ip record
 #[derive(Deserialize, Serialize, Clone, Debug)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct AnonymousIp {
     pub is_anonymous: Option<bool>,
     pub is_anonymous_vpn: Option<bool>,
@@ -71,6 +79,7 @@ pub struct AnonymousIp {
 
 /// GeoIP2 DensityIncome record
 #[derive(Deserialize, Serialize, Clone, Debug)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct DensityIncome {
     pub average_income: Option<u32>,
     pub population_density: Option<u32>,
@@ -78,12 +87,14 @@ pub struct DensityIncome {
 
 /// GeoIP2 Domain record
 #[derive(Deserialize, Serialize, Clone, Debug)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Domain<'a> {
     pub domain: Option<&'a str>,
 }
 
 /// GeoIP2 Asn record
 #[derive(Deserialize, Serialize, Clone, Debug)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Asn<'a> {
     pub autonomous_system_number: Option<u32>,
     pub autonomous_system_organization: Option<&'a str>,
@@ -91,10 +102,13 @@ pub struct Asn<'a> {
 
 /// Country model structs
 pub mod country {
+    #[cfg(feature = "schema")]
+    use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
     use std::collections::BTreeMap;
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct Continent<'a> {
         pub code: Option<&'a str>,
         pub geoname_id: Option<u32>,
@@ -102,6 +116,7 @@ pub mod country {
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct Country<'a> {
         pub geoname_id: Option<u32>,
         pub is_in_european_union: Option<bool>,
@@ -110,6 +125,7 @@ pub mod country {
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct RepresentedCountry<'a> {
         pub geoname_id: Option<u32>,
         pub is_in_european_union: Option<bool>,
@@ -120,6 +136,7 @@ pub mod country {
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct Traits {
         pub is_anonymous_proxy: Option<bool>,
         pub is_anycast: Option<bool>,
@@ -129,12 +146,15 @@ pub mod country {
 
 /// City model structs
 pub mod city {
+    #[cfg(feature = "schema")]
+    use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
     use std::collections::BTreeMap;
 
     pub use super::country::{Continent, Country, RepresentedCountry, Traits};
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct City<'a> {
         pub geoname_id: Option<u32>,
         #[serde(borrow)]
@@ -142,6 +162,7 @@ pub mod city {
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct Location<'a> {
         pub accuracy_radius: Option<u16>,
         pub latitude: Option<f64>,
@@ -151,11 +172,13 @@ pub mod city {
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct Postal<'a> {
         pub code: Option<&'a str>,
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct Subdivision<'a> {
         pub geoname_id: Option<u32>,
         pub iso_code: Option<&'a str>,
@@ -165,12 +188,15 @@ pub mod city {
 
 /// Enterprise model structs
 pub mod enterprise {
+    #[cfg(feature = "schema")]
+    use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
     use std::collections::BTreeMap;
 
     pub use super::country::{Continent, RepresentedCountry};
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct City<'a> {
         pub confidence: Option<u8>,
         pub geoname_id: Option<u32>,
@@ -179,6 +205,7 @@ pub mod enterprise {
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct Country<'a> {
         pub confidence: Option<u8>,
         pub geoname_id: Option<u32>,
@@ -188,6 +215,7 @@ pub mod enterprise {
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct Location<'a> {
         pub accuracy_radius: Option<u16>,
         pub latitude: Option<f64>,
@@ -197,12 +225,14 @@ pub mod enterprise {
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct Postal<'a> {
         pub code: Option<&'a str>,
         pub confidence: Option<u8>,
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct Subdivision<'a> {
         pub confidence: Option<u8>,
         pub geoname_id: Option<u32>,
@@ -211,6 +241,7 @@ pub mod enterprise {
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct Traits<'a> {
         pub autonomous_system_number: Option<u32>,
         pub autonomous_system_organization: Option<&'a str>,
