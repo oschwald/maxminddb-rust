@@ -9,7 +9,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::Path;
 
 use ipnetwork::IpNetwork;
-use serde::{de, Deserialize};
+use serde::{de, Deserialize, Serialize};
 
 #[cfg(feature = "mmap")]
 pub use memmap2::Mmap;
@@ -62,7 +62,7 @@ impl de::Error for MaxMindDBError {
     }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Metadata {
     pub binary_format_major_version: u16,
     pub binary_format_minor_version: u16,
