@@ -2,6 +2,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 use serde::Deserialize;
+use serde_json::json;
 
 use super::{MaxMindDBError, Reader};
 
@@ -482,4 +483,24 @@ fn check_ip<T: AsRef<[u8]>>(reader: &Reader<T>, ip_version: usize) {
             ),
         }
     }
+}
+
+#[test]
+fn test_json_serialize() {
+    use super::geoip2::City;
+    let _ = env_logger::try_init();
+
+    let filename = "test-data/test-data/GeoIP2-City-Test.mmdb";
+
+    let reader = Reader::open_readfile(filename).unwrap();
+
+    let ip: IpAddr = FromStr::from_str("89.160.20.112").unwrap();
+    let city: City = reader.lookup(ip).unwrap();
+
+    let json_string = json!(city).to_string();
+
+    assert_eq!(
+        json_string,
+        r#"{"city":{"geoname_id":2694762,"names":{"de":"Linköping","en":"Linköping","fr":"Linköping","ja":"リンシェーピング","zh-CN":"林雪平"}},"continent":{"code":"EU","geoname_id":6255148,"names":{"de":"Europa","en":"Europe","es":"Europa","fr":"Europe","ja":"ヨーロッパ","pt-BR":"Europa","ru":"Европа","zh-CN":"欧洲"}},"country":{"geoname_id":2661886,"is_in_european_union":true,"iso_code":"SE","names":{"de":"Schweden","en":"Sweden","es":"Suecia","fr":"Suède","ja":"スウェーデン王国","pt-BR":"Suécia","ru":"Швеция","zh-CN":"瑞典"}},"location":{"accuracy_radius":76,"latitude":58.4167,"longitude":15.6167,"time_zone":"Europe/Stockholm"},"registered_country":{"geoname_id":2921044,"is_in_european_union":true,"iso_code":"DE","names":{"de":"Deutschland","en":"Germany","es":"Alemania","fr":"Allemagne","ja":"ドイツ連邦共和国","pt-BR":"Alemanha","ru":"Германия","zh-CN":"德国"}},"subdivisions":[{"geoname_id":2685867,"iso_code":"E","names":{"en":"Östergötland County","fr":"Comté d'Östergötland"}}]}"#
+    );
 }
