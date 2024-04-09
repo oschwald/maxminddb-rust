@@ -1,7 +1,10 @@
+#[cfg(feature = "schema")]
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// GeoIP2 Country record
 #[derive(Deserialize, Serialize, Clone, Debug)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Country<'a> {
     #[serde(borrow)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -18,6 +21,7 @@ pub struct Country<'a> {
 
 /// GeoIP2 City record
 #[derive(Deserialize, Serialize, Clone, Debug)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct City<'a> {
     #[serde(borrow)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -42,6 +46,7 @@ pub struct City<'a> {
 
 /// GeoIP2 Enterprise record
 #[derive(Deserialize, Serialize, Clone, Debug)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Enterprise<'a> {
     #[serde(borrow)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -66,6 +71,7 @@ pub struct Enterprise<'a> {
 
 /// GeoIP2 ISP record
 #[derive(Deserialize, Serialize, Clone, Debug)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Isp<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub autonomous_system_number: Option<u32>,
@@ -83,6 +89,7 @@ pub struct Isp<'a> {
 
 /// GeoIP2 Connection-Type record
 #[derive(Deserialize, Serialize, Clone, Debug)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct ConnectionType<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connection_type: Option<&'a str>,
@@ -90,6 +97,7 @@ pub struct ConnectionType<'a> {
 
 /// GeoIP2 Anonymous Ip record
 #[derive(Deserialize, Serialize, Clone, Debug)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct AnonymousIp {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_anonymous: Option<bool>,
@@ -107,6 +115,7 @@ pub struct AnonymousIp {
 
 /// GeoIP2 DensityIncome record
 #[derive(Deserialize, Serialize, Clone, Debug)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct DensityIncome {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub average_income: Option<u32>,
@@ -116,6 +125,7 @@ pub struct DensityIncome {
 
 /// GeoIP2 Domain record
 #[derive(Deserialize, Serialize, Clone, Debug)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Domain<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub domain: Option<&'a str>,
@@ -123,6 +133,7 @@ pub struct Domain<'a> {
 
 /// GeoIP2 Asn record
 #[derive(Deserialize, Serialize, Clone, Debug)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Asn<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub autonomous_system_number: Option<u32>,
@@ -132,10 +143,13 @@ pub struct Asn<'a> {
 
 /// Country model structs
 pub mod country {
+    #[cfg(feature = "schema")]
+    use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
     use std::collections::BTreeMap;
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct Continent<'a> {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub code: Option<&'a str>,
@@ -146,6 +160,7 @@ pub mod country {
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct Country<'a> {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub geoname_id: Option<u32>,
@@ -158,6 +173,7 @@ pub mod country {
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct RepresentedCountry<'a> {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub geoname_id: Option<u32>,
@@ -173,6 +189,7 @@ pub mod country {
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct Traits {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub is_anonymous_proxy: Option<bool>,
@@ -185,12 +202,15 @@ pub mod country {
 
 /// City model structs
 pub mod city {
+    #[cfg(feature = "schema")]
+    use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
     use std::collections::BTreeMap;
 
     pub use super::country::{Continent, Country, RepresentedCountry, Traits};
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct City<'a> {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub geoname_id: Option<u32>,
@@ -200,6 +220,7 @@ pub mod city {
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct Location<'a> {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub accuracy_radius: Option<u16>,
@@ -214,12 +235,14 @@ pub mod city {
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct Postal<'a> {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub code: Option<&'a str>,
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct Subdivision<'a> {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub geoname_id: Option<u32>,
@@ -232,12 +255,15 @@ pub mod city {
 
 /// Enterprise model structs
 pub mod enterprise {
+    #[cfg(feature = "schema")]
+    use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
     use std::collections::BTreeMap;
 
     pub use super::country::{Continent, RepresentedCountry};
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct City<'a> {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub confidence: Option<u8>,
@@ -249,6 +275,7 @@ pub mod enterprise {
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct Country<'a> {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub confidence: Option<u8>,
@@ -263,6 +290,7 @@ pub mod enterprise {
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct Location<'a> {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub accuracy_radius: Option<u16>,
@@ -277,6 +305,7 @@ pub mod enterprise {
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct Postal<'a> {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub code: Option<&'a str>,
@@ -285,6 +314,7 @@ pub mod enterprise {
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct Subdivision<'a> {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub confidence: Option<u8>,
@@ -297,6 +327,7 @@ pub mod enterprise {
     }
 
     #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[cfg_attr(feature = "schema", derive(JsonSchema))]
     pub struct Traits<'a> {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub autonomous_system_number: Option<u32>,
