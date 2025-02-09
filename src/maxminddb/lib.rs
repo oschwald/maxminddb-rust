@@ -355,7 +355,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     ///     println!("ip_net={}, city={:?}", item.ip_net, item.info);
     /// }
     /// ```
-    pub fn within<T>(&'de self, cidr: IpNetwork) -> Result<Within<T, S>, MaxMindDBError>
+    pub fn within<T>(&'de self, cidr: IpNetwork) -> Result<Within<'de, T, S>, MaxMindDBError>
     where
         T: Deserialize<'de>,
     {
