@@ -18,6 +18,9 @@ use memmap2::MmapOptions;
 #[cfg(feature = "mmap")]
 use std::fs::File;
 
+#[cfg(all(feature = "simdutf8", feature = "unsafe-str-decode"))]
+compile_error!("features `simdutf8` and `unsafe-str-decode` are mutually exclusive");
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum MaxMindDBError {
     AddressNotFoundError(String),
