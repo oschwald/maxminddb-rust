@@ -10,6 +10,7 @@ use std::path::Path;
 
 use ipnetwork::IpNetwork;
 use serde::{de, Deserialize, Serialize};
+use tinyvec::ArrayVec;
 
 #[cfg(feature = "mmap")]
 pub use memmap2::Mmap;
@@ -78,7 +79,7 @@ pub struct Metadata {
 #[derive(Debug)]
 struct WithinNode {
     node: usize,
-    ip_bytes: Vec<u8>,
+    ip_bytes: ArrayVec<[u8; 16]>,
     prefix_len: usize,
 }
 
@@ -346,7 +347,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
             // traversed to as our to be processed stack.
             stack.push(WithinNode {
                 node,
-                ip_bytes,
+                ip_bytes: ArrayVec::<[u8; 16]>::from_iter(ip_bytes),
                 prefix_len,
             });
         }
