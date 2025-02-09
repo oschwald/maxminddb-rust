@@ -379,7 +379,7 @@ struct ArrayAccess<'a, 'de: 'a> {
 
 // `SeqAccess` is provided to the `Visitor` to give it the ability to iterate
 // through elements of the sequence.
-impl<'de, 'a> SeqAccess<'de> for ArrayAccess<'a, 'de> {
+impl<'de> SeqAccess<'de> for ArrayAccess<'_, 'de> {
     type Error = MaxMindDBError;
 
     fn next_element_seed<T>(&mut self, seed: T) -> DecodeResult<Option<T::Value>>
@@ -404,7 +404,7 @@ struct MapAccessor<'a, 'de: 'a> {
 
 // `MapAccess` is provided to the `Visitor` to give it the ability to iterate
 // through entries of the map.
-impl<'de, 'a> MapAccess<'de> for MapAccessor<'a, 'de> {
+impl<'de> MapAccess<'de> for MapAccessor<'_, 'de> {
     type Error = MaxMindDBError;
 
     fn next_key_seed<K>(&mut self, seed: K) -> DecodeResult<Option<K::Value>>
