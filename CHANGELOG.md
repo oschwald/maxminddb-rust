@@ -1,5 +1,16 @@
 # Change Log #
 
+## 0.25.0 - 2025-02-16
+
+* Serde will now skip serialization of the GeoIP2 struct fields
+  when `Option` is none. Pull request by Stefan Sundin. GitHub #79.
+* `Serialize` and `Clone` were added to the `Metadata` struct. Pull
+  request by Stefan Sundin. GitHub #80.
+* Added feature to use `simdutf8` as a faster alternative when
+  `unsafe-str-decode` is too risky. Pull request by Jakub Onderka.
+  GitHub #88.
+* Minor internal refactoring and performance improvements.
+
 ## 0.24.0 - 2024-01-09
 
 * Added the `is_anycast` field to the `Traits` struct. Pull request
