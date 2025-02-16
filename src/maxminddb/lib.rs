@@ -81,7 +81,7 @@ pub struct Metadata {
 #[derive(Debug)]
 struct WithinNode {
     node: usize,
-    ip_bytes: Vec<u8>,
+    ip_int: IpInt,
     prefix_len: usize,
 }
 
@@ -99,18 +99,54 @@ pub struct WithinItem<T> {
     pub info: T,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IpInt {
+    V4(u32),
+    V6(u128),
+}
+
+impl IpInt {
+    fn new(ip_addr: IpAddr) -> Self {
+        match ip_addr {
+            IpAddr::V4(v4) => IpInt::V4(v4.into()),
+            IpAddr::V6(v6) => IpInt::V6(v6.into()),
+        }
+    }
+
+    fn get_bit(&self, index: usize) -> bool {
+        match self {
+            IpInt::V4(ip) => (ip >> (31 - index)) & 1 == 1,
+            IpInt::V6(ip) => (ip >> (127 - index)) & 1 == 1,
+        }
+    }
+
+    fn bit_count(&self) -> usize {
+        match self {
+            IpInt::V4(_) => 32,
+            IpInt::V6(_) => 128,
+        }
+    }
+
+    fn is_ipv4_in_ipv6(&self) -> bool {
+        match self {
+            IpInt::V4(_) => false,
+            IpInt::V6(ip) => *ip <= 0xFFFFFFFF,
+        }
+    }
+}
+
 impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
     type Item = Result<WithinItem<T>, MaxMindDBError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(current) = self.stack.pop() {
-            let bit_count = current.ip_bytes.len() * 8;
+            let bit_count = current.ip_int.bit_count();
 
             // Skip networks that are aliases for the IPv4 network
             if self.reader.ipv4_start != 0
                 && current.node == self.reader.ipv4_start
                 && bit_count == 128
-                && current.ip_bytes[..12].iter().any(|&b| b != 0)
+                && !current.ip_int.is_ipv4_in_ipv6()
             {
                 continue;
             }
@@ -118,13 +154,11 @@ impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
             match current.node.cmp(&self.node_count) {
                 Ordering::Greater => {
                     // This is a data node, emit it and we're done (until the following next call)
-                    let ip_net = match bytes_and_prefix_to_net(
-                        &current.ip_bytes,
-                        current.prefix_len as u8,
-                    ) {
-                        Ok(ip_net) => ip_net,
-                        Err(e) => return Some(Err(e)),
-                    };
+                    let ip_net =
+                        match bytes_and_prefix_to_net(&current.ip_int, current.prefix_len as u8) {
+                            Ok(ip_net) => ip_net,
+                            Err(e) => return Some(Err(e)),
+                        };
                     // TODO: should this block become a helper method on reader?
                     let rec = match self.reader.resolve_data_pointer(current.node) {
                         Ok(rec) => rec,
@@ -145,16 +179,23 @@ impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
                 Ordering::Less => {
                     // In order traversal of our children
                     // right/1-bit
-                    let mut right_ip_bytes = current.ip_bytes.clone();
-                    right_ip_bytes[current.prefix_len >> 3] |=
-                        1 << ((bit_count - current.prefix_len - 1) % 8);
+                    let mut right_ip_int = current.ip_int;
+
+                    if current.prefix_len < bit_count {
+                        let bit = current.prefix_len;
+                        match &mut right_ip_int {
+                            IpInt::V4(ip) => *ip |= 1 << (31 - bit),
+                            IpInt::V6(ip) => *ip |= 1 << (127 - bit),
+                        };
+                    }
+
                     let node = match self.reader.read_node(current.node, 1) {
                         Ok(node) => node,
                         Err(e) => return Some(Err(e)),
                     };
                     self.stack.push(WithinNode {
                         node,
-                        ip_bytes: right_ip_bytes,
+                        ip_int: right_ip_int,
                         prefix_len: current.prefix_len + 1,
                     });
                     // left/0-bit
@@ -164,7 +205,7 @@ impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
                     };
                     self.stack.push(WithinNode {
                         node,
-                        ip_bytes: current.ip_bytes.clone(),
+                        ip_int: current.ip_int,
                         prefix_len: current.prefix_len + 1,
                     });
                 }
@@ -286,8 +327,8 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     where
         T: Deserialize<'de>,
     {
-        let ip_bytes = ip_to_bytes(address);
-        let (pointer, prefix_len) = self.find_address_in_tree(&ip_bytes)?;
+        let ip_int = IpInt::new(address);
+        let (pointer, prefix_len) = self.find_address_in_tree(&ip_int)?;
         if pointer == 0 {
             return Err(MaxMindDBError::AddressNotFoundError(
                 "Address not found in database".to_owned(),
@@ -317,14 +358,14 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     ///     println!("ip_net={}, city={:?}", item.ip_net, item.info);
     /// }
     /// ```
-    pub fn within<T>(&'de self, cidr: IpNetwork) -> Result<Within<T, S>, MaxMindDBError>
+    pub fn within<T>(&'de self, cidr: IpNetwork) -> Result<Within<'de, T, S>, MaxMindDBError>
     where
         T: Deserialize<'de>,
     {
         let ip_address = cidr.network();
         let prefix_len = cidr.prefix() as usize;
-        let ip_bytes = ip_to_bytes(ip_address);
-        let bit_count = ip_bytes.len() * 8;
+        let ip_int = IpInt::new(ip_address);
+        let bit_count = ip_int.bit_count();
 
         let mut node = self.start_node(bit_count);
         let node_count = self.metadata.node_count as usize;
@@ -334,8 +375,8 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         // Traverse down the tree to the level that matches the cidr mark
         let mut i = 0_usize;
         while i < prefix_len {
-            let bit = 1 & (ip_bytes[i >> 3] >> (7 - (i % 8))) as usize;
-            node = self.read_node(node, bit)?;
+            let bit = ip_int.get_bit(i);
+            node = self.read_node(node, bit as usize)?;
             if node >= node_count {
                 // We've hit a dead end before we exhausted our prefix
                 break;
@@ -349,7 +390,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
             // traversed to as our to be processed stack.
             stack.push(WithinNode {
                 node,
-                ip_bytes,
+                ip_int,
                 prefix_len,
             });
         }
@@ -366,8 +407,8 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         Ok(within)
     }
 
-    fn find_address_in_tree(&self, ip_address: &[u8]) -> Result<(usize, usize), MaxMindDBError> {
-        let bit_count = ip_address.len() * 8;
+    fn find_address_in_tree(&self, ip_int: &IpInt) -> Result<(usize, usize), MaxMindDBError> {
+        let bit_count = ip_int.bit_count();
         let mut node = self.start_node(bit_count);
 
         let node_count = self.metadata.node_count as usize;
@@ -378,8 +419,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
                 prefix_len = i;
                 break;
             }
-            let bit = 1 & (ip_address[i >> 3] >> (7 - (i % 8)));
-
+            let bit = ip_int.get_bit(i);
             node = self.read_node(node, bit as usize)?;
         }
         match node_count {
@@ -472,60 +512,16 @@ fn to_usize(base: u8, bytes: &[u8]) -> usize {
         .fold(base as usize, |acc, &b| (acc << 8) | b as usize)
 }
 
-fn ip_to_bytes(address: IpAddr) -> Vec<u8> {
-    match address {
-        IpAddr::V4(a) => a.octets().to_vec(),
-        IpAddr::V6(a) => a.octets().to_vec(),
-    }
-}
-
-#[allow(clippy::many_single_char_names)]
-fn bytes_and_prefix_to_net(bytes: &[u8], prefix: u8) -> Result<IpNetwork, MaxMindDBError> {
-    let (ip, pre) = match bytes.len() {
-        4 => (
-            IpAddr::V4(Ipv4Addr::new(bytes[0], bytes[1], bytes[2], bytes[3])),
-            prefix,
-        ),
-        16 => {
-            if bytes[0] == 0
-                && bytes[1] == 0
-                && bytes[2] == 0
-                && bytes[3] == 0
-                && bytes[4] == 0
-                && bytes[5] == 0
-                && bytes[6] == 0
-                && bytes[7] == 0
-                && bytes[8] == 0
-                && bytes[9] == 0
-                && bytes[10] == 0
-                && bytes[11] == 0
-            {
-                // It's actually v4, but in v6 form, convert would be nice if ipnetwork had this
-                // logic.
-                (
-                    IpAddr::V4(Ipv4Addr::new(bytes[12], bytes[13], bytes[14], bytes[15])),
-                    prefix - 96,
-                )
-            } else {
-                let a = u16::from(bytes[0]) << 8 | u16::from(bytes[1]);
-                let b = u16::from(bytes[2]) << 8 | u16::from(bytes[3]);
-                let c = u16::from(bytes[4]) << 8 | u16::from(bytes[5]);
-                let d = u16::from(bytes[6]) << 8 | u16::from(bytes[7]);
-                let e = u16::from(bytes[8]) << 8 | u16::from(bytes[9]);
-                let f = u16::from(bytes[10]) << 8 | u16::from(bytes[11]);
-                let g = u16::from(bytes[12]) << 8 | u16::from(bytes[13]);
-                let h = u16::from(bytes[14]) << 8 | u16::from(bytes[15]);
-                (IpAddr::V6(Ipv6Addr::new(a, b, c, d, e, f, g, h)), prefix)
-            }
+#[inline]
+fn bytes_and_prefix_to_net(bytes: &IpInt, prefix: u8) -> Result<IpNetwork, MaxMindDBError> {
+    let (ip, prefix) = match bytes {
+        IpInt::V4(ip) => (IpAddr::V4(Ipv4Addr::from(*ip)), prefix),
+        IpInt::V6(ip) if bytes.is_ipv4_in_ipv6() => {
+            (IpAddr::V4(Ipv4Addr::from(*ip as u32)), prefix - 96)
         }
-        // This should never happen
-        _ => {
-            return Err(MaxMindDBError::InvalidNetworkError(
-                "invalid address".to_owned(),
-            ))
-        }
+        IpInt::V6(ip) => (IpAddr::V6(Ipv6Addr::from(*ip)), prefix),
     };
-    IpNetwork::new(ip, pre).map_err(|e| MaxMindDBError::InvalidNetworkError(e.to_string()))
+    IpNetwork::new(ip, prefix).map_err(|e| MaxMindDBError::InvalidNetworkError(e.to_string()))
 }
 
 fn find_metadata_start(buf: &[u8]) -> Result<usize, MaxMindDBError> {
