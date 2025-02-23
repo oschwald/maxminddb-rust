@@ -27,29 +27,43 @@ pub fn generate_ipv4(count: u64) -> Vec<IpAddr> {
 }
 
 // Single-threaded
-pub fn bench_maxminddb(ips: &[IpAddr], reader: &maxminddb::Reader<Vec<u8>>) {
+pub fn bench_maxminddb<T>(ips: &[IpAddr], reader: &maxminddb::Reader<T>)
+where
+    T: AsRef<[u8]>,
+{
     for ip in ips.iter() {
         let _ = reader.lookup::<geoip2::City>(*ip);
     }
 }
 
 // Using rayon for parallel execution
-pub fn bench_par_maxminddb(ips: &[IpAddr], reader: &maxminddb::Reader<Vec<u8>>) {
+pub fn bench_par_maxminddb<T>(ips: &[IpAddr], reader: &maxminddb::Reader<T>)
+where
+    T: AsRef<[u8]> + std::marker::Sync,
+{
     ips.par_iter().for_each(|ip| {
         let _ = reader.lookup::<geoip2::City>(*ip);
     });
 }
 
+const DB_FILE: &str = "GeoLite2-City.mmdb";
+
 pub fn criterion_benchmark(c: &mut Criterion) {
     let ips = generate_ipv4(100);
-    let reader = maxminddb::Reader::open_readfile("GeoLite2-City.mmdb").unwrap();
+    #[cfg(not(feature = "mmap"))]
+    let reader = maxminddb::Reader::open_readfile(DB_FILE).unwrap();
+    #[cfg(feature = "mmap")]
+    let reader = maxminddb::Reader::open_mmap(DB_FILE).unwrap();
 
     c.bench_function("maxminddb", |b| b.iter(|| bench_maxminddb(&ips, &reader)));
 }
 
 pub fn criterion_par_benchmark(c: &mut Criterion) {
     let ips = generate_ipv4(100);
-    let reader = maxminddb::Reader::open_readfile("GeoLite2-City.mmdb").unwrap();
+    #[cfg(not(feature = "mmap"))]
+    let reader = maxminddb::Reader::open_readfile(DB_FILE).unwrap();
+    #[cfg(feature = "mmap")]
+    let reader = maxminddb::Reader::open_mmap(DB_FILE).unwrap();
 
     c.bench_function("maxminddb_par", |b| {
         b.iter(|| bench_par_maxminddb(&ips, &reader))
