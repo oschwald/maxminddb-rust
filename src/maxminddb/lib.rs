@@ -150,16 +150,9 @@ impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
                             Ok(ip_net) => ip_net,
                             Err(e) => return Some(Err(e)),
                         };
-                    // TODO: should this block become a helper method on reader?
-                    let rec = match self.reader.resolve_data_pointer(current.node) {
-                        Ok(rec) => rec,
-                        Err(e) => return Some(Err(e)),
-                    };
-                    let mut decoder = decoder::Decoder::new(
-                        &self.reader.buf.as_ref()[self.reader.pointer_base..],
-                        rec,
-                    );
-                    return match T::deserialize(&mut decoder) {
+
+                    // Call the new helper method to decode data
+                    return match self.reader.decode_data_at_pointer(current.node) {
                         Ok(info) => Some(Ok(WithinItem { ip_net, info })),
                         Err(e) => Some(Err(e)),
                     };
@@ -356,12 +349,8 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
             return Ok((None, prefix_len));
         }
 
-        // If pointer > 0, attempt to resolve and decode data
-        let rec = self.resolve_data_pointer(pointer)?;
-        let mut decoder = decoder::Decoder::new(&self.buf.as_ref()[self.pointer_base..], rec);
-
-        // Attempt to deserialize. If successful, wrap in Some. If error, propagate.
-        match T::deserialize(&mut decoder) {
+        // If pointer > 0, attempt to resolve and decode data using the helper method
+        match self.decode_data_at_pointer(pointer) {
             Ok(value) => Ok((Some(value), prefix_len)),
             Err(e) => Err(e),
         }
@@ -517,6 +506,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         Ok(val)
     }
 
+    /// Resolves a pointer from the search tree to an offset in the data section.
     fn resolve_data_pointer(&self, pointer: usize) -> Result<usize, MaxMindDbError> {
         let resolved = pointer - (self.metadata.node_count as usize) - 16;
 
@@ -528,6 +518,18 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         }
 
         Ok(resolved)
+    }
+
+    /// Decodes data at the given pointer offset.
+    /// Assumes the pointer is valid and points to the data section.
+    fn decode_data_at_pointer<T>(&'de self, pointer: usize) -> Result<T, MaxMindDbError>
+    where
+        T: Deserialize<'de>,
+    {
+        let resolved_offset = self.resolve_data_pointer(pointer)?;
+        let mut decoder =
+            decoder::Decoder::new(&self.buf.as_ref()[self.pointer_base..], resolved_offset);
+        T::deserialize(&mut decoder)
     }
 }
 
@@ -630,7 +632,8 @@ mod tests {
         let result_lookup_prefix = reader.lookup_prefix::<geoip2::City>(ip);
         assert!(
             matches!(result_lookup_prefix, Ok((None, 8))),
-            "lookup_prefix should return Ok(None) for unknown IP"
+            "lookup_prefix should return Ok((None, 8)) for unknown IP, got {:?}",
+            result_lookup_prefix
         );
     }
 
