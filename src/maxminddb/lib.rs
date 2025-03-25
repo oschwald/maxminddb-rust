@@ -23,7 +23,6 @@ compile_error!("features `simdutf8` and `unsafe-str-decode` are mutually exclusi
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum MaxMindDBError {
-    AddressNotFoundError(String),
     InvalidDatabaseError(String),
     IoError(String),
     MapError(String),
@@ -41,9 +40,6 @@ impl From<io::Error> for MaxMindDBError {
 impl Display for MaxMindDBError {
     fn fmt(&self, fmt: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            MaxMindDBError::AddressNotFoundError(msg) => {
-                write!(fmt, "AddressNotFoundError: {msg}")?
-            }
             MaxMindDBError::InvalidDatabaseError(msg) => {
                 write!(fmt, "InvalidDatabaseError: {msg}")?
             }
@@ -231,7 +227,10 @@ impl<'de> Reader<Mmap> {
     /// # Example
     ///
     /// ```
+    /// # #[cfg(feature = "mmap")]
+    /// # {
     /// let reader = maxminddb::Reader::open_mmap("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    /// # }
     /// ```
     pub fn open_mmap<P: AsRef<Path>>(database: P) -> Result<Reader<Mmap>, MaxMindDBError> {
         let file_read = File::open(database)?;
@@ -286,59 +285,93 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         Ok(reader)
     }
 
-    /// Lookup the socket address in the opened MaxMind DB
+    /// Lookup the socket address in the opened MaxMind DB.
+    /// Returns `Ok(None)` if the address is not found in the database.
     ///
     /// Example:
     ///
     /// ```
-    /// use maxminddb::geoip2;
-    /// use std::net::IpAddr;
-    /// use std::str::FromStr;
-    ///
-    /// let reader = maxminddb::Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    /// # use maxminddb::geoip2;
+    /// # use std::net::IpAddr;
+    /// # use std::str::FromStr;
+    /// # fn main() -> Result<(), maxminddb::MaxMindDBError> {
+    /// let reader = maxminddb::Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb")?;
     ///
     /// let ip: IpAddr = FromStr::from_str("89.160.20.128").unwrap();
-    /// let city: geoip2::City = reader.lookup(ip).unwrap();
-    /// print!("{:?}", city);
+    /// if let Some(city) = reader.lookup::<geoip2::City>(ip)? {
+    ///     println!("{:?}", city);
+    /// } else {
+    ///     println!("Address not found");
+    /// }
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn lookup<T>(&'de self, address: IpAddr) -> Result<T, MaxMindDBError>
+    pub fn lookup<T>(&'de self, address: IpAddr) -> Result<Option<T>, MaxMindDBError>
     where
         T: Deserialize<'de>,
     {
-        self.lookup_prefix(address).map(|(v, _)| v)
+        self.lookup_prefix(address)
+            .map(|(option_value, _prefix_len)| option_value)
     }
 
-    /// Lookup the socket address in the opened MaxMind DB
+    /// Lookup the socket address in the opened MaxMind DB, returning the found value (if any)
+    /// and the prefix length of the network associated with the lookup.
+    ///
+    /// Returns `Ok((None, prefix_len))` if the address is found in the tree but has no data record.
+    /// Returns `Err(...)` for database errors (IO, corruption, decoding).
     ///
     /// Example:
     ///
     /// ```
-    /// use maxminddb::geoip2;
-    /// use std::net::IpAddr;
-    /// use std::str::FromStr;
+    /// # use maxminddb::geoip2;
+    /// # use std::net::IpAddr;
+    /// # use std::str::FromStr;
+    /// # fn main() -> Result<(), maxminddb::MaxMindDBError> {
+    /// let reader = maxminddb::Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb")?;
     ///
-    /// let reader = maxminddb::Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    /// let ip: IpAddr = "89.160.20.128".parse().unwrap(); // Known IP
+    /// let ip_unknown: IpAddr = "10.0.0.1".parse().unwrap(); // Unknown IP
     ///
-    /// let ip: IpAddr = "89.160.20.128".parse().unwrap();
-    /// let (city, prefix_len) = reader.lookup_prefix::<geoip2::City>(ip).unwrap();
-    /// print!("{:?}, prefix length: {}", city, prefix_len);
+    /// let (city_option, prefix_len) = reader.lookup_prefix::<geoip2::City>(ip)?;
+    /// if let Some(city) = city_option {
+    ///     println!("Found {:?} at prefix length {}", city.city.unwrap().names.unwrap().get("en").unwrap(), prefix_len);
+    /// } else {
+    ///     // This case is less likely with lookup_prefix if the IP resolves in the tree
+    ///     println!("IP found in tree but no data (prefix_len: {})", prefix_len);
+    /// }
+    ///
+    /// let (city_option_unknown, prefix_len_unknown) = reader.lookup_prefix::<geoip2::City>(ip_unknown)?;
+    /// assert!(city_option_unknown.is_none());
+    /// println!("Unknown IP resolved to prefix_len: {}", prefix_len_unknown);
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn lookup_prefix<T>(&'de self, address: IpAddr) -> Result<(T, usize), MaxMindDBError>
+    pub fn lookup_prefix<T>(
+        &'de self,
+        address: IpAddr,
+    ) -> Result<(Option<T>, usize), MaxMindDBError>
     where
         T: Deserialize<'de>,
     {
         let ip_int = IpInt::new(address);
+        // find_address_in_tree returns Result<(usize, usize), MaxMindDBError> -> (pointer, prefix_len)
         let (pointer, prefix_len) = self.find_address_in_tree(&ip_int)?;
+
         if pointer == 0 {
-            return Err(MaxMindDBError::AddressNotFoundError(
-                "Address not found in database".to_owned(),
-            ));
+            // If pointer is 0, it signifies no data record was associated during tree traversal.
+            // Return None for the data, but include the calculated prefix_len.
+            return Ok((None, prefix_len));
         }
 
+        // If pointer > 0, attempt to resolve and decode data
         let rec = self.resolve_data_pointer(pointer)?;
         let mut decoder = decoder::Decoder::new(&self.buf.as_ref()[self.pointer_base..], rec);
 
-        T::deserialize(&mut decoder).map(|v| (v, prefix_len))
+        // Attempt to deserialize. If successful, wrap in Some. If error, propagate.
+        match T::deserialize(&mut decoder) {
+            Ok(value) => Ok((Some(value), prefix_len)),
+            Err(e) => Err(e),
+        }
     }
 
     /// Iterate over blocks of IP networks in the opened MaxMind DB
@@ -423,6 +456,8 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
             node = self.read_node(node, bit as usize)?;
         }
         match node_count {
+            // If node == node_count, it means we hit the placeholder "empty" node
+            // return 0 as the pointer value to signify "not found".
             n if n == node => Ok((0, prefix_len)),
             n if node > n => Ok((node, prefix_len)),
             _ => Err(MaxMindDBError::InvalidDatabaseError(
@@ -494,9 +529,8 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
 
         // Check bounds using pointer_base which marks the start of the data section
         if resolved >= (self.buf.as_ref().len() - self.pointer_base) {
-             return Err(MaxMindDBError::InvalidDatabaseError(
-                 "the MaxMind DB file's data pointer resolves to an invalid location"
-                    .to_owned(),
+            return Err(MaxMindDBError::InvalidDatabaseError(
+                "the MaxMind DB file's data pointer resolves to an invalid location".to_owned(),
             ));
         }
 
@@ -551,13 +585,6 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                MaxMindDBError::AddressNotFoundError("something went wrong".to_owned())
-            ),
-            "AddressNotFoundError: something went wrong".to_owned(),
-        );
-        assert_eq!(
-            format!(
-                "{}",
                 MaxMindDBError::InvalidDatabaseError("something went wrong".to_owned())
             ),
             "InvalidDatabaseError: something went wrong".to_owned(),
@@ -583,5 +610,68 @@ mod tests {
             ),
             "DecodingError: something went wrong".to_owned(),
         );
+        assert_eq!(
+            format!(
+                "{}",
+                MaxMindDBError::InvalidNetworkError("something went wrong".to_owned())
+            ),
+            "InvalidNetworkError: something went wrong".to_owned(),
+        );
+    }
+
+    #[test]
+    fn test_lookup_returns_none_for_unknown_address() {
+        use super::Reader;
+        use crate::geoip2;
+        use std::net::IpAddr;
+        use std::str::FromStr;
+
+        let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+        let ip: IpAddr = FromStr::from_str("10.0.0.1").unwrap();
+
+        let result_lookup = reader.lookup::<geoip2::City>(ip);
+        assert!(
+            matches!(result_lookup, Ok(None)),
+            "lookup should return Ok(None) for unknown IP"
+        );
+
+        let result_lookup_prefix = reader.lookup_prefix::<geoip2::City>(ip);
+        assert!(
+            matches!(result_lookup_prefix, Ok((None, 8))),
+            "lookup_prefix should return Ok(None) for unknown IP"
+        );
+    }
+
+    #[test]
+    fn test_lookup_returns_some_for_known_address() {
+        use super::Reader;
+        use crate::geoip2;
+        use std::net::IpAddr;
+        use std::str::FromStr;
+
+        let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+        let ip: IpAddr = FromStr::from_str("89.160.20.128").unwrap();
+
+        let result_lookup = reader.lookup::<geoip2::City>(ip);
+        assert!(
+            matches!(result_lookup, Ok(Some(_))),
+            "lookup should return Ok(Some(_)) for known IP"
+        );
+        assert!(
+            result_lookup.unwrap().unwrap().city.is_some(),
+            "Expected city data"
+        );
+
+        let result_lookup_prefix = reader.lookup_prefix::<geoip2::City>(ip);
+        assert!(
+            matches!(result_lookup_prefix, Ok((Some(_), _))),
+            "lookup_prefix should return Ok(Some(_)) for known IP"
+        );
+        let (city_data, prefix_len) = result_lookup_prefix.unwrap();
+        assert!(
+            city_data.unwrap().city.is_some(),
+            "Expected city data from prefix lookup"
+        );
+        assert_eq!(prefix_len, 25, "Expected valid prefix length");
     }
 }

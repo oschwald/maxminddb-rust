@@ -14,7 +14,7 @@ fn main() -> Result<(), String> {
         .ok_or("Second argument must be the IP address, like 128.101.101.101")?
         .parse()
         .unwrap();
-    let city: geoip2::City = reader.lookup(ip).unwrap();
+    let city: Option<geoip2::City> = reader.lookup(ip).unwrap();
     println!("{city:#?}");
     Ok(())
 }

@@ -2,6 +2,14 @@
 
 ## 0.26.0
 
+* **BREAKING CHANGE:** The `lookup` and `lookup_prefix` methods now return
+  `Ok(None)` or `Ok((None, prefix_len))` respectively when an IP address is
+  valid but not found in the database (or has no associated data record),
+  instead of returning an `Err(MaxMindDBError::AddressNotFoundError)`.
+  Code previously matching on `AddressNotFoundError` must be updated to
+  handle the `Ok(None)` / `Ok((None, prefix_len))` variants.
+* `lookup_prefix` now returns the prefix length of the entry even when the
+  value is not found.
 * Fixed an internal bounds checking error when resolving data pointers.
   The previous logic could cause a panic on a corrupt database.
 
