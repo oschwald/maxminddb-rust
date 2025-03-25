@@ -6,7 +6,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::geoip2;
-use crate::{MaxMindDBError, Reader, Within};
+use crate::{MaxMindDbError, Reader, Within};
 
 #[allow(clippy::float_cmp)]
 #[test]
@@ -106,10 +106,10 @@ fn test_broken_database() {
     match r.lookup::<TestType>(ip) {
         Err(e) => assert!(matches!(
             e,
-            MaxMindDBError::InvalidDatabaseError(_) // Check variant, message might vary slightly
+            MaxMindDbError::InvalidDatabase(_) // Check variant, message might vary slightly
         )),
         Ok(Some(_)) => panic!("Unexpected success with broken data"),
-        Ok(None) => panic!("Got None, expected InvalidDatabaseError"),
+        Ok(None) => panic!("Got None, expected InvalidDatabase"),
     }
 }
 
@@ -120,7 +120,7 @@ fn test_missing_database() {
     let r = Reader::open_readfile("file-does-not-exist.mmdb");
     match r {
         Ok(_) => panic!("Received Reader when opening non-existent file"),
-        Err(e) => assert!(matches!(e, MaxMindDBError::IoError(_))), // Specific message might vary by OS/locale
+        Err(e) => assert!(matches!(e, MaxMindDbError::Io(_))), // Specific message might vary by OS/locale
     }
 }
 
@@ -131,11 +131,10 @@ fn test_non_database() {
     let r = Reader::open_readfile("README.md");
     match r {
         Ok(_) => panic!("Received Reader when opening a non-MMDB file"),
-        Err(e) => assert_eq!(
-            e,
-            MaxMindDBError::InvalidDatabaseError(
-                "Could not find MaxMind DB metadata in file.".to_owned(),
-            )
+        Err(e) => assert!(
+            matches!(&e, MaxMindDbError::InvalidDatabase(s) if s == "Could not find MaxMind DB metadata in file."),
+            "Expected InvalidDatabase error with specific message, but got: {:?}",
+            e
         ),
     }
 }

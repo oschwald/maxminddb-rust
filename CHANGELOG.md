@@ -5,9 +5,32 @@
 * **BREAKING CHANGE:** The `lookup` and `lookup_prefix` methods now return
   `Ok(None)` or `Ok((None, prefix_len))` respectively when an IP address is
   valid but not found in the database (or has no associated data record),
-  instead of returning an `Err(MaxMindDBError::AddressNotFoundError)`.
+  instead of returning an `Err(MaxMindDbError::AddressNotFoundError)`.
   Code previously matching on `AddressNotFoundError` must be updated to
   handle the `Ok(None)` / `Ok((None, prefix_len))` variants.
+* **BREAKING CHANGE:** The `MaxMindDBError` enum  has been renamed
+  `MaxMindDbError` and variants have been renamed and refactored. For
+  example, `IoError` is now `Io`, `InvalidDatabaseError` is now
+  `InvalidDatabase`, `DecodingError` is now `Decoding`,
+  `InvalidNetworkError` is now `InvalidNetwork`. The `MapError` variant has
+  been replaced by `Mmap` (under the `mmap` feature flag). Code explicitly
+  matching on the old variant names must be updated.
+* **BREAKING CHANGE:** `MaxMindDbError` no longer implements `PartialEq`.
+  This is because underlying error types like `std::io::Error` (now
+  wrapped by the `Io` and `Mmap` variants) do not implement `PartialEq`.
+  Code comparing errors directly using `==` or `assert_eq!` must be
+  updated, typically by using `matches!` or by matching on the error
+  kind and potentially its contents.
+* Refactored `MaxMindDbError` handling using the `thiserror` crate.
+  Variants like `Io`, `Mmap`, and `InvalidNetwork` now directly wrap
+  the underlying error types (`std::io::Error`, `ipnetwork::IpNetworkError`).
+* Errors wrapping underlying types (`Io`, `Mmap`, `InvalidNetwork`) now
+  correctly implement `std::error::Error::source()`, allowing inspection
+  of the original cause.
+* The `Display` implementation for `MaxMindDbError` has been refined to
+  generally show only the specific error details, often including the
+  message from the source error, rather than prefixing with the variant
+  name.
 * `lookup_prefix` now returns the prefix length of the entry even when the
   value is not found.
 * Fixed an internal bounds checking error when resolving data pointers.
