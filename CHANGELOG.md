@@ -1,5 +1,11 @@
 # Change Log #
 
+## 0.26.0
+
+* Fixed an internal bounds checking error when resolving data pointers.
+  The previous logic could cause a panic on a corrupt database.
+
+
 ## 0.25.0 - 2025-02-16
 
 * Serde will now skip serialization of the GeoIP2 struct fields

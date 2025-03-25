@@ -492,10 +492,10 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     fn resolve_data_pointer(&self, pointer: usize) -> Result<usize, MaxMindDBError> {
         let resolved = pointer - (self.metadata.node_count as usize) - 16;
 
-        if resolved > self.buf.as_ref().len() {
-            return Err(MaxMindDBError::InvalidDatabaseError(
-                "the MaxMind DB file's search tree \
-                 is corrupt"
+        // Check bounds using pointer_base which marks the start of the data section
+        if resolved >= (self.buf.as_ref().len() - self.pointer_base) {
+             return Err(MaxMindDBError::InvalidDatabaseError(
+                 "the MaxMind DB file's data pointer resolves to an invalid location"
                     .to_owned(),
             ));
         }
