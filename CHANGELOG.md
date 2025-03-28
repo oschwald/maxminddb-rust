@@ -1,6 +1,6 @@
 # Change Log #
 
-## 0.26.0
+## 0.26.0 - 2025-03-28
 
 * **BREAKING CHANGE:** The `lookup` and `lookup_prefix` methods now return
   `Ok(None)` or `Ok((None, prefix_len))` respectively when an IP address is
