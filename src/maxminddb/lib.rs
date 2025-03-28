@@ -2,14 +2,16 @@
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
-use std::fmt::{self, Display, Formatter};
+use std::fmt::Display;
+use std::fs;
 use std::io;
 use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::Path;
 
-use ipnetwork::IpNetwork;
+use ipnetwork::{IpNetwork, IpNetworkError};
 use serde::{de, Deserialize, Serialize};
+use thiserror::Error;
 
 #[cfg(feature = "mmap")]
 pub use memmap2::Mmap;
@@ -21,47 +23,36 @@ use std::fs::File;
 #[cfg(all(feature = "simdutf8", feature = "unsafe-str-decode"))]
 compile_error!("features `simdutf8` and `unsafe-str-decode` are mutually exclusive");
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum MaxMindDBError {
-    AddressNotFoundError(String),
-    InvalidDatabaseError(String),
-    IoError(String),
-    MapError(String),
-    DecodingError(String),
-    InvalidNetworkError(String),
+#[derive(Error, Debug)]
+pub enum MaxMindDbError {
+    #[error("Invalid database: {0}")]
+    InvalidDatabase(String),
+
+    #[error("I/O error: {0}")]
+    Io(
+        #[from]
+        #[source]
+        io::Error,
+    ),
+
+    #[cfg(feature = "mmap")]
+    #[error("Memory map error: {0}")]
+    Mmap(#[source] io::Error),
+
+    #[error("Decoding error: {0}")]
+    Decoding(String),
+
+    #[error("Invalid network: {0}")]
+    InvalidNetwork(
+        #[from]
+        #[source]
+        IpNetworkError,
+    ),
 }
 
-impl From<io::Error> for MaxMindDBError {
-    fn from(err: io::Error) -> MaxMindDBError {
-        // clean up and clean up MaxMindDBError generally
-        MaxMindDBError::IoError(err.to_string())
-    }
-}
-
-impl Display for MaxMindDBError {
-    fn fmt(&self, fmt: &mut Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            MaxMindDBError::AddressNotFoundError(msg) => {
-                write!(fmt, "AddressNotFoundError: {msg}")?
-            }
-            MaxMindDBError::InvalidDatabaseError(msg) => {
-                write!(fmt, "InvalidDatabaseError: {msg}")?
-            }
-            MaxMindDBError::IoError(msg) => write!(fmt, "IoError: {msg}")?,
-            MaxMindDBError::MapError(msg) => write!(fmt, "MapError: {msg}")?,
-            MaxMindDBError::DecodingError(msg) => write!(fmt, "DecodingError: {msg}")?,
-            MaxMindDBError::InvalidNetworkError(msg) => write!(fmt, "InvalidNetworkError: {msg}")?,
-        }
-        Ok(())
-    }
-}
-
-// Use default implementation for `std::error::Error`
-impl std::error::Error for MaxMindDBError {}
-
-impl de::Error for MaxMindDBError {
+impl de::Error for MaxMindDbError {
     fn custom<T: Display>(msg: T) -> Self {
-        MaxMindDBError::DecodingError(format!("{msg}"))
+        MaxMindDbError::Decoding(format!("{msg}"))
     }
 }
 
@@ -136,7 +127,7 @@ impl IpInt {
 }
 
 impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
-    type Item = Result<WithinItem<T>, MaxMindDBError>;
+    type Item = Result<WithinItem<T>, MaxMindDbError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(current) = self.stack.pop() {
@@ -159,16 +150,9 @@ impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
                             Ok(ip_net) => ip_net,
                             Err(e) => return Some(Err(e)),
                         };
-                    // TODO: should this block become a helper method on reader?
-                    let rec = match self.reader.resolve_data_pointer(current.node) {
-                        Ok(rec) => rec,
-                        Err(e) => return Some(Err(e)),
-                    };
-                    let mut decoder = decoder::Decoder::new(
-                        &self.reader.buf.as_ref()[self.reader.pointer_base..],
-                        rec,
-                    );
-                    return match T::deserialize(&mut decoder) {
+
+                    // Call the new helper method to decode data
+                    return match self.reader.decode_data_at_pointer(current.node) {
                         Ok(info) => Some(Ok(WithinItem { ip_net, info })),
                         Err(e) => Some(Err(e)),
                     };
@@ -231,11 +215,14 @@ impl<'de> Reader<Mmap> {
     /// # Example
     ///
     /// ```
+    /// # #[cfg(feature = "mmap")]
+    /// # {
     /// let reader = maxminddb::Reader::open_mmap("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    /// # }
     /// ```
-    pub fn open_mmap<P: AsRef<Path>>(database: P) -> Result<Reader<Mmap>, MaxMindDBError> {
+    pub fn open_mmap<P: AsRef<Path>>(database: P) -> Result<Reader<Mmap>, MaxMindDbError> {
         let file_read = File::open(database)?;
-        let mmap = unsafe { MmapOptions::new().map(&file_read) }?;
+        let mmap = unsafe { MmapOptions::new().map(&file_read) }.map_err(MaxMindDbError::Mmap)?;
         Reader::from_source(mmap)
     }
 }
@@ -248,10 +235,8 @@ impl Reader<Vec<u8>> {
     /// ```
     /// let reader = maxminddb::Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
     /// ```
-    pub fn open_readfile<P: AsRef<Path>>(database: P) -> Result<Reader<Vec<u8>>, MaxMindDBError> {
-        use std::fs;
-
-        let buf: Vec<u8> = fs::read(&database)?;
+    pub fn open_readfile<P: AsRef<Path>>(database: P) -> Result<Reader<Vec<u8>>, MaxMindDbError> {
+        let buf: Vec<u8> = fs::read(&database)?; // IO error converted via #[from]
         Reader::from_source(buf)
     }
 }
@@ -266,7 +251,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// let buf = fs::read("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
     /// let reader = maxminddb::Reader::from_source(buf).unwrap();
     /// ```
-    pub fn from_source(buf: S) -> Result<Reader<S>, MaxMindDBError> {
+    pub fn from_source(buf: S) -> Result<Reader<S>, MaxMindDbError> {
         let data_section_separator_size = 16;
 
         let metadata_start = find_metadata_start(buf.as_ref())?;
@@ -286,59 +271,89 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         Ok(reader)
     }
 
-    /// Lookup the socket address in the opened MaxMind DB
+    /// Lookup the socket address in the opened MaxMind DB.
+    /// Returns `Ok(None)` if the address is not found in the database.
     ///
     /// Example:
     ///
     /// ```
-    /// use maxminddb::geoip2;
-    /// use std::net::IpAddr;
-    /// use std::str::FromStr;
-    ///
-    /// let reader = maxminddb::Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    /// # use maxminddb::geoip2;
+    /// # use std::net::IpAddr;
+    /// # use std::str::FromStr;
+    /// # fn main() -> Result<(), maxminddb::MaxMindDbError> {
+    /// let reader = maxminddb::Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb")?;
     ///
     /// let ip: IpAddr = FromStr::from_str("89.160.20.128").unwrap();
-    /// let city: geoip2::City = reader.lookup(ip).unwrap();
-    /// print!("{:?}", city);
+    /// if let Some(city) = reader.lookup::<geoip2::City>(ip)? {
+    ///     println!("{:?}", city);
+    /// } else {
+    ///     println!("Address not found");
+    /// }
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn lookup<T>(&'de self, address: IpAddr) -> Result<T, MaxMindDBError>
+    pub fn lookup<T>(&'de self, address: IpAddr) -> Result<Option<T>, MaxMindDbError>
     where
         T: Deserialize<'de>,
     {
-        self.lookup_prefix(address).map(|(v, _)| v)
+        self.lookup_prefix(address)
+            .map(|(option_value, _prefix_len)| option_value)
     }
 
-    /// Lookup the socket address in the opened MaxMind DB
+    /// Lookup the socket address in the opened MaxMind DB, returning the found value (if any)
+    /// and the prefix length of the network associated with the lookup.
+    ///
+    /// Returns `Ok((None, prefix_len))` if the address is found in the tree but has no data record.
+    /// Returns `Err(...)` for database errors (IO, corruption, decoding).
     ///
     /// Example:
     ///
     /// ```
-    /// use maxminddb::geoip2;
-    /// use std::net::IpAddr;
-    /// use std::str::FromStr;
+    /// # use maxminddb::geoip2;
+    /// # use std::net::IpAddr;
+    /// # use std::str::FromStr;
+    /// # fn main() -> Result<(), maxminddb::MaxMindDbError> {
+    /// let reader = maxminddb::Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb")?;
     ///
-    /// let reader = maxminddb::Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    /// let ip: IpAddr = "89.160.20.128".parse().unwrap(); // Known IP
+    /// let ip_unknown: IpAddr = "10.0.0.1".parse().unwrap(); // Unknown IP
     ///
-    /// let ip: IpAddr = "89.160.20.128".parse().unwrap();
-    /// let (city, prefix_len) = reader.lookup_prefix::<geoip2::City>(ip).unwrap();
-    /// print!("{:?}, prefix length: {}", city, prefix_len);
+    /// let (city_option, prefix_len) = reader.lookup_prefix::<geoip2::City>(ip)?;
+    /// if let Some(city) = city_option {
+    ///     println!("Found {:?} at prefix length {}", city.city.unwrap().names.unwrap().get("en").unwrap(), prefix_len);
+    /// } else {
+    ///     // This case is less likely with lookup_prefix if the IP resolves in the tree
+    ///     println!("IP found in tree but no data (prefix_len: {})", prefix_len);
+    /// }
+    ///
+    /// let (city_option_unknown, prefix_len_unknown) = reader.lookup_prefix::<geoip2::City>(ip_unknown)?;
+    /// assert!(city_option_unknown.is_none());
+    /// println!("Unknown IP resolved to prefix_len: {}", prefix_len_unknown);
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn lookup_prefix<T>(&'de self, address: IpAddr) -> Result<(T, usize), MaxMindDBError>
+    pub fn lookup_prefix<T>(
+        &'de self,
+        address: IpAddr,
+    ) -> Result<(Option<T>, usize), MaxMindDbError>
     where
         T: Deserialize<'de>,
     {
         let ip_int = IpInt::new(address);
+        // find_address_in_tree returns Result<(usize, usize), MaxMindDbError> -> (pointer, prefix_len)
         let (pointer, prefix_len) = self.find_address_in_tree(&ip_int)?;
+
         if pointer == 0 {
-            return Err(MaxMindDBError::AddressNotFoundError(
-                "Address not found in database".to_owned(),
-            ));
+            // If pointer is 0, it signifies no data record was associated during tree traversal.
+            // Return None for the data, but include the calculated prefix_len.
+            return Ok((None, prefix_len));
         }
 
-        let rec = self.resolve_data_pointer(pointer)?;
-        let mut decoder = decoder::Decoder::new(&self.buf.as_ref()[self.pointer_base..], rec);
-
-        T::deserialize(&mut decoder).map(|v| (v, prefix_len))
+        // If pointer > 0, attempt to resolve and decode data using the helper method
+        match self.decode_data_at_pointer(pointer) {
+            Ok(value) => Ok((Some(value), prefix_len)),
+            Err(e) => Err(e),
+        }
     }
 
     /// Iterate over blocks of IP networks in the opened MaxMind DB
@@ -358,7 +373,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     ///     println!("ip_net={}, city={:?}", item.ip_net, item.info);
     /// }
     /// ```
-    pub fn within<T>(&'de self, cidr: IpNetwork) -> Result<Within<'de, T, S>, MaxMindDBError>
+    pub fn within<T>(&'de self, cidr: IpNetwork) -> Result<Within<'de, T, S>, MaxMindDbError>
     where
         T: Deserialize<'de>,
     {
@@ -407,7 +422,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         Ok(within)
     }
 
-    fn find_address_in_tree(&self, ip_int: &IpInt) -> Result<(usize, usize), MaxMindDBError> {
+    fn find_address_in_tree(&self, ip_int: &IpInt) -> Result<(usize, usize), MaxMindDbError> {
         let bit_count = ip_int.bit_count();
         let mut node = self.start_node(bit_count);
 
@@ -423,9 +438,11 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
             node = self.read_node(node, bit as usize)?;
         }
         match node_count {
+            // If node == node_count, it means we hit the placeholder "empty" node
+            // return 0 as the pointer value to signify "not found".
             n if n == node => Ok((0, prefix_len)),
             n if node > n => Ok((node, prefix_len)),
-            _ => Err(MaxMindDBError::InvalidDatabaseError(
+            _ => Err(MaxMindDbError::InvalidDatabase(
                 "invalid node in search tree".to_owned(),
             )),
         }
@@ -439,7 +456,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         }
     }
 
-    fn find_ipv4_start(&self) -> Result<usize, MaxMindDBError> {
+    fn find_ipv4_start(&self) -> Result<usize, MaxMindDbError> {
         if self.metadata.ip_version != 6 {
             return Ok(0);
         }
@@ -456,7 +473,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         Ok(node)
     }
 
-    fn read_node(&self, node_number: usize, index: usize) -> Result<usize, MaxMindDBError> {
+    fn read_node(&self, node_number: usize, index: usize) -> Result<usize, MaxMindDbError> {
         let buf = self.buf.as_ref();
         let base_offset = node_number * (self.metadata.record_size as usize) / 4;
 
@@ -480,7 +497,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
                 to_usize(0, &buf[offset..offset + 4])
             }
             s => {
-                return Err(MaxMindDBError::InvalidDatabaseError(format!(
+                return Err(MaxMindDbError::InvalidDatabase(format!(
                     "unknown record size: \
                      {s:?}"
                 )))
@@ -489,18 +506,30 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         Ok(val)
     }
 
-    fn resolve_data_pointer(&self, pointer: usize) -> Result<usize, MaxMindDBError> {
+    /// Resolves a pointer from the search tree to an offset in the data section.
+    fn resolve_data_pointer(&self, pointer: usize) -> Result<usize, MaxMindDbError> {
         let resolved = pointer - (self.metadata.node_count as usize) - 16;
 
-        if resolved > self.buf.as_ref().len() {
-            return Err(MaxMindDBError::InvalidDatabaseError(
-                "the MaxMind DB file's search tree \
-                 is corrupt"
-                    .to_owned(),
+        // Check bounds using pointer_base which marks the start of the data section
+        if resolved >= (self.buf.as_ref().len() - self.pointer_base) {
+            return Err(MaxMindDbError::InvalidDatabase(
+                "the MaxMind DB file's data pointer resolves to an invalid location".to_owned(),
             ));
         }
 
         Ok(resolved)
+    }
+
+    /// Decodes data at the given pointer offset.
+    /// Assumes the pointer is valid and points to the data section.
+    fn decode_data_at_pointer<T>(&'de self, pointer: usize) -> Result<T, MaxMindDbError>
+    where
+        T: Deserialize<'de>,
+    {
+        let resolved_offset = self.resolve_data_pointer(pointer)?;
+        let mut decoder =
+            decoder::Decoder::new(&self.buf.as_ref()[self.pointer_base..], resolved_offset);
+        T::deserialize(&mut decoder)
     }
 }
 
@@ -513,7 +542,7 @@ fn to_usize(base: u8, bytes: &[u8]) -> usize {
 }
 
 #[inline]
-fn bytes_and_prefix_to_net(bytes: &IpInt, prefix: u8) -> Result<IpNetwork, MaxMindDBError> {
+fn bytes_and_prefix_to_net(bytes: &IpInt, prefix: u8) -> Result<IpNetwork, MaxMindDbError> {
     let (ip, prefix) = match bytes {
         IpInt::V4(ip) => (IpAddr::V4(Ipv4Addr::from(*ip)), prefix),
         IpInt::V6(ip) if bytes.is_ipv4_in_ipv6() => {
@@ -521,16 +550,16 @@ fn bytes_and_prefix_to_net(bytes: &IpInt, prefix: u8) -> Result<IpNetwork, MaxMi
         }
         IpInt::V6(ip) => (IpAddr::V6(Ipv6Addr::from(*ip)), prefix),
     };
-    IpNetwork::new(ip, prefix).map_err(|e| MaxMindDBError::InvalidNetworkError(e.to_string()))
+    IpNetwork::new(ip, prefix).map_err(MaxMindDbError::InvalidNetwork)
 }
 
-fn find_metadata_start(buf: &[u8]) -> Result<usize, MaxMindDBError> {
+fn find_metadata_start(buf: &[u8]) -> Result<usize, MaxMindDbError> {
     const METADATA_START_MARKER: &[u8] = b"\xab\xcd\xefMaxMind.com";
 
     memchr::memmem::rfind(buf, METADATA_START_MARKER)
         .map(|x| x + METADATA_START_MARKER.len())
         .ok_or_else(|| {
-            MaxMindDBError::InvalidDatabaseError(
+            MaxMindDbError::InvalidDatabase(
                 "Could not find MaxMind DB metadata in file.".to_owned(),
             )
         })
@@ -544,44 +573,100 @@ mod reader_test;
 
 #[cfg(test)]
 mod tests {
-    use super::MaxMindDBError;
+    use super::MaxMindDbError;
+    use ipnetwork::IpNetworkError;
+    use std::io::{Error, ErrorKind};
 
     #[test]
     fn test_error_display() {
         assert_eq!(
             format!(
                 "{}",
-                MaxMindDBError::AddressNotFoundError("something went wrong".to_owned())
+                MaxMindDbError::InvalidDatabase("something went wrong".to_owned())
             ),
-            "AddressNotFoundError: something went wrong".to_owned(),
+            "Invalid database: something went wrong".to_owned(),
         );
+        let io_err = Error::new(ErrorKind::NotFound, "file not found");
         assert_eq!(
-            format!(
-                "{}",
-                MaxMindDBError::InvalidDatabaseError("something went wrong".to_owned())
-            ),
-            "InvalidDatabaseError: something went wrong".to_owned(),
+            format!("{}", MaxMindDbError::from(io_err)),
+            "I/O error: file not found".to_owned(),
         );
+
+        #[cfg(feature = "mmap")]
+        {
+            let mmap_io_err = Error::new(ErrorKind::PermissionDenied, "mmap failed");
+            assert_eq!(
+                format!("{}", MaxMindDbError::Mmap(mmap_io_err)),
+                "Memory map error: mmap failed".to_owned(),
+            );
+        }
+
         assert_eq!(
-            format!(
-                "{}",
-                MaxMindDBError::IoError("something went wrong".to_owned())
-            ),
-            "IoError: something went wrong".to_owned(),
+            format!("{}", MaxMindDbError::Decoding("unexpected type".to_owned())),
+            "Decoding error: unexpected type".to_owned(),
         );
+
+        let net_err = IpNetworkError::InvalidPrefix;
         assert_eq!(
-            format!(
-                "{}",
-                MaxMindDBError::MapError("something went wrong".to_owned())
-            ),
-            "MapError: something went wrong".to_owned(),
+            format!("{}", MaxMindDbError::from(net_err)),
+            "Invalid network: invalid prefix".to_owned(),
         );
-        assert_eq!(
-            format!(
-                "{}",
-                MaxMindDBError::DecodingError("something went wrong".to_owned())
-            ),
-            "DecodingError: something went wrong".to_owned(),
+    }
+
+    #[test]
+    fn test_lookup_returns_none_for_unknown_address() {
+        use super::Reader;
+        use crate::geoip2;
+        use std::net::IpAddr;
+        use std::str::FromStr;
+
+        let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+        let ip: IpAddr = FromStr::from_str("10.0.0.1").unwrap();
+
+        let result_lookup = reader.lookup::<geoip2::City>(ip);
+        assert!(
+            matches!(result_lookup, Ok(None)),
+            "lookup should return Ok(None) for unknown IP"
         );
+
+        let result_lookup_prefix = reader.lookup_prefix::<geoip2::City>(ip);
+        assert!(
+            matches!(result_lookup_prefix, Ok((None, 8))),
+            "lookup_prefix should return Ok((None, 8)) for unknown IP, got {:?}",
+            result_lookup_prefix
+        );
+    }
+
+    #[test]
+    fn test_lookup_returns_some_for_known_address() {
+        use super::Reader;
+        use crate::geoip2;
+        use std::net::IpAddr;
+        use std::str::FromStr;
+
+        let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+        let ip: IpAddr = FromStr::from_str("89.160.20.128").unwrap();
+
+        let result_lookup = reader.lookup::<geoip2::City>(ip);
+        assert!(
+            matches!(result_lookup, Ok(Some(_))),
+            "lookup should return Ok(Some(_)) for known IP"
+        );
+        assert!(
+            result_lookup.unwrap().unwrap().city.is_some(),
+            "Expected city data"
+        );
+
+        let result_lookup_prefix = reader.lookup_prefix::<geoip2::City>(ip);
+        assert!(
+            matches!(result_lookup_prefix, Ok((Some(_), _))),
+            "lookup_prefix should return Ok(Some(_)) for known IP"
+        );
+        let (city_data, prefix_len) = result_lookup_prefix.unwrap();
+        assert!(
+            city_data.unwrap().city.is_some(),
+            "Expected city data from prefix lookup"
+        );
+        assert_eq!(prefix_len, 25, "Expected valid prefix length");
     }
 }

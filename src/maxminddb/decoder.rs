@@ -4,8 +4,7 @@ use serde::forward_to_deserialize_any;
 use serde::serde_if_integer128;
 use std::convert::TryInto;
 
-use super::MaxMindDBError;
-use super::MaxMindDBError::DecodingError;
+use super::MaxMindDbError;
 
 fn to_usize(base: u8, bytes: &[u8]) -> usize {
     bytes
@@ -134,7 +133,7 @@ impl<'de> Decoder<'de> {
             14 => Value::Bool(self.decode_bool(size)?),
             15 => Value::F32(self.decode_float(size)?),
             u => {
-                return Err(MaxMindDBError::InvalidDatabaseError(format!(
+                return Err(MaxMindDbError::InvalidDatabase(format!(
                     "Unknown data type: {u:?}"
                 )))
             }
@@ -151,7 +150,7 @@ impl<'de> Decoder<'de> {
     fn decode_bool(&mut self, size: usize) -> DecodeResult<bool> {
         match size {
             0 | 1 => Ok(size != 0),
-            s => Err(MaxMindDBError::InvalidDatabaseError(format!(
+            s => Err(MaxMindDbError::InvalidDatabase(format!(
                 "bool of size {s:?}"
             ))),
         }
@@ -170,7 +169,7 @@ impl<'de> Decoder<'de> {
         let value: [u8; 4] = self.buf[self.current_ptr..new_offset]
             .try_into()
             .map_err(|_| {
-                MaxMindDBError::InvalidDatabaseError(format!(
+                MaxMindDbError::InvalidDatabase(format!(
                     "float of size {:?}",
                     new_offset - self.current_ptr
                 ))
@@ -185,7 +184,7 @@ impl<'de> Decoder<'de> {
         let value: [u8; 8] = self.buf[self.current_ptr..new_offset]
             .try_into()
             .map_err(|_| {
-                MaxMindDBError::InvalidDatabaseError(format!(
+                MaxMindDbError::InvalidDatabase(format!(
                     "double of size {:?}",
                     new_offset - self.current_ptr
                 ))
@@ -206,7 +205,7 @@ impl<'de> Decoder<'de> {
                 self.current_ptr = new_offset;
                 Ok(value)
             }
-            s => Err(MaxMindDBError::InvalidDatabaseError(format!(
+            s => Err(MaxMindDbError::InvalidDatabase(format!(
                 "u64 of size {s:?}"
             ))),
         }
@@ -227,7 +226,7 @@ impl<'de> Decoder<'de> {
                     self.current_ptr = new_offset;
                     Ok(value)
                 }
-                s => Err(MaxMindDBError::InvalidDatabaseError(format!(
+                s => Err(MaxMindDbError::InvalidDatabase(format!(
                     "u128 of size {s:?}"
                 ))),
             }
@@ -245,7 +244,7 @@ impl<'de> Decoder<'de> {
                 self.current_ptr = new_offset;
                 Ok(value)
             }
-            s => Err(MaxMindDBError::InvalidDatabaseError(format!(
+            s => Err(MaxMindDbError::InvalidDatabase(format!(
                 "u32 of size {s:?}"
             ))),
         }
@@ -262,7 +261,7 @@ impl<'de> Decoder<'de> {
                 self.current_ptr = new_offset;
                 Ok(value)
             }
-            s => Err(MaxMindDBError::InvalidDatabaseError(format!(
+            s => Err(MaxMindDbError::InvalidDatabase(format!(
                 "u16 of size {s:?}"
             ))),
         }
@@ -279,7 +278,7 @@ impl<'de> Decoder<'de> {
                 self.current_ptr = new_offset;
                 Ok(value)
             }
-            s => Err(MaxMindDBError::InvalidDatabaseError(format!(
+            s => Err(MaxMindDbError::InvalidDatabase(format!(
                 "int32 of size {s:?}"
             ))),
         }
@@ -338,17 +337,17 @@ impl<'de> Decoder<'de> {
         self.current_ptr = new_offset;
         match from_utf8(bytes) {
             Ok(v) => Ok(v),
-            Err(_) => Err(MaxMindDBError::InvalidDatabaseError(
+            Err(_) => Err(MaxMindDbError::InvalidDatabase(
                 "error decoding string".to_owned(),
             )),
         }
     }
 }
 
-pub type DecodeResult<T> = Result<T, MaxMindDBError>;
+pub type DecodeResult<T> = Result<T, MaxMindDbError>;
 
 impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
-    type Error = MaxMindDBError;
+    type Error = MaxMindDbError;
 
     fn deserialize_any<V>(self, visitor: V) -> DecodeResult<V::Value>
     where
@@ -383,7 +382,7 @@ struct ArrayAccess<'a, 'de: 'a> {
 // `SeqAccess` is provided to the `Visitor` to give it the ability to iterate
 // through elements of the sequence.
 impl<'de> SeqAccess<'de> for ArrayAccess<'_, 'de> {
-    type Error = MaxMindDBError;
+    type Error = MaxMindDbError;
 
     fn next_element_seed<T>(&mut self, seed: T) -> DecodeResult<Option<T::Value>>
     where
@@ -408,7 +407,7 @@ struct MapAccessor<'a, 'de: 'a> {
 // `MapAccess` is provided to the `Visitor` to give it the ability to iterate
 // through entries of the map.
 impl<'de> MapAccess<'de> for MapAccessor<'_, 'de> {
-    type Error = MaxMindDBError;
+    type Error = MaxMindDbError;
 
     fn next_key_seed<K>(&mut self, seed: K) -> DecodeResult<Option<K::Value>>
     where
@@ -430,7 +429,7 @@ impl<'de> MapAccess<'de> for MapAccessor<'_, 'de> {
     {
         // Check if there are no more entries.
         if self.count == 0 {
-            return Err(DecodingError("no more entries".to_owned()));
+            return Err(MaxMindDbError::Decoding("no more entries".to_owned()));
         }
         self.count -= 1;
 
