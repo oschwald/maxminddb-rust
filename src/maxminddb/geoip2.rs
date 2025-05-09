@@ -334,5 +334,7 @@ pub mod enterprise {
         pub organization: Option<&'a str>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub user_type: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub network: Option<&'a str>,
     }
 }
