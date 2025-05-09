@@ -43,7 +43,7 @@ The API docs are on [Docs.rs](https://docs.rs/maxminddb/latest/maxminddb/struct.
 
 ## Example ##
 
-See [`examples/lookup.rs`](https://github.com/oschwald/maxminddb-rust/blob/master/examples/lookup.rs) for a basic example.
+See [`examples/lookup.rs`](https://github.com/oschwald/maxminddb-rust/blob/main/examples/lookup.rs) for a basic example.
 
 ## Benchmarks ##
 
