@@ -79,6 +79,8 @@ pub struct Isp<'a> {
     pub mobile_network_code: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub organization: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network: Option<&'a str>,
 }
 
 /// GeoIP2 Connection-Type record
