@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["City","Country","Location","Postal","Subdivision","Traits"]};
