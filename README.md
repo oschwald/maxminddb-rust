@@ -1,6 +1,6 @@
 # Rust MaxMind DB Reader #
 
-[![crates.io](	https://img.shields.io/crates/v/maxminddb.svg)](https://crates.io/crates/maxminddb) [![Released API docs](https://docs.rs/maxminddb/badge.svg)](http://docs.rs/maxminddb) [![Master API docs](https://img.shields.io/badge/docs-master-green.svg)](https://oschwald.github.io/maxminddb-rust/)
+[![crates.io](	https://img.shields.io/crates/v/maxminddb.svg)](https://crates.io/crates/maxminddb) [![Released API docs](https://docs.rs/maxminddb/badge.svg)](http://docs.rs/maxminddb)
 
 This library reads the MaxMind DB format, including the GeoIP2 and GeoLite2
 databases.
@@ -39,7 +39,7 @@ extern crate maxminddb;
 
 ## API Documentation ##
 
-The API docs are on [GitHub Pages](http://oschwald.github.io/maxminddb-rust/maxminddb/struct.Reader.html).
+The API docs are on [Docs.rs](https://docs.rs/maxminddb/latest/maxminddb/struct.Reader.html).
 
 ## Example ##
 
