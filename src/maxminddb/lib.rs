@@ -104,6 +104,7 @@ impl IpInt {
         }
     }
 
+    #[inline(always)]
     fn get_bit(&self, index: usize) -> bool {
         match self {
             IpInt::V4(ip) => (ip >> (31 - index)) & 1 == 1,
@@ -473,6 +474,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         Ok(node)
     }
 
+    #[inline(always)]
     fn read_node(&self, node_number: usize, index: usize) -> Result<usize, MaxMindDbError> {
         let buf = self.buf.as_ref();
         let base_offset = node_number * (self.metadata.record_size as usize) / 4;
@@ -535,6 +537,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
 
 // I haven't moved all patterns of this form to a generic function as
 // the FromPrimitive trait is unstable
+#[inline(always)]
 fn to_usize(base: u8, bytes: &[u8]) -> usize {
     bytes
         .iter()

@@ -42,12 +42,14 @@ impl<'de> Decoder<'de> {
         }
     }
 
+    #[inline(always)]
     fn eat_byte(&mut self) -> u8 {
         let b = self.buf[self.current_ptr];
         self.current_ptr += 1;
         b
     }
 
+    #[inline(always)]
     fn size_from_ctrl_byte(&mut self, ctrl_byte: u8, type_num: u8) -> usize {
         let size = (ctrl_byte & 0x1f) as usize;
         // extended
@@ -69,6 +71,7 @@ impl<'de> Decoder<'de> {
         }
     }
 
+    #[inline(always)]
     fn size_and_type(&mut self) -> (usize, u8) {
         let ctrl_byte = self.eat_byte();
         let mut type_num = ctrl_byte >> 5;
@@ -102,6 +105,7 @@ impl<'de> Decoder<'de> {
         }
     }
 
+    #[inline(always)]
     fn decode_any_value(&mut self) -> DecodeResult<Value<'_, 'de>> {
         let (size, type_num) = self.size_and_type();
 
