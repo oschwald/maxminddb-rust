@@ -209,7 +209,7 @@ pub struct Reader<S: AsRef<[u8]>> {
 }
 
 #[cfg(feature = "mmap")]
-impl<'de> Reader<Mmap> {
+impl Reader<Mmap> {
     /// Open a MaxMind DB database file by memory mapping it.
     ///
     /// # Example

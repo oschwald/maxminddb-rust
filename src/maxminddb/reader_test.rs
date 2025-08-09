@@ -179,7 +179,6 @@ fn test_reader_readfile() {
 #[test]
 #[cfg(feature = "mmap")]
 fn test_reader_mmap() {
-    use crate::Mmap;
     let _ = env_logger::try_init();
 
     let sizes = [24usize, 28, 32];

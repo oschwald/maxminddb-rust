@@ -55,7 +55,7 @@ impl<'de> Decoder<'de> {
             return size;
         }
 
-        let bytes_to_read = if size > 28 { size - 28 } else { 0 };
+        let bytes_to_read = size.saturating_sub(28);
 
         let new_offset = self.current_ptr + bytes_to_read;
         let size_bytes = &self.buf[self.current_ptr..new_offset];
