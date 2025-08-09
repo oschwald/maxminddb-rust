@@ -1,3 +1,2 @@
-var srcIndex = new Map(JSON.parse('[["maxminddb",["",[],["decoder.rs","geoip2.rs","lib.rs"]]]]'));
-createSrcSidebar();
-//{"start":36,"fragment_lengths":[57]}
+createSrcSidebar('[["maxminddb",["",[],["decoder.rs","geoip2.rs","lib.rs"]]]]');
+//{"start":19,"fragment_lengths":[57]}
