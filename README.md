@@ -28,7 +28,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-maxminddb = "0.17"
+maxminddb = "0.26"
 ```
 
 and this to your crate root:

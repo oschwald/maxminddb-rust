@@ -1,3 +1,55 @@
+//! GeoIP2 and GeoLite2 database record structures
+//!
+//! This module provides strongly-typed Rust structures that correspond to the
+//! various GeoIP2 and GeoLite2 database record formats.
+//!
+//! # Record Types
+//!
+//! - [`City`] - Complete city-level geolocation data (most comprehensive)
+//! - [`Country`] - Country-level geolocation data
+//! - [`Enterprise`] - Enterprise database with additional confidence scores
+//! - [`Isp`] - Internet Service Provider information
+//! - [`AnonymousIp`] - Anonymous proxy and VPN detection
+//! - [`ConnectionType`] - Connection type classification
+//! - [`Domain`] - Domain information
+//! - [`Asn`] - Autonomous System Number data
+//! - [`DensityIncome`] - Population density and income data
+//!
+//! # Usage Examples
+//!
+//! ```rust
+//! use maxminddb::{Reader, geoip2};
+//! use std::net::IpAddr;
+//!
+//! # fn main() -> Result<(), maxminddb::MaxMindDbError> {
+//! let reader = Reader::open_readfile(
+//!     "test-data/test-data/GeoIP2-City-Test.mmdb")?;
+//! let ip: IpAddr = "89.160.20.128".parse().unwrap();
+//!
+//! // City lookup (most common)
+//! if let Some(city) = reader.lookup::<geoip2::City>(ip)? {
+//!     if let Some(city_names) = city.city.and_then(|c| c.names) {
+//!         if let Some(city_name) = city_names.get("en") {
+//!             println!("City: {}", city_name);
+//!         }
+//!     }
+//!     if let Some(country_code) = city.country.and_then(|c| c.iso_code) {
+//!         println!("Country: {}", country_code);
+//!     }
+//! }
+//!
+//! // Country-only lookup (smaller/faster)
+//! if let Some(country) = reader.lookup::<geoip2::Country>(ip)? {
+//!     if let Some(country_names) = country.country.and_then(|c| c.names) {
+//!         if let Some(country_name) = country_names.get("en") {
+//!             println!("Country: {}", country_name);
+//!         }
+//!     }
+//! }
+//! # Ok(())
+//! # }
+//! ```
+
 use serde::{Deserialize, Serialize};
 
 /// GeoIP2 Country record

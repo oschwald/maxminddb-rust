@@ -1,4 +1,57 @@
 #![deny(trivial_casts, trivial_numeric_casts, unused_import_braces)]
+//! # MaxMind DB Reader
+//!
+//! This library reads the MaxMind DB format, including the GeoIP2 and GeoLite2 databases.
+//!
+//! ## Features
+//!
+//! This crate provides several optional features for performance and functionality:
+//!
+//! - **`mmap`** (default: disabled): Enable memory-mapped file access for
+//!   better performance in long-running applications
+//! - **`simdutf8`** (default: disabled): Use SIMD instructions for faster
+//!   UTF-8 validation during string decoding
+//! - **`unsafe-str-decode`** (default: disabled): Skip UTF-8 validation
+//!   entirely for maximum performance (~20% faster lookups)
+//!
+//! **Note**: `simdutf8` and `unsafe-str-decode` are mutually exclusive.
+//!
+//! ## Database Compatibility
+//!
+//! This library supports all MaxMind DB format databases:
+//! - **GeoIP2** databases (City, Country, Enterprise, ISP, etc.)
+//! - **GeoLite2** databases (free versions)
+//! - Custom MaxMind DB format databases
+//!
+//! ## Thread Safety
+//!
+//! The `Reader` is `Send` and `Sync`, making it safe to share across threads.
+//! This makes it ideal for web servers and other concurrent applications.
+//!
+//! ## Quick Start
+//!
+//! ```rust
+//! use maxminddb::{Reader, geoip2};
+//! use std::net::IpAddr;
+//!
+//! fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     // Open database file
+//! #   let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb")?;
+//! #   /*
+//!     let reader = Reader::open_readfile("/path/to/GeoIP2-City.mmdb")?;
+//! #   */
+//!
+//!     // Look up an IP address
+//!     let ip: IpAddr = "89.160.20.128".parse()?;
+//!     if let Some(city) = reader.lookup::<geoip2::City>(ip)? {
+//!         if let Some(country) = city.country {
+//!             println!("Country: {}", country.iso_code.unwrap_or("Unknown"));
+//!         }
+//!     }
+//!
+//!     Ok(())
+//! }
+//! ```
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -200,7 +253,19 @@ impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
     }
 }
 
-/// A reader for the MaxMind DB format. The lifetime `'data` is tied to the lifetime of the underlying buffer holding the contents of the database file.
+/// A reader for the MaxMind DB format. The lifetime `'data` is tied to the
+/// lifetime of the underlying buffer holding the contents of the database file.
+///
+/// The `Reader` supports both file-based and memory-mapped access to MaxMind
+/// DB files, including GeoIP2 and GeoLite2 databases.
+///
+/// # Features
+///
+/// - **`mmap`**: Enable memory-mapped file access for better performance
+/// - **`simdutf8`**: Use SIMD-accelerated UTF-8 validation (faster string
+///   decoding)
+/// - **`unsafe-str-decode`**: Skip UTF-8 validation entirely (unsafe, but
+///   ~20% faster)
 #[derive(Debug)]
 pub struct Reader<S: AsRef<[u8]>> {
     buf: S,
@@ -234,7 +299,8 @@ impl Reader<Vec<u8>> {
     /// # Example
     ///
     /// ```
-    /// let reader = maxminddb::Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    /// let reader = maxminddb::Reader::open_readfile(
+    ///     "test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
     /// ```
     pub fn open_readfile<P: AsRef<Path>>(database: P) -> Result<Reader<Vec<u8>>, MaxMindDbError> {
         let buf: Vec<u8> = fs::read(&database)?; // IO error converted via #[from]
@@ -275,21 +341,50 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// Lookup the socket address in the opened MaxMind DB.
     /// Returns `Ok(None)` if the address is not found in the database.
     ///
-    /// Example:
+    /// # Examples
     ///
+    /// Basic city lookup:
     /// ```
     /// # use maxminddb::geoip2;
     /// # use std::net::IpAddr;
     /// # use std::str::FromStr;
     /// # fn main() -> Result<(), maxminddb::MaxMindDbError> {
-    /// let reader = maxminddb::Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb")?;
+    /// let reader = maxminddb::Reader::open_readfile(
+    ///     "test-data/test-data/GeoIP2-City-Test.mmdb")?;
     ///
     /// let ip: IpAddr = FromStr::from_str("89.160.20.128").unwrap();
-    /// if let Some(city) = reader.lookup::<geoip2::City>(ip)? {
-    ///     println!("{:?}", city);
-    /// } else {
-    ///     println!("Address not found");
+    /// match reader.lookup::<geoip2::City>(ip)? {
+    ///     Some(city) => {
+    ///         if let Some(city_names) = city.city.and_then(|c| c.names) {
+    ///             if let Some(name) = city_names.get("en") {
+    ///                 println!("City: {}", name);
+    ///             }
+    ///         }
+    ///         if let Some(country) = city.country.and_then(|c| c.iso_code) {
+    ///             println!("Country: {}", country);
+    ///         }
+    ///     }
+    ///     None => println!("No data found for IP {}", ip),
     /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Lookup with different record types:
+    /// ```
+    /// # use maxminddb::geoip2;
+    /// # use std::net::IpAddr;
+    /// # fn main() -> Result<(), maxminddb::MaxMindDbError> {
+    /// let reader = maxminddb::Reader::open_readfile(
+    ///     "test-data/test-data/GeoIP2-City-Test.mmdb")?;
+    /// let ip: IpAddr = "89.160.20.128".parse().unwrap();
+    ///
+    /// // Different record types for the same IP
+    /// let city: Option<geoip2::City> = reader.lookup(ip)?;
+    /// let country: Option<geoip2::Country> = reader.lookup(ip)?;
+    ///
+    /// println!("City data available: {}", city.is_some());
+    /// println!("Country data available: {}", country.is_some());
     /// # Ok(())
     /// # }
     /// ```
@@ -314,7 +409,8 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// # use std::net::IpAddr;
     /// # use std::str::FromStr;
     /// # fn main() -> Result<(), maxminddb::MaxMindDbError> {
-    /// let reader = maxminddb::Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb")?;
+    /// let reader = maxminddb::Reader::open_readfile(
+    ///     "test-data/test-data/GeoIP2-City-Test.mmdb")?;
     ///
     /// let ip: IpAddr = "89.160.20.128".parse().unwrap(); // Known IP
     /// let ip_unknown: IpAddr = "10.0.0.1".parse().unwrap(); // Unknown IP
@@ -359,19 +455,50 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
 
     /// Iterate over blocks of IP networks in the opened MaxMind DB
     ///
-    /// Example:
+    /// This method returns an iterator that yields all IP network blocks that
+    /// fall within the specified CIDR range and have associated data in the
+    /// database.
     ///
+    /// # Examples
+    ///
+    /// Iterate over all IPv4 networks:
     /// ```
     /// use ipnetwork::IpNetwork;
     /// use maxminddb::{geoip2, Within};
     ///
-    /// let reader = maxminddb::Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    /// let reader = maxminddb::Reader::open_readfile(
+    ///     "test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
     ///
-    /// let ip_net = IpNetwork::V6("::/0".parse().unwrap());
-    /// let mut iter: Within<geoip2::City, _> = reader.within(ip_net).unwrap();
-    /// while let Some(next) = iter.next() {
-    ///     let item = next.unwrap();
-    ///     println!("ip_net={}, city={:?}", item.ip_net, item.info);
+    /// let ipv4_all = IpNetwork::V4("0.0.0.0/0".parse().unwrap());
+    /// let mut count = 0;
+    /// for result in reader.within::<geoip2::City>(ipv4_all).unwrap() {
+    ///     let item = result.unwrap();
+    ///     let city_name = item.info.city.as_ref().and_then(|c| c.names.as_ref()).and_then(|n| n.get("en"));
+    ///     println!("Network: {}, City: {:?}", item.ip_net, city_name);
+    ///     count += 1;
+    ///     if count >= 10 { break; } // Limit output for example
+    /// }
+    /// ```
+    ///
+    /// Search within a specific subnet:
+    /// ```
+    /// use ipnetwork::IpNetwork;
+    /// use maxminddb::geoip2;
+    ///
+    /// let reader = maxminddb::Reader::open_readfile(
+    ///     "test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    ///
+    /// let subnet = IpNetwork::V4("192.168.0.0/16".parse().unwrap());
+    /// match reader.within::<geoip2::City>(subnet) {
+    ///     Ok(iter) => {
+    ///         for result in iter {
+    ///             match result {
+    ///                 Ok(item) => println!("Found: {}", item.ip_net),
+    ///                 Err(e) => eprintln!("Error processing item: {}", e),
+    ///             }
+    ///         }
+    ///     }
+    ///     Err(e) => eprintln!("Failed to create iterator: {}", e),
     /// }
     /// ```
     pub fn within<T>(&'de self, cidr: IpNetwork) -> Result<Within<'de, T, S>, MaxMindDbError>

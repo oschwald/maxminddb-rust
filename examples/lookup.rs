@@ -2,19 +2,27 @@ use std::net::IpAddr;
 
 use maxminddb::geoip2;
 
-fn main() -> Result<(), String> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
-    let reader = maxminddb::Reader::open_readfile(
-        args.next()
-            .ok_or("First argument must be the path to the IP database")?,
-    )
-    .unwrap();
-    let ip: IpAddr = args
+    let db_path = args
         .next()
-        .ok_or("Second argument must be the IP address, like 128.101.101.101")?
+        .ok_or("First argument must be the path to the IP database")?;
+    let reader = maxminddb::Reader::open_readfile(db_path)?;
+
+    let ip_str = args
+        .next()
+        .ok_or("Second argument must be the IP address, like 128.101.101.101")?;
+    let ip: IpAddr = ip_str
         .parse()
-        .unwrap();
-    let city: Option<geoip2::City> = reader.lookup(ip).unwrap();
-    println!("{city:#?}");
+        .map_err(|e| format!("Invalid IP address '{}': {}", ip_str, e))?;
+
+    match reader.lookup::<geoip2::City>(ip)? {
+        Some(city) => {
+            println!("City data for IP {}: {city:#?}", ip);
+        }
+        None => {
+            println!("No city data found for IP {}", ip);
+        }
+    }
     Ok(())
 }

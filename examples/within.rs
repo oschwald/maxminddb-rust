@@ -1,28 +1,25 @@
 use ipnetwork::IpNetwork;
 use maxminddb::{geoip2, Within};
 
-fn main() -> Result<(), String> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
-    let reader = maxminddb::Reader::open_readfile(
-        args.next()
-            .ok_or("First argument must be the path to the IP database")?,
-    )
-    .unwrap();
-    let cidr: String = args
+    let db_path = args
         .next()
-        .ok_or("Second argument must be the IP address and mask in CIDR notation, e.g. 0.0.0.0/0 or ::/0")?
+        .ok_or("First argument must be the path to the IP database")?;
+    let reader = maxminddb::Reader::open_readfile(db_path)?;
+
+    let cidr_str = args.next().ok_or(
+        "Second argument must be the IP address and mask in CIDR notation, e.g. 0.0.0.0/0 or ::/0",
+    )?;
+
+    let ip_net: IpNetwork = cidr_str
         .parse()
-        .unwrap();
-    let ip_net = if cidr.contains(':') {
-        IpNetwork::V6(cidr.parse().unwrap())
-    } else {
-        IpNetwork::V4(cidr.parse().unwrap())
-    };
+        .map_err(|e| format!("Invalid CIDR notation '{}': {}", cidr_str, e))?;
 
     let mut n = 0;
-    let iter: Within<geoip2::City, _> = reader.within(ip_net).map_err(|e| e.to_string())?;
+    let iter: Within<geoip2::City, _> = reader.within(ip_net)?;
     for next in iter {
-        let item = next.map_err(|e| e.to_string())?;
+        let item = next?;
         let continent = item.info.continent.and_then(|c| c.code).unwrap_or("");
         let country = item.info.country.and_then(|c| c.iso_code).unwrap_or("");
         let city = match item.info.city.and_then(|c| c.names) {
@@ -38,7 +35,7 @@ fn main() -> Result<(), String> {
         }
         n += 1;
     }
-    eprintln!("processed {n} items");
+    eprintln!("Processed {} items", n);
 
     Ok(())
 }
