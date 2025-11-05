@@ -576,6 +576,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         }
     }
 
+    #[inline(always)]
     fn start_node(&self, length: usize) -> usize {
         if length == 128 {
             0
@@ -636,6 +637,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     }
 
     /// Resolves a pointer from the search tree to an offset in the data section.
+    #[inline(always)]
     fn resolve_data_pointer(&self, pointer: usize) -> Result<usize, MaxMindDbError> {
         let resolved = pointer - (self.metadata.node_count as usize) - 16;
 

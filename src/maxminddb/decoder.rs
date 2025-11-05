@@ -6,6 +6,7 @@ use std::convert::TryInto;
 
 use super::MaxMindDbError;
 
+#[inline(always)]
 fn to_usize(base: u8, bytes: &[u8]) -> usize {
     bytes
         .iter()
@@ -295,6 +296,7 @@ impl<'de> Decoder<'de> {
         })
     }
 
+    #[inline(always)]
     fn decode_pointer(&mut self, size: usize) -> usize {
         let pointer_value_offset = [0, 0, 2048, 526_336, 0];
         let pointer_size = ((size >> 3) & 0x3) + 1;
