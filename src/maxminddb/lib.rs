@@ -309,6 +309,9 @@ pub struct Reader<S: AsRef<[u8]>> {
     buf: S,
     pub metadata: Metadata,
     ipv4_start: usize,
+    /// Bit depth at which ipv4_start was found (0-96). Used to calculate
+    /// correct prefix lengths for IPv4 lookups in IPv6 databases.
+    ipv4_start_bit_depth: usize,
     pointer_base: usize,
 }
 
@@ -370,8 +373,11 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
             pointer_base: search_tree_size + data_section_separator_size,
             metadata,
             ipv4_start: 0,
+            ipv4_start_bit_depth: 0,
         };
-        reader.ipv4_start = reader.find_ipv4_start()?;
+        let (ipv4_start, ipv4_start_bit_depth) = reader.find_ipv4_start()?;
+        reader.ipv4_start = ipv4_start;
+        reader.ipv4_start_bit_depth = ipv4_start_bit_depth;
 
         Ok(reader)
     }
@@ -436,6 +442,15 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     pub fn lookup(&'de self, address: IpAddr) -> Result<LookupResult<'de, S>, MaxMindDbError> {
         let ip_int = IpInt::new(address);
         let (pointer, prefix_len) = self.find_address_in_tree(&ip_int)?;
+
+        // For IPv4 addresses in IPv6 databases, adjust prefix_len to reflect
+        // the actual bit depth in the tree. The ipv4_start_bit_depth tells us
+        // how deep in the IPv6 tree we were when we found the IPv4 subtree.
+        let prefix_len = if matches!(address, IpAddr::V4(_)) && self.metadata.ip_version == 6 {
+            self.ipv4_start_bit_depth + prefix_len
+        } else {
+            prefix_len
+        };
 
         if pointer == 0 {
             // IP not found in database
@@ -581,21 +596,26 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         }
     }
 
-    fn find_ipv4_start(&self) -> Result<usize, MaxMindDbError> {
+    /// Find the IPv4 start node and the bit depth at which it was found.
+    /// Returns (node, depth) where depth is how far into the tree we traversed.
+    fn find_ipv4_start(&self) -> Result<(usize, usize), MaxMindDbError> {
         if self.metadata.ip_version != 6 {
-            return Ok(0);
+            return Ok((0, 0));
         }
 
         // We are looking up an IPv4 address in an IPv6 tree. Skip over the
         // first 96 nodes.
         let mut node: usize = 0_usize;
-        for _ in 0_u8..96 {
+        let mut depth: usize = 0;
+        for i in 0_u8..96 {
             if node >= self.metadata.node_count as usize {
+                depth = i as usize;
                 break;
             }
             node = self.read_node(node, 0)?;
+            depth = (i + 1) as usize;
         }
-        Ok(node)
+        Ok((node, depth))
     }
 
     #[inline(always)]
@@ -719,26 +739,134 @@ mod tests {
     }
 
     #[test]
-    fn test_lookup_not_found_for_unknown_address() {
+    fn test_lookup_network() {
         use super::Reader;
+        use std::collections::HashMap;
         use std::net::IpAddr;
 
-        let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
-        let ip: IpAddr = "10.0.0.1".parse().unwrap();
+        struct TestCase {
+            ip: &'static str,
+            db_file: &'static str,
+            expected_network: &'static str,
+            expected_found: bool,
+        }
 
-        let result = reader.lookup(ip).unwrap();
-        assert!(
-            !result.found(),
-            "lookup should return found=false for unknown IP"
-        );
+        let test_cases = [
+            // IPv4 address in IPv6 database - not found, returns containing network
+            TestCase {
+                ip: "1.1.1.1",
+                db_file: "test-data/test-data/MaxMind-DB-test-ipv6-32.mmdb",
+                expected_network: "1.0.0.0/8",
+                expected_found: false,
+            },
+            // IPv6 exact match
+            TestCase {
+                ip: "::1:ffff:ffff",
+                db_file: "test-data/test-data/MaxMind-DB-test-ipv6-24.mmdb",
+                expected_network: "::1:ffff:ffff/128",
+                expected_found: true,
+            },
+            // IPv6 network match (not exact)
+            TestCase {
+                ip: "::2:0:1",
+                db_file: "test-data/test-data/MaxMind-DB-test-ipv6-24.mmdb",
+                expected_network: "::2:0:0/122",
+                expected_found: true,
+            },
+            // IPv4 exact match
+            TestCase {
+                ip: "1.1.1.1",
+                db_file: "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb",
+                expected_network: "1.1.1.1/32",
+                expected_found: true,
+            },
+            // IPv4 network match (not exact)
+            TestCase {
+                ip: "1.1.1.3",
+                db_file: "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb",
+                expected_network: "1.1.1.2/31",
+                expected_found: true,
+            },
+            // IPv4 in decoder test database
+            TestCase {
+                ip: "1.1.1.3",
+                db_file: "test-data/test-data/MaxMind-DB-test-decoder.mmdb",
+                expected_network: "1.1.1.0/24",
+                expected_found: true,
+            },
+            // IPv4-mapped IPv6 address - preserves IPv6 form
+            TestCase {
+                ip: "::ffff:1.1.1.128",
+                db_file: "test-data/test-data/MaxMind-DB-test-decoder.mmdb",
+                expected_network: "::ffff:1.1.1.0/120",
+                expected_found: true,
+            },
+            // IPv4-compatible IPv6 address - uses compressed IPv6 notation
+            TestCase {
+                ip: "::1.1.1.128",
+                db_file: "test-data/test-data/MaxMind-DB-test-decoder.mmdb",
+                expected_network: "::101:100/120",
+                expected_found: true,
+            },
+            // No IPv4 search tree - IPv4 address returns ::/64
+            TestCase {
+                ip: "200.0.2.1",
+                db_file: "test-data/test-data/MaxMind-DB-no-ipv4-search-tree.mmdb",
+                expected_network: "::/64",
+                expected_found: true,
+            },
+            // No IPv4 search tree - IPv6 address in IPv4 range
+            TestCase {
+                ip: "::200.0.2.1",
+                db_file: "test-data/test-data/MaxMind-DB-no-ipv4-search-tree.mmdb",
+                expected_network: "::/64",
+                expected_found: true,
+            },
+            // No IPv4 search tree - high IPv6 address not found
+            TestCase {
+                ip: "ef00::",
+                db_file: "test-data/test-data/MaxMind-DB-no-ipv4-search-tree.mmdb",
+                expected_network: "8000::/1",
+                expected_found: false,
+            },
+        ];
 
-        // Network should still be available
-        let network = result.network().unwrap();
-        assert_eq!(network.prefix(), 8, "Expected prefix length 8");
+        // Cache readers to avoid reopening the same file multiple times
+        let mut readers: HashMap<&str, Reader<Vec<u8>>> = HashMap::new();
+
+        for test in &test_cases {
+            let reader = readers
+                .entry(test.db_file)
+                .or_insert_with(|| Reader::open_readfile(test.db_file).unwrap());
+
+            let ip: IpAddr = test.ip.parse().unwrap();
+            let result = reader.lookup(ip).unwrap();
+
+            assert_eq!(
+                result.found(),
+                test.expected_found,
+                "IP {} in {}: expected found={}, got found={}",
+                test.ip,
+                test.db_file,
+                test.expected_found,
+                result.found()
+            );
+
+            let network = result.network().unwrap();
+            assert_eq!(
+                network.to_string(),
+                test.expected_network,
+                "IP {} in {}: expected network {}, got {}",
+                test.ip,
+                test.db_file,
+                test.expected_network,
+                network
+            );
+        }
     }
 
     #[test]
-    fn test_lookup_found_for_known_address() {
+    fn test_lookup_with_geoip_data() {
         use super::Reader;
         use crate::geoip2;
         use std::net::IpAddr;
@@ -747,20 +875,21 @@ mod tests {
         let ip: IpAddr = "89.160.20.128".parse().unwrap();
 
         let result = reader.lookup(ip).unwrap();
-        assert!(
-            result.found(),
-            "lookup should return found=true for known IP"
-        );
+        assert!(result.found(), "lookup should find known IP");
 
         // Decode the data
         let city: geoip2::City = result.decode().unwrap();
         assert!(city.city.is_some(), "Expected city data");
 
-        // Check network
+        // Check full network (not just prefix)
         let network = result.network().unwrap();
-        assert_eq!(network.prefix(), 25, "Expected prefix length 25");
+        assert_eq!(
+            network.to_string(),
+            "89.160.20.128/25",
+            "Expected network 89.160.20.128/25"
+        );
 
-        // Check offset is available
+        // Check offset is available for caching
         assert!(
             result.offset().is_some(),
             "Expected offset to be Some for found IP"
