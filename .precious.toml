@@ -1,0 +1,37 @@
+exclude = [
+  "target/**/*",
+  "test-data/**/*",
+  "supply-chain/**/*",
+]
+
+[commands.clippy]
+type = "lint"
+include = "**/*.rs"
+invoke = "once"
+path-args = "none"
+cmd = ["cargo", "clippy", "--all-features", "--", "-D", "warnings"]
+ok-exit-codes = [0]
+lint-failure-exit-codes = [101]
+expect-stderr = true
+
+[commands.rustfmt]
+type = "both"
+include = "**/*.rs"
+invoke = "once"
+path-args = "none"
+cmd = ["cargo", "fmt"]
+lint-flags = "--check"
+ok-exit-codes = [0]
+lint-failure-exit-codes = [1]
+
+[commands.prettier]
+type = "both"
+include = ["**/*.md", "**/*.yml", "**/*.yaml"]
+invoke = "once"
+path-args = "file"
+cmd = ["prettier"]
+lint-flags = "--check"
+tidy-flags = "--write"
+ok-exit-codes = [0]
+lint-failure-exit-codes = [1]
+expect-stderr = true

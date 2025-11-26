@@ -1,11 +1,11 @@
-# Rust MaxMind DB Reader #
+# Rust MaxMind DB Reader
 
-[![crates.io](	https://img.shields.io/crates/v/maxminddb.svg)](https://crates.io/crates/maxminddb) [![Released API docs](https://docs.rs/maxminddb/badge.svg)](http://docs.rs/maxminddb)
+[![crates.io](https://img.shields.io/crates/v/maxminddb.svg)](https://crates.io/crates/maxminddb) [![Released API docs](https://docs.rs/maxminddb/badge.svg)](http://docs.rs/maxminddb)
 
 This library reads the MaxMind DB format, including the GeoIP2 and GeoLite2
 databases.
 
-## Building ##
+## Building
 
 To build everything:
 
@@ -13,7 +13,7 @@ To build everything:
 cargo build
 ```
 
-## Testing ##
+## Testing
 
 This crate manages its test data within a git submodule.
 To run the tests, you will first need to run the following command.
@@ -22,7 +22,7 @@ To run the tests, you will first need to run the following command.
 git submodule update --init
 ```
 
-## Usage ##
+## Usage
 
 Add this to your `Cargo.toml`:
 
@@ -37,15 +37,15 @@ and this to your crate root:
 extern crate maxminddb;
 ```
 
-## API Documentation ##
+## API Documentation
 
 The API docs are on [Docs.rs](https://docs.rs/maxminddb/latest/maxminddb/struct.Reader.html).
 
-## Example ##
+## Example
 
 See [`examples/lookup.rs`](https://github.com/oschwald/maxminddb-rust/blob/main/examples/lookup.rs) for a basic example.
 
-## Benchmarks ##
+## Benchmarks
 
 The projects include benchmarks using [Criterion.rs](https://github.com/bheisler/criterion.rs).
 
@@ -68,12 +68,11 @@ Result of doing 100 random IP lookups:
 
 ![](/assets/pdf_small.svg)
 
-## Contributing ##
+## Contributing
 
 Contributions welcome! Please fork the repository and open a pull request
 with your changes.
 
-## License ##
+## License
 
 This is free software, licensed under the ISC license.
-
