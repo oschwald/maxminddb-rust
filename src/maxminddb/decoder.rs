@@ -1,7 +1,6 @@
 use log::debug;
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::forward_to_deserialize_any;
-use serde::serde_if_integer128;
 use std::convert::TryInto;
 
 use super::MaxMindDbError;
@@ -125,14 +124,7 @@ impl<'de> Decoder<'de> {
             7 => self.decode_map(size),
             8 => Value::I32(self.decode_int(size)?),
             9 => Value::U64(self.decode_uint64(size)?),
-            10 => {
-                serde_if_integer128! {
-                    return Ok(Value::U128(self.decode_uint128(size)?));
-                }
-
-                #[allow(unreachable_code)]
-                Value::Bytes(self.decode_bytes(size)?)
-            }
+            10 => Value::U128(self.decode_uint128(size)?),
             11 => self.decode_array(size),
             14 => Value::Bool(self.decode_bool(size)?),
             15 => Value::F32(self.decode_float(size)?),
@@ -215,25 +207,20 @@ impl<'de> Decoder<'de> {
         }
     }
 
-    serde_if_integer128! {
-        fn decode_uint128(
-            &mut self,
-            size: usize,
-        ) -> DecodeResult<u128> {
-            match size {
-                s if s <= 16 => {
-                    let new_offset = self.current_ptr + size;
+    fn decode_uint128(&mut self, size: usize) -> DecodeResult<u128> {
+        match size {
+            s if s <= 16 => {
+                let new_offset = self.current_ptr + size;
 
-                    let value = self.buf[self.current_ptr..new_offset]
-                        .iter()
-                        .fold(0_u128, |acc, &b| (acc << 8) | u128::from(b));
-                    self.current_ptr = new_offset;
-                    Ok(value)
-                }
-                s => Err(MaxMindDbError::InvalidDatabase(format!(
-                    "u128 of size {s:?}"
-                ))),
+                let value = self.buf[self.current_ptr..new_offset]
+                    .iter()
+                    .fold(0_u128, |acc, &b| (acc << 8) | u128::from(b));
+                self.current_ptr = new_offset;
+                Ok(value)
             }
+            s => Err(MaxMindDbError::InvalidDatabase(format!(
+                "u128 of size {s:?}"
+            ))),
         }
     }
 
