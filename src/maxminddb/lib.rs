@@ -609,21 +609,28 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let val = match self.metadata.record_size {
             24 => {
                 let offset = base_offset + index * 3;
-                to_usize(0, &buf[offset..offset + 3])
+                (buf[offset] as usize) << 16
+                    | (buf[offset + 1] as usize) << 8
+                    | buf[offset + 2] as usize
             }
             28 => {
-                let mut middle = buf[base_offset + 3];
-                if index != 0 {
-                    middle &= 0x0F
+                let middle = if index != 0 {
+                    buf[base_offset + 3] & 0x0F
                 } else {
-                    middle = (0xF0 & middle) >> 4
-                }
+                    (buf[base_offset + 3] & 0xF0) >> 4
+                };
                 let offset = base_offset + index * 4;
-                to_usize(middle, &buf[offset..offset + 3])
+                (middle as usize) << 24
+                    | (buf[offset] as usize) << 16
+                    | (buf[offset + 1] as usize) << 8
+                    | buf[offset + 2] as usize
             }
             32 => {
                 let offset = base_offset + index * 4;
-                to_usize(0, &buf[offset..offset + 4])
+                (buf[offset] as usize) << 24
+                    | (buf[offset + 1] as usize) << 16
+                    | (buf[offset + 2] as usize) << 8
+                    | buf[offset + 3] as usize
             }
             s => {
                 return Err(MaxMindDbError::InvalidDatabase(format!(
@@ -660,15 +667,6 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
             decoder::Decoder::new(&self.buf.as_ref()[self.pointer_base..], resolved_offset);
         T::deserialize(&mut decoder)
     }
-}
-
-// I haven't moved all patterns of this form to a generic function as
-// the FromPrimitive trait is unstable
-#[inline(always)]
-fn to_usize(base: u8, bytes: &[u8]) -> usize {
-    bytes
-        .iter()
-        .fold(base as usize, |acc, &b| (acc << 8) | b as usize)
 }
 
 #[inline]
