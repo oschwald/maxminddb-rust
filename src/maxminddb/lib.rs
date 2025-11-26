@@ -440,6 +440,13 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// # }
     /// ```
     pub fn lookup(&'de self, address: IpAddr) -> Result<LookupResult<'de, S>, MaxMindDbError> {
+        // Check for IPv6 address in IPv4-only database
+        if matches!(address, IpAddr::V6(_)) && self.metadata.ip_version == 4 {
+            return Err(MaxMindDbError::InvalidDatabase(
+                "you attempted to look up an IPv6 address in an IPv4-only database".to_string(),
+            ));
+        }
+
         let ip_int = IpInt::new(address);
         let (pointer, prefix_len) = self.find_address_in_tree(&ip_int)?;
 
@@ -822,6 +829,13 @@ mod tests {
                 expected_network: "::/64",
                 expected_found: true,
             },
+            // No IPv4 search tree - IPv6 address at boundary of IPv4 space
+            TestCase {
+                ip: "0:0:0:0:ffff:ffff:ffff:ffff",
+                db_file: "test-data/test-data/MaxMind-DB-no-ipv4-search-tree.mmdb",
+                expected_network: "::/64",
+                expected_found: true,
+            },
             // No IPv4 search tree - high IPv6 address not found
             TestCase {
                 ip: "ef00::",
@@ -920,24 +934,98 @@ mod tests {
     }
 
     #[test]
-    fn test_decoder_api() {
-        use super::{Kind, Reader};
+    fn test_ipv6_in_ipv4_database() {
+        use super::{MaxMindDbError, Reader};
         use std::net::IpAddr;
 
-        let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
-        let ip: IpAddr = "89.160.20.128".parse().unwrap();
+        let reader =
+            Reader::open_readfile("test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb").unwrap();
+        let ip: IpAddr = "2001::".parse().unwrap();
+
+        let result = reader.lookup(ip);
+        match result {
+            Err(MaxMindDbError::InvalidDatabase(msg)) => {
+                assert!(
+                    msg.contains("IPv6") && msg.contains("IPv4"),
+                    "Expected error message about IPv6 in IPv4 database, got: {}",
+                    msg
+                );
+            }
+            Err(e) => panic!(
+                "Expected InvalidDatabase error for IPv6 in IPv4 database, got: {:?}",
+                e
+            ),
+            Ok(_) => panic!("Expected error for IPv6 lookup in IPv4-only database"),
+        }
+    }
+
+    #[test]
+    fn test_decode_path_comprehensive() {
+        use super::{PathElement, Reader};
+        use std::net::IpAddr;
+
+        let reader =
+            Reader::open_readfile("test-data/test-data/MaxMind-DB-test-decoder.mmdb").unwrap();
+        let ip: IpAddr = "::1.1.1.0".parse().unwrap();
 
         let result = reader.lookup(ip).unwrap();
-        let mut decoder = result.decoder().unwrap();
+        assert!(result.found());
 
-        // The root should be a map
-        assert_eq!(decoder.peek_kind().unwrap(), Kind::Map);
+        // Test simple path: uint16
+        let u16_val: Option<u16> = result.decode_path(&[PathElement::Key("uint16")]).unwrap();
+        assert_eq!(u16_val, Some(100));
 
-        let mut map = decoder.read_map().unwrap();
-        assert!(map.len() > 0, "Expected non-empty map");
+        // Test array access: first element
+        let arr_first: Option<u32> = result
+            .decode_path(&[PathElement::Key("array"), PathElement::Index(0)])
+            .unwrap();
+        assert_eq!(arr_first, Some(1));
 
-        // Read first key
-        let key = map.next_key().unwrap();
-        assert!(key.is_some(), "Expected at least one key");
+        // Test array access: last element (index 2)
+        let arr_last: Option<u32> = result
+            .decode_path(&[PathElement::Key("array"), PathElement::Index(2)])
+            .unwrap();
+        assert_eq!(arr_last, Some(3));
+
+        // Test array access: out of bounds (index 3) returns None
+        let arr_oob: Option<u32> = result
+            .decode_path(&[PathElement::Key("array"), PathElement::Index(3)])
+            .unwrap();
+        assert!(arr_oob.is_none());
+
+        // Test negative index: -1 means last element
+        let arr_neg1: Option<u32> = result
+            .decode_path(&[PathElement::Key("array"), PathElement::Index(-1)])
+            .unwrap();
+        assert_eq!(arr_neg1, Some(3));
+
+        // Test negative index: -3 means first element
+        let arr_neg3: Option<u32> = result
+            .decode_path(&[PathElement::Key("array"), PathElement::Index(-3)])
+            .unwrap();
+        assert_eq!(arr_neg3, Some(1));
+
+        // Test nested path: map.mapX.arrayX[1]
+        let nested: Option<u32> = result
+            .decode_path(&[
+                PathElement::Key("map"),
+                PathElement::Key("mapX"),
+                PathElement::Key("arrayX"),
+                PathElement::Index(1),
+            ])
+            .unwrap();
+        assert_eq!(nested, Some(8));
+
+        // Test non-existent key returns None
+        let missing: Option<u32> = result
+            .decode_path(&[PathElement::Key("does-not-exist"), PathElement::Index(1)])
+            .unwrap();
+        assert!(missing.is_none());
+
+        // Test utf8_string path
+        let utf8: Option<String> = result
+            .decode_path(&[PathElement::Key("utf8_string")])
+            .unwrap();
+        assert_eq!(utf8, Some("unicode! ☯ - ♫".to_owned()));
     }
 }
