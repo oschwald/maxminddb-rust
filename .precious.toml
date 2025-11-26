@@ -5,11 +5,13 @@ exclude = [
 ]
 
 [commands.clippy]
-type = "lint"
+type = "both"
 include = "**/*.rs"
 invoke = "once"
 path-args = "none"
-cmd = ["cargo", "clippy", "--all-features", "--", "-D", "warnings"]
+cmd = ["cargo", "clippy"]
+lint-flags = ["--", "-D", "warnings"]
+tidy-flags = ["--fix", "--allow-dirty", "--allow-staged"]
 ok-exit-codes = [0]
 lint-failure-exit-codes = [101]
 expect-stderr = true
