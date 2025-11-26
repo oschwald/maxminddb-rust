@@ -1,5 +1,31 @@
 # Change Log
 
+## 0.27.0 - UNRELEASED
+
+- **BREAKING CHANGE:** The `lookup` method now returns a `LookupResult` instead
+  of `Option<T>`. The new API enables lazy decoding - data is only deserialized
+  when explicitly requested via `decode()`. Migration:
+  - Old: `reader.lookup::<City>(ip)?` returns `Option<City>`
+  - New: `reader.lookup(ip)?.decode::<City>()` returns `City`
+  - Check if found: `reader.lookup(ip)?.found()` returns `bool`
+- **BREAKING CHANGE:** The `lookup_prefix` method has been removed. Use
+  `reader.lookup(ip)?.network()` to get the network containing the IP.
+- **BREAKING CHANGE:** The `Within` iterator now yields `LookupResult` instead
+  of `WithinItem<T>`. Access the network via `result.network()?` and decode
+  data via `result.decode::<T>()?`.
+- Added `LookupResult` type with methods:
+  - `found()` - Check if IP was found in database
+  - `network()` - Get the network containing the IP
+  - `offset()` - Get data offset for caching/deduplication
+  - `decode()` - Deserialize full record using serde
+  - `decode_path()` - Selectively decode specific fields by path
+- Added `PathElement` enum for navigating nested structures:
+  - `PathElement::Key("name")` - Navigate into map by key
+  - `PathElement::Index(0)` - Navigate into array by index
+  - `PathElement::Index(-1)` - Python-style negative indexing
+- Added low-level `Decoder` API (`Kind`, `MapReader`, `ArrayReader`) for
+  FFI bindings and custom deserialization without serde overhead.
+
 ## 0.26.0 - 2025-03-28
 
 - **BREAKING CHANGE:** The `lookup` and `lookup_prefix` methods now return

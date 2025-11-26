@@ -16,13 +16,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .parse()
         .map_err(|e| format!("Invalid IP address '{}': {}", ip_str, e))?;
 
-    match reader.lookup::<geoip2::City>(ip)? {
-        Some(city) => {
-            println!("City data for IP {}: {city:#?}", ip);
-        }
-        None => {
-            println!("No city data found for IP {}", ip);
-        }
+    let result = reader.lookup(ip)?;
+
+    if result.found() {
+        let city: geoip2::City = result.decode()?;
+        println!("City data for IP {}: {city:#?}", ip);
+
+        // Also show the network
+        let network = result.network()?;
+        println!("Network: {}", network);
+    } else {
+        println!("No city data found for IP {}", ip);
+
+        // Even if not found, we can still show the network
+        let network = result.network()?;
+        println!("Network (no data): {}", network);
     }
     Ok(())
 }

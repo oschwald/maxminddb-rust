@@ -27,7 +27,9 @@
 //! let ip: IpAddr = "89.160.20.128".parse().unwrap();
 //!
 //! // City lookup (most common)
-//! if let Some(city) = reader.lookup::<geoip2::City>(ip)? {
+//! let result = reader.lookup(ip)?;
+//! if result.found() {
+//!     let city: geoip2::City = result.decode()?;
 //!     if let Some(city_names) = city.city.and_then(|c| c.names) {
 //!         if let Some(city_name) = city_names.get("en") {
 //!             println!("City: {}", city_name);
@@ -39,7 +41,9 @@
 //! }
 //!
 //! // Country-only lookup (smaller/faster)
-//! if let Some(country) = reader.lookup::<geoip2::Country>(ip)? {
+//! let result = reader.lookup(ip)?;
+//! if result.found() {
+//!     let country: geoip2::Country = result.decode()?;
 //!     if let Some(country_names) = country.country.and_then(|c| c.names) {
 //!         if let Some(country_name) = country_names.get("en") {
 //!             println!("Country: {}", country_name);

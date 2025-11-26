@@ -5,6 +5,11 @@ use std::convert::TryInto;
 
 use super::MaxMindDbError;
 
+// MaxMind DB type constants (only those actually used)
+pub(crate) const TYPE_POINTER: u8 = 1;
+pub(crate) const TYPE_MAP: u8 = 7;
+pub(crate) const TYPE_ARRAY: u8 = 11;
+
 fn to_usize(base: u8, bytes: &[u8]) -> usize {
     bytes
         .iter()
@@ -332,6 +337,172 @@ impl<'de> Decoder<'de> {
                 "error decoding string".to_owned(),
             )),
         }
+    }
+
+    // ========== Navigation methods for path decoding and verification ==========
+
+    /// Peeks at the type and size without consuming it.
+    /// Returns (size, type_num) and restores the position.
+    pub(crate) fn peek_type(&mut self) -> DecodeResult<(usize, u8)> {
+        let saved_ptr = self.current_ptr;
+        let result = self.size_and_type_following_pointers()?;
+        self.current_ptr = saved_ptr;
+        Ok(result)
+    }
+
+    /// Consumes a map header, returning its size. Follows pointers.
+    pub(crate) fn consume_map_header(&mut self) -> DecodeResult<usize> {
+        let (size, type_num) = self.size_and_type();
+        if type_num == TYPE_POINTER {
+            let new_ptr = self.decode_pointer(size);
+            self.current_ptr = new_ptr;
+            self.consume_map_header()
+        } else if type_num == TYPE_MAP {
+            Ok(size)
+        } else {
+            Err(MaxMindDbError::Decoding(format!(
+                "expected map, got type {type_num}"
+            )))
+        }
+    }
+
+    /// Consumes an array header, returning its size. Follows pointers.
+    pub(crate) fn consume_array_header(&mut self) -> DecodeResult<usize> {
+        let (size, type_num) = self.size_and_type();
+        if type_num == TYPE_POINTER {
+            let new_ptr = self.decode_pointer(size);
+            self.current_ptr = new_ptr;
+            self.consume_array_header()
+        } else if type_num == TYPE_ARRAY {
+            Ok(size)
+        } else {
+            Err(MaxMindDbError::Decoding(format!(
+                "expected array, got type {type_num}"
+            )))
+        }
+    }
+
+    /// Gets size and type, following any pointers.
+    fn size_and_type_following_pointers(&mut self) -> DecodeResult<(usize, u8)> {
+        let (size, type_num) = self.size_and_type();
+        if type_num == 1 {
+            // Pointer - follow it
+            let new_ptr = self.decode_pointer(size);
+            self.current_ptr = new_ptr;
+            self.size_and_type_following_pointers()
+        } else {
+            Ok((size, type_num))
+        }
+    }
+
+    /// Reads a string directly, following pointers if needed.
+    pub(crate) fn read_string(&mut self) -> DecodeResult<&'de str> {
+        let (size, type_num) = self.size_and_type();
+        if type_num == TYPE_POINTER {
+            // Pointer
+            let new_ptr = self.decode_pointer(size);
+            let saved_ptr = self.current_ptr;
+            self.current_ptr = new_ptr;
+            let result = self.read_string();
+            self.current_ptr = saved_ptr;
+            result
+        } else if type_num == 2 {
+            self.decode_string(size)
+        } else {
+            Err(MaxMindDbError::InvalidDatabase(format!(
+                "expected string, got type {type_num}"
+            )))
+        }
+    }
+
+    /// Skips the current value, following pointers.
+    pub(crate) fn skip_value(&mut self) -> DecodeResult<()> {
+        let (size, type_num) = self.size_and_type();
+        self.skip_value_inner(size, type_num, true)
+    }
+
+    /// Skips the current value without following pointers (for verification).
+    pub(crate) fn skip_value_for_verification(&mut self) -> DecodeResult<()> {
+        let (size, type_num) = self.size_and_type();
+        self.skip_value_inner(size, type_num, false)
+    }
+
+    fn skip_value_inner(
+        &mut self,
+        size: usize,
+        type_num: u8,
+        follow_pointers: bool,
+    ) -> DecodeResult<()> {
+        match type_num {
+            1 => {
+                // Pointer
+                let new_ptr = self.decode_pointer(size);
+                if follow_pointers {
+                    let saved_ptr = self.current_ptr;
+                    self.current_ptr = new_ptr;
+                    self.skip_value()?;
+                    self.current_ptr = saved_ptr;
+                }
+                Ok(())
+            }
+            2 | 4 => {
+                // String or Bytes - skip size bytes
+                self.current_ptr += size;
+                Ok(())
+            }
+            3 => {
+                // Double - must be exactly 8 bytes
+                if size != 8 {
+                    return Err(MaxMindDbError::InvalidDatabase(format!(
+                        "double of size {size}"
+                    )));
+                }
+                self.current_ptr += size;
+                Ok(())
+            }
+            15 => {
+                // Float - must be exactly 4 bytes
+                if size != 4 {
+                    return Err(MaxMindDbError::InvalidDatabase(format!(
+                        "float of size {size}"
+                    )));
+                }
+                self.current_ptr += size;
+                Ok(())
+            }
+            5 | 6 | 8 | 9 | 10 => {
+                // Numeric types - skip size bytes
+                self.current_ptr += size;
+                Ok(())
+            }
+            14 => {
+                // Boolean - size field IS the value, no data bytes to skip
+                Ok(())
+            }
+            7 => {
+                // Map - skip size key-value pairs
+                for _ in 0..size {
+                    self.skip_value_inner_with_follow(follow_pointers)?; // key
+                    self.skip_value_inner_with_follow(follow_pointers)?; // value
+                }
+                Ok(())
+            }
+            11 => {
+                // Array - skip size elements
+                for _ in 0..size {
+                    self.skip_value_inner_with_follow(follow_pointers)?;
+                }
+                Ok(())
+            }
+            u => Err(MaxMindDbError::InvalidDatabase(format!(
+                "Unknown data type: {u:?}"
+            ))),
+        }
+    }
+
+    fn skip_value_inner_with_follow(&mut self, follow_pointers: bool) -> DecodeResult<()> {
+        let (size, type_num) = self.size_and_type();
+        self.skip_value_inner(size, type_num, follow_pointers)
     }
 }
 

@@ -17,21 +17,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|e| format!("Invalid CIDR notation '{}': {}", cidr_str, e))?;
 
     let mut n = 0;
-    let iter: Within<geoip2::City, _> = reader.within(ip_net)?;
+    let iter: Within<_> = reader.within(ip_net)?;
     for next in iter {
-        let item = next?;
-        let continent = item.info.continent.and_then(|c| c.code).unwrap_or("");
-        let country = item.info.country.and_then(|c| c.iso_code).unwrap_or("");
-        let city = match item.info.city.and_then(|c| c.names) {
+        let lookup = next?;
+        let network = lookup.network()?;
+        let info: geoip2::City = lookup.decode()?;
+
+        let continent = info.continent.and_then(|c| c.code).unwrap_or("");
+        let country = info.country.and_then(|c| c.iso_code).unwrap_or("");
+        let city = match info.city.and_then(|c| c.names) {
             Some(names) => names.get("en").unwrap_or(&""),
             None => "",
         };
         if !city.is_empty() {
-            println!("{} {}-{}-{}", item.ip_net, continent, country, city);
+            println!("{} {}-{}-{}", network, continent, country, city);
         } else if !country.is_empty() {
-            println!("{} {}-{}", item.ip_net, continent, country);
+            println!("{} {}-{}", network, continent, country);
         } else if !continent.is_empty() {
-            println!("{} {}", item.ip_net, continent);
+            println!("{} {}", network, continent);
         }
         n += 1;
     }

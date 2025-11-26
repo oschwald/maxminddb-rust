@@ -43,7 +43,10 @@
 //!
 //!     // Look up an IP address
 //!     let ip: IpAddr = "89.160.20.128".parse()?;
-//!     if let Some(city) = reader.lookup::<geoip2::City>(ip)? {
+//!     let result = reader.lookup(ip)?;
+//!
+//!     if result.found() {
+//!         let city: geoip2::City = result.decode()?;
 //!         if let Some(country) = city.country {
 //!             println!("Country: {}", country.iso_code.unwrap_or("Unknown"));
 //!         }
@@ -52,14 +55,33 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! ## Selective Field Access
+//!
+//! Use `decode_path` to extract specific fields without deserializing the entire record:
+//!
+//! ```rust
+//! use maxminddb::{Reader, PathElement};
+//! use std::net::IpAddr;
+//!
+//! let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+//! let ip: IpAddr = "89.160.20.128".parse().unwrap();
+//!
+//! let result = reader.lookup(ip).unwrap();
+//! let country_code: Option<String> = result.decode_path(&[
+//!     PathElement::Key("country"),
+//!     PathElement::Key("iso_code"),
+//! ]).unwrap();
+//!
+//! println!("Country: {:?}", country_code);
+//! ```
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::fs;
 use std::io;
-use std::marker::PhantomData;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::IpAddr;
 use std::path::Path;
 
 use ipnetwork::{IpNetwork, IpNetworkError};
@@ -129,18 +151,16 @@ struct WithinNode {
     prefix_len: usize,
 }
 
+/// Iterator over IP networks within a CIDR range.
+///
+/// This iterator yields [`LookupResult`] for each network in the database
+/// that falls within the specified CIDR range. Use [`LookupResult::decode()`]
+/// to deserialize the data for each result.
 #[derive(Debug)]
-pub struct Within<'de, T: Deserialize<'de>, S: AsRef<[u8]>> {
+pub struct Within<'de, S: AsRef<[u8]>> {
     reader: &'de Reader<S>,
     node_count: usize,
     stack: Vec<WithinNode>,
-    phantom: PhantomData<&'de T>,
-}
-
-#[derive(Debug)]
-pub struct WithinItem<T> {
-    pub ip_net: IpNetwork,
-    pub info: T,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -180,8 +200,8 @@ impl IpInt {
     }
 }
 
-impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
-    type Item = Result<WithinItem<T>, MaxMindDbError>;
+impl<'de, S: AsRef<[u8]>> Iterator for Within<'de, S> {
+    type Item = Result<LookupResult<'de, S>, MaxMindDbError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(current) = self.stack.pop() {
@@ -199,17 +219,20 @@ impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
             match current.node.cmp(&self.node_count) {
                 Ordering::Greater => {
                     // This is a data node, emit it and we're done (until the following next call)
-                    let ip_net =
-                        match bytes_and_prefix_to_net(&current.ip_int, current.prefix_len as u8) {
-                            Ok(ip_net) => ip_net,
-                            Err(e) => return Some(Err(e)),
-                        };
+                    let ip_addr = ip_int_to_addr(&current.ip_int);
 
-                    // Call the new helper method to decode data
-                    return match self.reader.decode_data_at_pointer(current.node) {
-                        Ok(info) => Some(Ok(WithinItem { ip_net, info })),
-                        Err(e) => Some(Err(e)),
+                    // Resolve the pointer to a data offset
+                    let data_offset = match self.reader.resolve_data_pointer(current.node) {
+                        Ok(offset) => offset,
+                        Err(e) => return Some(Err(e)),
                     };
+
+                    return Some(Ok(LookupResult::new_found(
+                        self.reader,
+                        data_offset,
+                        current.prefix_len as u8,
+                        ip_addr,
+                    )));
                 }
                 Ordering::Equal => {
                     // Dead end, nothing to do
@@ -250,6 +273,21 @@ impl<'de, T: Deserialize<'de>, S: AsRef<[u8]>> Iterator for Within<'de, T, S> {
             }
         }
         None
+    }
+}
+
+/// Convert IpInt to IpAddr
+fn ip_int_to_addr(ip_int: &IpInt) -> IpAddr {
+    match ip_int {
+        IpInt::V4(ip) => IpAddr::V4((*ip).into()),
+        IpInt::V6(ip) => {
+            // Check if this is an IPv4-mapped IPv6 address
+            if *ip <= 0xFFFFFFFF {
+                IpAddr::V4((*ip as u32).into())
+            } else {
+                IpAddr::V6((*ip).into())
+            }
+        }
     }
 }
 
@@ -338,8 +376,14 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         Ok(reader)
     }
 
-    /// Lookup the socket address in the opened MaxMind DB.
-    /// Returns `Ok(None)` if the address is not found in the database.
+    /// Lookup an IP address in the database.
+    ///
+    /// Returns a [`LookupResult`] that can be used to:
+    /// - Check if the IP was found with [`found()`](LookupResult::found)
+    /// - Get the network containing the IP with [`network()`](LookupResult::network)
+    /// - Decode the full record with [`decode()`](LookupResult::decode)
+    /// - Decode a specific path with [`decode_path()`](LookupResult::decode_path)
+    /// - Get a low-level decoder with [`decoder()`](LookupResult::decoder)
     ///
     /// # Examples
     ///
@@ -347,134 +391,92 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// ```
     /// # use maxminddb::geoip2;
     /// # use std::net::IpAddr;
-    /// # use std::str::FromStr;
     /// # fn main() -> Result<(), maxminddb::MaxMindDbError> {
     /// let reader = maxminddb::Reader::open_readfile(
     ///     "test-data/test-data/GeoIP2-City-Test.mmdb")?;
     ///
-    /// let ip: IpAddr = FromStr::from_str("89.160.20.128").unwrap();
-    /// match reader.lookup::<geoip2::City>(ip)? {
-    ///     Some(city) => {
-    ///         if let Some(city_names) = city.city.and_then(|c| c.names) {
-    ///             if let Some(name) = city_names.get("en") {
+    /// let ip: IpAddr = "89.160.20.128".parse().unwrap();
+    /// let result = reader.lookup(ip)?;
+    ///
+    /// if result.found() {
+    ///     let city: geoip2::City = result.decode()?;
+    ///     if let Some(city_info) = city.city {
+    ///         if let Some(names) = city_info.names {
+    ///             if let Some(name) = names.get("en") {
     ///                 println!("City: {}", name);
     ///             }
     ///         }
-    ///         if let Some(country) = city.country.and_then(|c| c.iso_code) {
-    ///             println!("Country: {}", country);
-    ///         }
     ///     }
-    ///     None => println!("No data found for IP {}", ip),
+    /// } else {
+    ///     println!("No data found for IP {}", ip);
     /// }
     /// # Ok(())
     /// # }
     /// ```
     ///
-    /// Lookup with different record types:
+    /// Selective field access:
     /// ```
-    /// # use maxminddb::geoip2;
+    /// # use maxminddb::{Reader, PathElement};
     /// # use std::net::IpAddr;
     /// # fn main() -> Result<(), maxminddb::MaxMindDbError> {
-    /// let reader = maxminddb::Reader::open_readfile(
+    /// let reader = Reader::open_readfile(
     ///     "test-data/test-data/GeoIP2-City-Test.mmdb")?;
     /// let ip: IpAddr = "89.160.20.128".parse().unwrap();
     ///
-    /// // Different record types for the same IP
-    /// let city: Option<geoip2::City> = reader.lookup(ip)?;
-    /// let country: Option<geoip2::Country> = reader.lookup(ip)?;
+    /// let result = reader.lookup(ip)?;
+    /// let country_code: Option<String> = result.decode_path(&[
+    ///     PathElement::Key("country"),
+    ///     PathElement::Key("iso_code"),
+    /// ])?;
     ///
-    /// println!("City data available: {}", city.is_some());
-    /// println!("Country data available: {}", country.is_some());
+    /// println!("Country: {:?}", country_code);
     /// # Ok(())
     /// # }
     /// ```
-    pub fn lookup<T>(&'de self, address: IpAddr) -> Result<Option<T>, MaxMindDbError>
-    where
-        T: Deserialize<'de>,
-    {
-        self.lookup_prefix(address)
-            .map(|(option_value, _prefix_len)| option_value)
-    }
-
-    /// Lookup the socket address in the opened MaxMind DB, returning the found value (if any)
-    /// and the prefix length of the network associated with the lookup.
-    ///
-    /// Returns `Ok((None, prefix_len))` if the address is found in the tree but has no data record.
-    /// Returns `Err(...)` for database errors (IO, corruption, decoding).
-    ///
-    /// Example:
-    ///
-    /// ```
-    /// # use maxminddb::geoip2;
-    /// # use std::net::IpAddr;
-    /// # use std::str::FromStr;
-    /// # fn main() -> Result<(), maxminddb::MaxMindDbError> {
-    /// let reader = maxminddb::Reader::open_readfile(
-    ///     "test-data/test-data/GeoIP2-City-Test.mmdb")?;
-    ///
-    /// let ip: IpAddr = "89.160.20.128".parse().unwrap(); // Known IP
-    /// let ip_unknown: IpAddr = "10.0.0.1".parse().unwrap(); // Unknown IP
-    ///
-    /// let (city_option, prefix_len) = reader.lookup_prefix::<geoip2::City>(ip)?;
-    /// if let Some(city) = city_option {
-    ///     println!("Found {:?} at prefix length {}", city.city.unwrap().names.unwrap().get("en").unwrap(), prefix_len);
-    /// } else {
-    ///     // This case is less likely with lookup_prefix if the IP resolves in the tree
-    ///     println!("IP found in tree but no data (prefix_len: {})", prefix_len);
-    /// }
-    ///
-    /// let (city_option_unknown, prefix_len_unknown) = reader.lookup_prefix::<geoip2::City>(ip_unknown)?;
-    /// assert!(city_option_unknown.is_none());
-    /// println!("Unknown IP resolved to prefix_len: {}", prefix_len_unknown);
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn lookup_prefix<T>(
-        &'de self,
-        address: IpAddr,
-    ) -> Result<(Option<T>, usize), MaxMindDbError>
-    where
-        T: Deserialize<'de>,
-    {
+    pub fn lookup(&'de self, address: IpAddr) -> Result<LookupResult<'de, S>, MaxMindDbError> {
         let ip_int = IpInt::new(address);
-        // find_address_in_tree returns Result<(usize, usize), MaxMindDbError> -> (pointer, prefix_len)
         let (pointer, prefix_len) = self.find_address_in_tree(&ip_int)?;
 
         if pointer == 0 {
-            // If pointer is 0, it signifies no data record was associated during tree traversal.
-            // Return None for the data, but include the calculated prefix_len.
-            return Ok((None, prefix_len));
-        }
-
-        // If pointer > 0, attempt to resolve and decode data using the helper method
-        match self.decode_data_at_pointer(pointer) {
-            Ok(value) => Ok((Some(value), prefix_len)),
-            Err(e) => Err(e),
+            // IP not found in database
+            Ok(LookupResult::new_not_found(self, prefix_len as u8, address))
+        } else {
+            // Resolve the pointer to a data offset
+            let data_offset = self.resolve_data_pointer(pointer)?;
+            Ok(LookupResult::new_found(
+                self,
+                data_offset,
+                prefix_len as u8,
+                address,
+            ))
         }
     }
 
-    /// Iterate over blocks of IP networks in the opened MaxMind DB
+    /// Iterate over IP networks within a CIDR range.
     ///
-    /// This method returns an iterator that yields all IP network blocks that
-    /// fall within the specified CIDR range and have associated data in the
-    /// database.
+    /// Returns an iterator that yields [`LookupResult`] for each network in the
+    /// database that falls within the specified CIDR range.
     ///
     /// # Examples
     ///
     /// Iterate over all IPv4 networks:
     /// ```
     /// use ipnetwork::IpNetwork;
-    /// use maxminddb::{geoip2, Within};
+    /// use maxminddb::{geoip2, Reader};
     ///
-    /// let reader = maxminddb::Reader::open_readfile(
+    /// let reader = Reader::open_readfile(
     ///     "test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
     ///
     /// let ipv4_all = IpNetwork::V4("0.0.0.0/0".parse().unwrap());
     /// let mut count = 0;
-    /// for result in reader.within::<geoip2::City>(ipv4_all).unwrap() {
-    ///     let item = result.unwrap();
-    ///     let city_name = item.info.city.as_ref().and_then(|c| c.names.as_ref()).and_then(|n| n.get("en"));
-    ///     println!("Network: {}, City: {:?}", item.ip_net, city_name);
+    /// for result in reader.within(ipv4_all).unwrap() {
+    ///     let lookup = result.unwrap();
+    ///     let network = lookup.network().unwrap();
+    ///     let city: geoip2::City = lookup.decode().unwrap();
+    ///     let city_name = city.city.as_ref()
+    ///         .and_then(|c| c.names.as_ref())
+    ///         .and_then(|n| n.get("en"));
+    ///     println!("Network: {}, City: {:?}", network, city_name);
     ///     count += 1;
     ///     if count >= 10 { break; } // Limit output for example
     /// }
@@ -483,28 +485,23 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// Search within a specific subnet:
     /// ```
     /// use ipnetwork::IpNetwork;
-    /// use maxminddb::geoip2;
+    /// use maxminddb::{geoip2, Reader};
     ///
-    /// let reader = maxminddb::Reader::open_readfile(
+    /// let reader = Reader::open_readfile(
     ///     "test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
     ///
     /// let subnet = IpNetwork::V4("192.168.0.0/16".parse().unwrap());
-    /// match reader.within::<geoip2::City>(subnet) {
-    ///     Ok(iter) => {
-    ///         for result in iter {
-    ///             match result {
-    ///                 Ok(item) => println!("Found: {}", item.ip_net),
-    ///                 Err(e) => eprintln!("Error processing item: {}", e),
-    ///             }
+    /// for result in reader.within(subnet).unwrap() {
+    ///     match result {
+    ///         Ok(lookup) => {
+    ///             let network = lookup.network().unwrap();
+    ///             println!("Found: {}", network);
     ///         }
+    ///         Err(e) => eprintln!("Error: {}", e),
     ///     }
-    ///     Err(e) => eprintln!("Failed to create iterator: {}", e),
     /// }
     /// ```
-    pub fn within<T>(&'de self, cidr: IpNetwork) -> Result<Within<'de, T, S>, MaxMindDbError>
-    where
-        T: Deserialize<'de>,
-    {
+    pub fn within(&'de self, cidr: IpNetwork) -> Result<Within<'de, S>, MaxMindDbError> {
         let ip_address = cidr.network();
         let prefix_len = cidr.prefix() as usize;
         let ip_int = IpInt::new(ip_address);
@@ -540,11 +537,10 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         // else the stack will be empty and we'll be returning an iterator that visits nothing,
         // which makes sense.
 
-        let within: Within<T, S> = Within {
+        let within = Within {
             reader: self,
             node_count,
             stack,
-            phantom: PhantomData,
         };
 
         Ok(within)
@@ -657,30 +653,6 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
 
         Ok(resolved)
     }
-
-    /// Decodes data at the given pointer offset.
-    /// Assumes the pointer is valid and points to the data section.
-    fn decode_data_at_pointer<T>(&'de self, pointer: usize) -> Result<T, MaxMindDbError>
-    where
-        T: Deserialize<'de>,
-    {
-        let resolved_offset = self.resolve_data_pointer(pointer)?;
-        let mut decoder =
-            decoder::Decoder::new(&self.buf.as_ref()[self.pointer_base..], resolved_offset);
-        T::deserialize(&mut decoder)
-    }
-}
-
-#[inline]
-fn bytes_and_prefix_to_net(bytes: &IpInt, prefix: u8) -> Result<IpNetwork, MaxMindDbError> {
-    let (ip, prefix) = match bytes {
-        IpInt::V4(ip) => (IpAddr::V4(Ipv4Addr::from(*ip)), prefix),
-        IpInt::V6(ip) if bytes.is_ipv4_in_ipv6() => {
-            (IpAddr::V4(Ipv4Addr::from(*ip as u32)), prefix - 96)
-        }
-        IpInt::V6(ip) => (IpAddr::V6(Ipv6Addr::from(*ip)), prefix),
-    };
-    IpNetwork::new(ip, prefix).map_err(MaxMindDbError::InvalidNetwork)
 }
 
 fn find_metadata_start(buf: &[u8]) -> Result<usize, MaxMindDbError> {
@@ -697,6 +669,9 @@ fn find_metadata_start(buf: &[u8]) -> Result<usize, MaxMindDbError> {
 
 mod decoder;
 pub mod geoip2;
+mod result;
+
+pub use result::{LookupResult, PathElement};
 
 #[cfg(test)]
 mod reader_test;
@@ -744,59 +719,96 @@ mod tests {
     }
 
     #[test]
-    fn test_lookup_returns_none_for_unknown_address() {
+    fn test_lookup_not_found_for_unknown_address() {
+        use super::Reader;
+        use std::net::IpAddr;
+
+        let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+        let ip: IpAddr = "10.0.0.1".parse().unwrap();
+
+        let result = reader.lookup(ip).unwrap();
+        assert!(
+            !result.found(),
+            "lookup should return found=false for unknown IP"
+        );
+
+        // Network should still be available
+        let network = result.network().unwrap();
+        assert_eq!(network.prefix(), 8, "Expected prefix length 8");
+    }
+
+    #[test]
+    fn test_lookup_found_for_known_address() {
         use super::Reader;
         use crate::geoip2;
         use std::net::IpAddr;
-        use std::str::FromStr;
 
         let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
-        let ip: IpAddr = FromStr::from_str("10.0.0.1").unwrap();
+        let ip: IpAddr = "89.160.20.128".parse().unwrap();
 
-        let result_lookup = reader.lookup::<geoip2::City>(ip);
+        let result = reader.lookup(ip).unwrap();
         assert!(
-            matches!(result_lookup, Ok(None)),
-            "lookup should return Ok(None) for unknown IP"
+            result.found(),
+            "lookup should return found=true for known IP"
         );
 
-        let result_lookup_prefix = reader.lookup_prefix::<geoip2::City>(ip);
+        // Decode the data
+        let city: geoip2::City = result.decode().unwrap();
+        assert!(city.city.is_some(), "Expected city data");
+
+        // Check network
+        let network = result.network().unwrap();
+        assert_eq!(network.prefix(), 25, "Expected prefix length 25");
+
+        // Check offset is available
         assert!(
-            matches!(result_lookup_prefix, Ok((None, 8))),
-            "lookup_prefix should return Ok((None, 8)) for unknown IP, got {:?}",
-            result_lookup_prefix
+            result.offset().is_some(),
+            "Expected offset to be Some for found IP"
         );
     }
 
     #[test]
-    fn test_lookup_returns_some_for_known_address() {
-        use super::Reader;
-        use crate::geoip2;
+    fn test_decode_path() {
+        use super::{PathElement, Reader};
         use std::net::IpAddr;
-        use std::str::FromStr;
 
         let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
-        let ip: IpAddr = FromStr::from_str("89.160.20.128").unwrap();
+        let ip: IpAddr = "89.160.20.128".parse().unwrap();
 
-        let result_lookup = reader.lookup::<geoip2::City>(ip);
-        assert!(
-            matches!(result_lookup, Ok(Some(_))),
-            "lookup should return Ok(Some(_)) for known IP"
-        );
-        assert!(
-            result_lookup.unwrap().unwrap().city.is_some(),
-            "Expected city data"
-        );
+        let result = reader.lookup(ip).unwrap();
 
-        let result_lookup_prefix = reader.lookup_prefix::<geoip2::City>(ip);
-        assert!(
-            matches!(result_lookup_prefix, Ok((Some(_), _))),
-            "lookup_prefix should return Ok(Some(_)) for known IP"
-        );
-        let (city_data, prefix_len) = result_lookup_prefix.unwrap();
-        assert!(
-            city_data.unwrap().city.is_some(),
-            "Expected city data from prefix lookup"
-        );
-        assert_eq!(prefix_len, 25, "Expected valid prefix length");
+        // Navigate to country.iso_code
+        let iso_code: Option<String> = result
+            .decode_path(&[PathElement::Key("country"), PathElement::Key("iso_code")])
+            .unwrap();
+        assert_eq!(iso_code, Some("SE".to_owned()));
+
+        // Navigate to non-existent path
+        let missing: Option<String> = result
+            .decode_path(&[PathElement::Key("nonexistent")])
+            .unwrap();
+        assert!(missing.is_none());
+    }
+
+    #[test]
+    fn test_decoder_api() {
+        use super::{Kind, Reader};
+        use std::net::IpAddr;
+
+        let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+        let ip: IpAddr = "89.160.20.128".parse().unwrap();
+
+        let result = reader.lookup(ip).unwrap();
+        let mut decoder = result.decoder().unwrap();
+
+        // The root should be a map
+        assert_eq!(decoder.peek_kind().unwrap(), Kind::Map);
+
+        let mut map = decoder.read_map().unwrap();
+        assert!(map.len() > 0, "Expected non-empty map");
+
+        // Read first key
+        let key = map.next_key().unwrap();
+        assert!(key.is_some(), "Expected at least one key");
     }
 }

@@ -48,7 +48,9 @@ fn test_decoder() {
     }
     let r = r.unwrap();
     let ip: IpAddr = FromStr::from_str("1.1.1.0").unwrap();
-    let result: TestType = r.lookup(ip).unwrap().unwrap();
+    let lookup = r.lookup(ip).unwrap();
+    assert!(lookup.found(), "Expected IP to be found");
+    let result: TestType = lookup.decode().unwrap();
 
     assert_eq!(result.array, vec![1_u32, 2_u32, 3_u32]);
     assert!(result.boolean);
@@ -103,13 +105,18 @@ fn test_broken_database() {
 
     #[derive(Deserialize, Debug)]
     struct TestType {}
-    match r.lookup::<TestType>(ip) {
-        Err(e) => assert!(matches!(
-            e,
-            MaxMindDbError::InvalidDatabase(_) // Check variant, message might vary slightly
-        )),
-        Ok(Some(_)) => panic!("Unexpected success with broken data"),
-        Ok(None) => panic!("Got None, expected InvalidDatabase"),
+
+    let lookup = r.lookup(ip).unwrap();
+    if lookup.found() {
+        match lookup.decode::<TestType>() {
+            Err(e) => assert!(matches!(
+                e,
+                MaxMindDbError::InvalidDatabase(_) // Check variant, message might vary slightly
+            )),
+            Ok(_) => panic!("Unexpected success with broken data"),
+        }
+    } else {
+        panic!("Expected IP to be found (with broken data)");
     }
 }
 
@@ -206,7 +213,9 @@ fn test_lookup_city() {
     let reader = Reader::open_readfile(filename).unwrap();
 
     let ip: IpAddr = FromStr::from_str("89.160.20.112").unwrap();
-    let city: geoip2::City = reader.lookup(ip).unwrap().unwrap();
+    let lookup = reader.lookup(ip).unwrap();
+    assert!(lookup.found());
+    let city: geoip2::City = lookup.decode().unwrap();
 
     let iso_code = city.country.and_then(|cy| cy.iso_code);
 
@@ -222,7 +231,9 @@ fn test_lookup_country() {
     let reader = Reader::open_readfile(filename).unwrap();
 
     let ip: IpAddr = FromStr::from_str("89.160.20.112").unwrap();
-    let country: geoip2::Country = reader.lookup(ip).unwrap().unwrap();
+    let lookup = reader.lookup(ip).unwrap();
+    assert!(lookup.found());
+    let country: geoip2::Country = lookup.decode().unwrap();
     let country = country.country.unwrap();
 
     assert_eq!(country.iso_code, Some("SE"));
@@ -238,7 +249,9 @@ fn test_lookup_connection_type() {
     let reader = Reader::open_readfile(filename).unwrap();
 
     let ip: IpAddr = FromStr::from_str("96.1.20.112").unwrap();
-    let connection_type: geoip2::ConnectionType = reader.lookup(ip).unwrap().unwrap();
+    let lookup = reader.lookup(ip).unwrap();
+    assert!(lookup.found());
+    let connection_type: geoip2::ConnectionType = lookup.decode().unwrap();
 
     assert_eq!(connection_type.connection_type, Some("Cable/DSL"));
 }
@@ -252,7 +265,9 @@ fn test_lookup_annonymous_ip() {
     let reader = Reader::open_readfile(filename).unwrap();
 
     let ip: IpAddr = FromStr::from_str("81.2.69.123").unwrap();
-    let anonymous_ip: geoip2::AnonymousIp = reader.lookup(ip).unwrap().unwrap();
+    let lookup = reader.lookup(ip).unwrap();
+    assert!(lookup.found());
+    let anonymous_ip: geoip2::AnonymousIp = lookup.decode().unwrap();
 
     assert_eq!(anonymous_ip.is_anonymous, Some(true));
     assert_eq!(anonymous_ip.is_public_proxy, Some(true));
@@ -270,7 +285,9 @@ fn test_lookup_density_income() {
     let reader = Reader::open_readfile(filename).unwrap();
 
     let ip: IpAddr = FromStr::from_str("5.83.124.123").unwrap();
-    let density_income: geoip2::DensityIncome = reader.lookup(ip).unwrap().unwrap();
+    let lookup = reader.lookup(ip).unwrap();
+    assert!(lookup.found());
+    let density_income: geoip2::DensityIncome = lookup.decode().unwrap();
 
     assert_eq!(density_income.average_income, Some(32323));
     assert_eq!(density_income.population_density, Some(1232))
@@ -285,7 +302,9 @@ fn test_lookup_domain() {
     let reader = Reader::open_readfile(filename).unwrap();
 
     let ip: IpAddr = FromStr::from_str("66.92.80.123").unwrap();
-    let domain: geoip2::Domain = reader.lookup(ip).unwrap().unwrap();
+    let lookup = reader.lookup(ip).unwrap();
+    assert!(lookup.found());
+    let domain: geoip2::Domain = lookup.decode().unwrap();
 
     assert_eq!(domain.domain, Some("speakeasy.net"));
 }
@@ -299,7 +318,9 @@ fn test_lookup_isp() {
     let reader = Reader::open_readfile(filename).unwrap();
 
     let ip: IpAddr = FromStr::from_str("12.87.118.123").unwrap();
-    let isp: geoip2::Isp = reader.lookup(ip).unwrap().unwrap();
+    let lookup = reader.lookup(ip).unwrap();
+    assert!(lookup.found());
+    let isp: geoip2::Isp = lookup.decode().unwrap();
 
     assert_eq!(isp.autonomous_system_number, Some(7018));
     assert_eq!(isp.isp, Some("AT&T Services"));
@@ -315,59 +336,60 @@ fn test_lookup_asn() {
     let reader = Reader::open_readfile(filename).unwrap();
 
     let ip: IpAddr = FromStr::from_str("1.128.0.123").unwrap();
-    let asn: geoip2::Asn = reader.lookup(ip).unwrap().unwrap();
+    let lookup = reader.lookup(ip).unwrap();
+    assert!(lookup.found());
+    let asn: geoip2::Asn = lookup.decode().unwrap();
 
     assert_eq!(asn.autonomous_system_number, Some(1221));
     assert_eq!(asn.autonomous_system_organization, Some("Telstra Pty Ltd"));
 }
 
 #[test]
-fn test_lookup_prefix() {
+fn test_lookup_network() {
     let _ = env_logger::try_init();
     let filename = "test-data/test-data/GeoIP2-City-Test.mmdb";
     let reader = Reader::open_readfile(filename).unwrap();
 
     // --- IPv4 Check (Known) ---
     let ip: IpAddr = "89.160.20.128".parse().unwrap();
-    let result_v4 = reader.lookup_prefix::<geoip2::City>(ip);
-    assert!(result_v4.is_ok());
-    let (city_opt_v4, prefix_len_v4) = result_v4.unwrap();
-    assert!(city_opt_v4.is_some(), "Expected Some(City) for known IPv4");
-    assert_eq!(prefix_len_v4, 25);
-    assert!(city_opt_v4.unwrap().country.is_some());
+    let lookup = reader.lookup(ip).unwrap();
+    assert!(lookup.found(), "Expected Some(City) for known IPv4");
+    let network = lookup.network().unwrap();
+    assert_eq!(network.prefix(), 25);
+    let city: geoip2::City = lookup.decode().unwrap();
+    assert!(city.country.is_some());
 
     // --- IPv4 Check (Last Host, Known) ---
     let ip_last: IpAddr = "89.160.20.254".parse().unwrap();
-    let (city_opt_last, last_prefix_len) = reader.lookup_prefix::<geoip2::City>(ip_last).unwrap();
-    assert!(city_opt_last.is_some(), "Expected Some(City) for last host");
-    assert_eq!(last_prefix_len, 25); // Should be same network
+    let lookup_last = reader.lookup(ip_last).unwrap();
+    assert!(lookup_last.found(), "Expected Some(City) for last host");
+    assert_eq!(lookup_last.network().unwrap().prefix(), 25); // Should be same network
 
     // --- IPv6 Check (Not Found in Data) ---
     // This IP might resolve to a node in the tree, but that node might not point to data.
     let ip_v6_not_found: IpAddr = "2c0f:ff00::1".parse().unwrap();
-    let result_not_found = reader.lookup_prefix::<geoip2::City>(ip_v6_not_found);
-    assert!(result_not_found.is_ok());
-    let (city_opt_nf, prefix_len_nf) = result_not_found.unwrap();
+    let lookup_nf = reader.lookup(ip_v6_not_found).unwrap();
     assert!(
-        city_opt_nf.is_none(),
-        "Expected None data for non-existent IP 2c0f:ff00::1"
+        !lookup_nf.found(),
+        "Expected not found for non-existent IP 2c0f:ff00::1"
     );
     assert_eq!(
-        prefix_len_nf, 6,
+        lookup_nf.network().unwrap().prefix(),
+        6,
         "Expected valid prefix length for not-found IPv6"
     );
 
     // --- IPv6 Check (Known Data) ---
     let ip_v6_known: IpAddr = "2001:218:85a3:0:0:8a2e:370:7334".parse().unwrap();
-    let result_known_v6 = reader.lookup_prefix::<geoip2::City>(ip_v6_known);
-    assert!(result_known_v6.is_ok());
-    let (city_opt_v6, prefix_len_v6_known) = result_known_v6.unwrap();
-    assert!(city_opt_v6.is_some(), "Expected Some(City) for known IPv6");
+    let lookup_v6 = reader.lookup(ip_v6_known).unwrap();
+    assert!(lookup_v6.found(), "Expected Some(City) for known IPv6");
     assert_eq!(
-        prefix_len_v6_known, 32,
+        lookup_v6.network().unwrap().prefix(),
+        32,
         "Prefix length mismatch for known IPv6"
     );
-    assert!(city_opt_v6.unwrap().country.is_some());
+    let city_v6: geoip2::City = lookup_v6.decode().unwrap();
+    assert!(city_v6.country.is_some());
 }
 
 #[test]
@@ -380,7 +402,7 @@ fn test_within_city() {
 
     // --- Test iteration over entire DB ("::/0") ---
     let ip_net_all = IpNetwork::V6("::/0".parse().unwrap());
-    let mut iter_all: Within<geoip2::City, _> = reader.within(ip_net_all).unwrap();
+    let mut iter_all: Within<_> = reader.within(ip_net_all).unwrap();
 
     // Get the first item
     let first_item_result = iter_all.next();
@@ -388,7 +410,7 @@ fn test_within_city() {
         first_item_result.is_some(),
         "Iterator over ::/0 yielded no items"
     );
-    let _first_item = first_item_result.unwrap().unwrap();
+    let _first_lookup = first_item_result.unwrap().unwrap();
 
     // Count the remaining items to check total count
     let mut n = 1; // Start at 1 since we already took the first item
@@ -400,7 +422,7 @@ fn test_within_city() {
 
     // --- Test iteration over a specific smaller network ---
     let specific = IpNetwork::V4("81.2.69.0/24".parse().unwrap());
-    let mut iter_specific: Within<geoip2::City, _> = reader.within(specific).unwrap();
+    let mut iter_specific: Within<_> = reader.within(specific).unwrap();
 
     let expected = vec![
         // In order of iteration:
@@ -418,16 +440,18 @@ fn test_within_city() {
             item_res.is_some(),
             "Expected more items in specific iterator"
         );
-        let item = item_res.unwrap().unwrap();
+        let lookup = item_res.unwrap().unwrap();
+        let network = lookup.network().unwrap();
         assert_eq!(
-            item.ip_net, expected_net,
+            network, expected_net,
             "Mismatch in specific network iteration"
         );
         // Check associated data for one of them
-        if item.ip_net.prefix() == 31 {
+        if network.prefix() == 31 {
             // 81.2.69.142/31
-            assert!(item.info.city.is_some());
-            assert_eq!(item.info.city.unwrap().geoname_id, Some(2643743)); // London
+            let city: geoip2::City = lookup.decode().unwrap();
+            assert!(city.city.is_some());
+            assert_eq!(city.city.unwrap().geoname_id, Some(2643743)); // London
         }
         found_count += 1;
     }
@@ -501,21 +525,21 @@ fn check_ip<S: AsRef<[u8]>>(reader: &Reader<S>, ip_version: usize) {
     // Test lookups that are expected to succeed
     for subnet in &subnets {
         let ip: IpAddr = FromStr::from_str(subnet).unwrap();
-        let result = reader.lookup::<IpType>(ip);
+        let lookup = reader.lookup(ip);
 
         assert!(
-            result.is_ok(),
+            lookup.is_ok(),
             "Lookup failed unexpectedly for {}: {:?}",
             subnet,
-            result.err()
+            lookup.err()
         );
-        let value_option = result.unwrap();
+        let lookup = lookup.unwrap();
         assert!(
-            value_option.is_some(),
-            "Lookup for {} returned None unexpectedly",
+            lookup.found(),
+            "Lookup for {} returned not found unexpectedly",
             subnet
         );
-        let value = value_option.unwrap();
+        let value: IpType = lookup.decode().unwrap();
 
         // The value stored is often the network address, not the specific IP looked up
         // We need to parse the found IP and the subnet IP to check containment or equality.
@@ -523,7 +547,7 @@ fn check_ip<S: AsRef<[u8]>>(reader: &Reader<S>, ip_version: usize) {
         assert_eq!(value.ip, *subnet);
     }
 
-    // Test lookups that are expected to return "not found" (Ok(None))
+    // Test lookups that are expected to return "not found"
     let no_record = ["1.1.1.33", "255.254.253.123", "89fa::"];
 
     for &address in &no_record {
@@ -535,13 +559,12 @@ fn check_ip<S: AsRef<[u8]>>(reader: &Reader<S>, ip_version: usize) {
         }
 
         let ip: IpAddr = FromStr::from_str(address).unwrap();
-        let result = reader.lookup::<IpType>(ip);
+        let lookup = reader.lookup(ip).unwrap();
 
         assert!(
-            matches!(result, Ok(None)),
-            "Expected Ok(None) for address {}, but got {:?}",
-            address,
-            result
+            !lookup.found(),
+            "Expected not found for address {}, but it was found",
+            address
         );
     }
 }
@@ -555,7 +578,9 @@ fn test_json_serialize() {
     let reader = Reader::open_readfile(filename).unwrap();
 
     let ip: IpAddr = FromStr::from_str("89.160.20.112").unwrap();
-    let city: geoip2::City = reader.lookup(ip).unwrap().unwrap();
+    let lookup = reader.lookup(ip).unwrap();
+    assert!(lookup.found());
+    let city: geoip2::City = lookup.decode().unwrap();
 
     let json_value = json!(city);
     let json_string = json_value.to_string();

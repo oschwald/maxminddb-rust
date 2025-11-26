@@ -32,7 +32,10 @@ where
     T: AsRef<[u8]>,
 {
     for ip in ips.iter() {
-        let _ = reader.lookup::<geoip2::City>(*ip);
+        let result = reader.lookup(*ip).unwrap();
+        if result.found() {
+            let _: geoip2::City = result.decode().unwrap();
+        }
     }
 }
 
@@ -42,7 +45,10 @@ where
     T: AsRef<[u8]> + std::marker::Sync,
 {
     ips.par_iter().for_each(|ip| {
-        let _ = reader.lookup::<geoip2::City>(*ip);
+        let result = reader.lookup(*ip).unwrap();
+        if result.found() {
+            let _: geoip2::City = result.decode().unwrap();
+        }
     });
 }
 
