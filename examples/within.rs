@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|e| format!("Invalid CIDR notation '{}': {}", cidr_str, e))?;
 
     let mut n = 0;
-    let iter: Within<_> = reader.within(ip_net)?;
+    let iter: Within<_> = reader.within(ip_net, Default::default())?;
     for next in iter {
         let lookup = next?;
         let network = lookup.network()?;

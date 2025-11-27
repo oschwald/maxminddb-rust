@@ -144,6 +144,74 @@ pub struct Metadata {
     pub record_size: u16,
 }
 
+/// Options for network iteration.
+///
+/// Controls which networks are yielded when iterating over the database
+/// with [`Reader::within()`] or [`Reader::networks()`].
+///
+/// # Example
+///
+/// ```
+/// use maxminddb::WithinOptions;
+///
+/// // Default options (skip aliases, skip networks without data, include empty values)
+/// let opts = WithinOptions::default();
+///
+/// // Include aliased networks (IPv4 networks via IPv6 aliases)
+/// let opts = WithinOptions::default().include_aliased_networks();
+///
+/// // Skip empty values and include networks without data
+/// let opts = WithinOptions::default()
+///     .skip_empty_values()
+///     .include_networks_without_data();
+/// ```
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WithinOptions {
+    /// Include IPv4 networks multiple times when accessed via IPv6 aliases.
+    pub include_aliased_networks: bool,
+    /// Include networks that have no associated data record.
+    pub include_networks_without_data: bool,
+    /// Skip networks whose data is an empty map or empty array.
+    pub skip_empty_values: bool,
+}
+
+impl WithinOptions {
+    /// Include IPv4 networks multiple times when accessed via IPv6 aliases.
+    ///
+    /// In IPv6 databases, IPv4 networks are stored at `::0/96`. However, the
+    /// same data is accessible through several IPv6 prefixes (e.g.,
+    /// `::ffff:0:0/96` for IPv4-mapped IPv6). By default, these aliases are
+    /// skipped to avoid yielding the same network multiple times.
+    ///
+    /// When enabled, the iterator will yield these aliased networks.
+    #[must_use]
+    pub fn include_aliased_networks(mut self) -> Self {
+        self.include_aliased_networks = true;
+        self
+    }
+
+    /// Include networks that have no associated data record.
+    ///
+    /// Some tree nodes point to "no data" (the node_count sentinel). By default
+    /// these are skipped. When enabled, these networks are yielded and
+    /// [`LookupResult::found()`] returns `false` for them.
+    #[must_use]
+    pub fn include_networks_without_data(mut self) -> Self {
+        self.include_networks_without_data = true;
+        self
+    }
+
+    /// Skip networks whose data is an empty map or empty array.
+    ///
+    /// Some databases store empty maps `{}` or empty arrays `[]` for records
+    /// without meaningful data. This option filters them out.
+    #[must_use]
+    pub fn skip_empty_values(mut self) -> Self {
+        self.skip_empty_values = true;
+        self
+    }
+}
+
 #[derive(Debug)]
 struct WithinNode {
     node: usize,
@@ -161,6 +229,7 @@ pub struct Within<'de, S: AsRef<[u8]>> {
     reader: &'de Reader<S>,
     node_count: usize,
     stack: Vec<WithinNode>,
+    options: WithinOptions,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -207,8 +276,9 @@ impl<'de, S: AsRef<[u8]>> Iterator for Within<'de, S> {
         while let Some(current) = self.stack.pop() {
             let bit_count = current.ip_int.bit_count();
 
-            // Skip networks that are aliases for the IPv4 network
-            if self.reader.ipv4_start != 0
+            // Skip networks that are aliases for the IPv4 network (unless option is set)
+            if !self.options.include_aliased_networks
+                && self.reader.ipv4_start != 0
                 && current.node == self.reader.ipv4_start
                 && bit_count == 128
                 && !current.ip_int.is_ipv4_in_ipv6()
@@ -227,6 +297,15 @@ impl<'de, S: AsRef<[u8]>> Iterator for Within<'de, S> {
                         Err(e) => return Some(Err(e)),
                     };
 
+                    // Check if we should skip empty values
+                    if self.options.skip_empty_values {
+                        match self.is_empty_value_at(data_offset) {
+                            Ok(true) => continue, // Skip empty value
+                            Ok(false) => {}       // Not empty, proceed
+                            Err(e) => return Some(Err(e)),
+                        }
+                    }
+
                     return Some(Ok(LookupResult::new_found(
                         self.reader,
                         data_offset,
@@ -235,7 +314,16 @@ impl<'de, S: AsRef<[u8]>> Iterator for Within<'de, S> {
                     )));
                 }
                 Ordering::Equal => {
-                    // Dead end, nothing to do
+                    // Dead end (no data) - include if option is set
+                    if self.options.include_networks_without_data {
+                        let ip_addr = ip_int_to_addr(&current.ip_int);
+                        return Some(Ok(LookupResult::new_not_found(
+                            self.reader,
+                            current.prefix_len as u8,
+                            ip_addr,
+                        )));
+                    }
+                    // Otherwise skip (current behavior)
                 }
                 Ordering::Less => {
                     // In order traversal of our children
@@ -273,6 +361,19 @@ impl<'de, S: AsRef<[u8]>> Iterator for Within<'de, S> {
             }
         }
         None
+    }
+}
+
+impl<'de, S: AsRef<[u8]>> Within<'de, S> {
+    /// Check if the value at the given data offset is an empty map or array.
+    fn is_empty_value_at(&self, data_offset: usize) -> Result<bool, MaxMindDbError> {
+        let buf = &self.reader.buf.as_ref()[self.reader.pointer_base..];
+        let mut dec = decoder::Decoder::new(buf, data_offset);
+        let (size, type_num) = dec.peek_type()?;
+        match type_num {
+            decoder::TYPE_MAP | decoder::TYPE_ARRAY => Ok(size == 0),
+            _ => Ok(false), // Non-container types are never "empty"
+        }
     }
 }
 
@@ -474,10 +575,52 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         }
     }
 
+    /// Iterate over all networks in the database.
+    ///
+    /// This is a convenience method equivalent to calling [`within()`](Self::within)
+    /// with `0.0.0.0/0` for IPv4-only databases or `::/0` for IPv6 databases.
+    ///
+    /// # Arguments
+    ///
+    /// * `options` - Controls which networks are yielded. Use [`Default::default()`]
+    ///   for standard behavior.
+    ///
+    /// # Examples
+    ///
+    /// Iterate over all networks with default options:
+    /// ```
+    /// use maxminddb::{geoip2, Reader};
+    ///
+    /// let reader = Reader::open_readfile(
+    ///     "test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    ///
+    /// let mut count = 0;
+    /// for result in reader.networks(Default::default()).unwrap() {
+    ///     let lookup = result.unwrap();
+    ///     count += 1;
+    ///     if count >= 10 { break; }
+    /// }
+    /// ```
+    pub fn networks(&'de self, options: WithinOptions) -> Result<Within<'de, S>, MaxMindDbError> {
+        let cidr = if self.metadata.ip_version == 6 {
+            IpNetwork::V6("::/0".parse().unwrap())
+        } else {
+            IpNetwork::V4("0.0.0.0/0".parse().unwrap())
+        };
+        self.within(cidr, options)
+    }
+
     /// Iterate over IP networks within a CIDR range.
     ///
     /// Returns an iterator that yields [`LookupResult`] for each network in the
     /// database that falls within the specified CIDR range.
+    ///
+    /// # Arguments
+    ///
+    /// * `cidr` - The CIDR range to iterate over.
+    /// * `options` - Controls which networks are yielded. Use [`Default::default()`]
+    ///   for standard behavior (skip aliases, skip networks without data, include
+    ///   empty values).
     ///
     /// # Examples
     ///
@@ -491,7 +634,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     ///
     /// let ipv4_all = IpNetwork::V4("0.0.0.0/0".parse().unwrap());
     /// let mut count = 0;
-    /// for result in reader.within(ipv4_all).unwrap() {
+    /// for result in reader.within(ipv4_all, Default::default()).unwrap() {
     ///     let lookup = result.unwrap();
     ///     let network = lookup.network().unwrap();
     ///     let city: geoip2::City = lookup.decode().unwrap();
@@ -513,7 +656,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     ///     "test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
     ///
     /// let subnet = IpNetwork::V4("192.168.0.0/16".parse().unwrap());
-    /// for result in reader.within(subnet).unwrap() {
+    /// for result in reader.within(subnet, Default::default()).unwrap() {
     ///     match result {
     ///         Ok(lookup) => {
     ///             let network = lookup.network().unwrap();
@@ -523,7 +666,28 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     ///     }
     /// }
     /// ```
-    pub fn within(&'de self, cidr: IpNetwork) -> Result<Within<'de, S>, MaxMindDbError> {
+    ///
+    /// Include networks without data:
+    /// ```
+    /// use ipnetwork::IpNetwork;
+    /// use maxminddb::{Reader, WithinOptions};
+    ///
+    /// let reader = Reader::open_readfile(
+    ///     "test-data/test-data/MaxMind-DB-test-mixed-24.mmdb").unwrap();
+    ///
+    /// let opts = WithinOptions::default().include_networks_without_data();
+    /// for result in reader.within("1.0.0.0/8".parse().unwrap(), opts).unwrap() {
+    ///     let lookup = result.unwrap();
+    ///     if !lookup.found() {
+    ///         println!("Network {} has no data", lookup.network().unwrap());
+    ///     }
+    /// }
+    /// ```
+    pub fn within(
+        &'de self,
+        cidr: IpNetwork,
+        options: WithinOptions,
+    ) -> Result<Within<'de, S>, MaxMindDbError> {
         let ip_address = cidr.network();
         let prefix_len = cidr.prefix() as usize;
         let ip_int = IpInt::new(ip_address);
@@ -535,34 +699,34 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let mut stack: Vec<WithinNode> = Vec::with_capacity(bit_count - prefix_len);
 
         // Traverse down the tree to the level that matches the cidr mark
-        let mut i = 0_usize;
-        while i < prefix_len {
+        let mut depth = 0_usize;
+        for i in 0..prefix_len {
             let bit = ip_int.get_bit(i);
             node = self.read_node(node, bit as usize)?;
+            depth = i + 1; // We've now traversed i+1 bits (bits 0 through i)
+
             if node >= node_count {
-                // We've hit a dead end before we exhausted our prefix
+                // We've hit a data node or dead end before we exhausted our prefix.
+                // This means the requested CIDR is contained in a single record.
                 break;
             }
-
-            i += 1;
         }
 
-        if node < node_count {
-            // Ok, now anything that's below node in the tree is "within", start with the node we
-            // traversed to as our to be processed stack.
-            stack.push(WithinNode {
-                node,
-                ip_int,
-                prefix_len,
-            });
-        }
-        // else the stack will be empty and we'll be returning an iterator that visits nothing,
-        // which makes sense.
+        // Always push the node - it could be:
+        // - A data node (> node_count): will be yielded as a single record
+        // - The empty node (== node_count): will be skipped unless include_networks_without_data
+        // - An internal node (< node_count): will be traversed to find all contained records
+        stack.push(WithinNode {
+            node,
+            ip_int,
+            prefix_len: depth,
+        });
 
         let within = Within {
             reader: self,
             node_count,
             stack,
+            options,
         };
 
         Ok(within)

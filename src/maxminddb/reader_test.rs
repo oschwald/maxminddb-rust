@@ -6,7 +6,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::geoip2;
-use crate::{MaxMindDbError, Reader, Within};
+use crate::{MaxMindDbError, Reader, Within, WithinOptions};
 
 #[allow(clippy::float_cmp)]
 #[test]
@@ -402,7 +402,7 @@ fn test_within_city() {
 
     // --- Test iteration over entire DB ("::/0") ---
     let ip_net_all = IpNetwork::V6("::/0".parse().unwrap());
-    let mut iter_all: Within<_> = reader.within(ip_net_all).unwrap();
+    let mut iter_all: Within<_> = reader.within(ip_net_all, Default::default()).unwrap();
 
     // Get the first item
     let first_item_result = iter_all.next();
@@ -422,7 +422,7 @@ fn test_within_city() {
 
     // --- Test iteration over a specific smaller network ---
     let specific = IpNetwork::V4("81.2.69.0/24".parse().unwrap());
-    let mut iter_specific: Within<_> = reader.within(specific).unwrap();
+    let mut iter_specific: Within<_> = reader.within(specific, Default::default()).unwrap();
 
     let expected = vec![
         // In order of iteration:
@@ -590,4 +590,449 @@ fn test_json_serialize() {
 
     assert_eq!(json_value, expected_value);
     assert_eq!(json_string, expected_json_str);
+}
+
+// ============================================================================
+// Iteration Options Tests
+// ============================================================================
+
+/// Test networks() method iterates over entire database
+#[test]
+fn test_networks() {
+    let _ = env_logger::try_init();
+
+    // Test with different record sizes and IP versions
+    for record_size in &[24_u32, 28, 32] {
+        for ip_version in &[4_u32, 6] {
+            let filename =
+                format!("test-data/test-data/MaxMind-DB-test-ipv{ip_version}-{record_size}.mmdb");
+            let reader = Reader::open_readfile(&filename).unwrap();
+
+            for result in reader.networks(Default::default()).unwrap() {
+                let lookup = result.unwrap();
+                assert!(
+                    lookup.found(),
+                    "networks() should only yield found records by default"
+                );
+
+                #[derive(Deserialize)]
+                struct IpRecord {
+                    ip: String,
+                }
+                let record: IpRecord = lookup.decode().unwrap();
+                let network = lookup.network().unwrap();
+                assert_eq!(
+                    record.ip,
+                    network.ip().to_string(),
+                    "record IP should match network IP"
+                );
+            }
+        }
+    }
+}
+
+/// Test that default options skip aliased networks
+#[test]
+fn test_default_skips_aliases() {
+    let _ = env_logger::try_init();
+
+    let reader =
+        Reader::open_readfile("test-data/test-data/MaxMind-DB-test-mixed-24.mmdb").unwrap();
+
+    // Without IncludeAliasedNetworks, iterating over ::/0 should yield IPv4 networks only once
+    let ip_net_all = IpNetwork::V6("::/0".parse().unwrap());
+
+    let expected_without_aliases = vec![
+        "1.1.1.1/32",
+        "1.1.1.2/31",
+        "1.1.1.4/30",
+        "1.1.1.8/29",
+        "1.1.1.16/28",
+        "1.1.1.32/32",
+        "::1:ffff:ffff/128",
+        "::2:0:0/122",
+        "::2:0:40/124",
+        "::2:0:50/125",
+        "::2:0:58/127",
+    ];
+
+    let mut networks: Vec<String> = Vec::new();
+    for result in reader.within(ip_net_all, Default::default()).unwrap() {
+        let lookup = result.unwrap();
+        networks.push(lookup.network().unwrap().to_string());
+    }
+
+    assert_eq!(networks, expected_without_aliases);
+}
+
+/// Test IncludeAliasedNetworks option
+#[test]
+fn test_include_aliased_networks() {
+    let _ = env_logger::try_init();
+
+    let reader =
+        Reader::open_readfile("test-data/test-data/MaxMind-DB-test-mixed-24.mmdb").unwrap();
+
+    let ip_net_all = IpNetwork::V6("::/0".parse().unwrap());
+    let opts = WithinOptions::default().include_aliased_networks();
+
+    // With IncludeAliasedNetworks, we should see IPv4 networks via various IPv6 prefixes
+    let expected_with_aliases = vec![
+        "1.1.1.1/32",
+        "1.1.1.2/31",
+        "1.1.1.4/30",
+        "1.1.1.8/29",
+        "1.1.1.16/28",
+        "1.1.1.32/32",
+        "::1:ffff:ffff/128",
+        "::2:0:0/122",
+        "::2:0:40/124",
+        "::2:0:50/125",
+        "::2:0:58/127",
+        "::ffff:1.1.1.1/128",
+        "::ffff:1.1.1.2/127",
+        "::ffff:1.1.1.4/126",
+        "::ffff:1.1.1.8/125",
+        "::ffff:1.1.1.16/124",
+        "::ffff:1.1.1.32/128",
+        "2001:0:101:101::/64",
+        "2001:0:101:102::/63",
+        "2001:0:101:104::/62",
+        "2001:0:101:108::/61",
+        "2001:0:101:110::/60",
+        "2001:0:101:120::/64",
+        "2002:101:101::/48",
+        "2002:101:102::/47",
+        "2002:101:104::/46",
+        "2002:101:108::/45",
+        "2002:101:110::/44",
+        "2002:101:120::/48",
+    ];
+
+    let mut networks: Vec<String> = Vec::new();
+    for result in reader.within(ip_net_all, opts).unwrap() {
+        let lookup = result.unwrap();
+        networks.push(lookup.network().unwrap().to_string());
+    }
+
+    assert_eq!(networks, expected_with_aliases);
+}
+
+/// Test IncludeNetworksWithoutData option
+#[test]
+fn test_include_networks_without_data() {
+    let _ = env_logger::try_init();
+
+    let reader =
+        Reader::open_readfile("test-data/test-data/MaxMind-DB-test-mixed-24.mmdb").unwrap();
+
+    // Using 1.0.0.0/8 like the Go tests
+    let cidr: IpNetwork = "1.0.0.0/8".parse().unwrap();
+    let opts = WithinOptions::default().include_networks_without_data();
+
+    let expected = vec![
+        "1.0.0.0/16",
+        "1.1.0.0/24",
+        "1.1.1.0/32",
+        "1.1.1.1/32",
+        "1.1.1.2/31",
+        "1.1.1.4/30",
+        "1.1.1.8/29",
+        "1.1.1.16/28",
+        "1.1.1.32/32",
+        "1.1.1.33/32",
+        "1.1.1.34/31",
+        "1.1.1.36/30",
+        "1.1.1.40/29",
+        "1.1.1.48/28",
+        "1.1.1.64/26",
+        "1.1.1.128/25",
+        "1.1.2.0/23",
+        "1.1.4.0/22",
+        "1.1.8.0/21",
+        "1.1.16.0/20",
+        "1.1.32.0/19",
+        "1.1.64.0/18",
+        "1.1.128.0/17",
+        "1.2.0.0/15",
+        "1.4.0.0/14",
+        "1.8.0.0/13",
+        "1.16.0.0/12",
+        "1.32.0.0/11",
+        "1.64.0.0/10",
+        "1.128.0.0/9",
+    ];
+
+    let mut networks: Vec<String> = Vec::new();
+    let mut found_count = 0;
+    let mut not_found_count = 0;
+
+    for result in reader.within(cidr, opts).unwrap() {
+        let lookup = result.unwrap();
+        networks.push(lookup.network().unwrap().to_string());
+        if lookup.found() {
+            found_count += 1;
+        } else {
+            not_found_count += 1;
+        }
+    }
+
+    assert_eq!(networks, expected);
+    assert!(
+        not_found_count > 0,
+        "Should have some networks without data"
+    );
+    assert!(found_count > 0, "Should have some networks with data");
+}
+
+/// Test SkipEmptyValues option
+#[test]
+fn test_skip_empty_values() {
+    let _ = env_logger::try_init();
+
+    let reader =
+        Reader::open_readfile("test-data/test-data/GeoIP2-Anonymous-IP-Test.mmdb").unwrap();
+
+    // Count networks without SkipEmptyValues
+    let mut count_without_skip = 0;
+    let mut empty_count = 0;
+
+    for result in reader.networks(Default::default()).unwrap() {
+        let lookup = result.unwrap();
+        count_without_skip += 1;
+
+        if lookup.found() {
+            let data: std::collections::BTreeMap<String, serde_json::Value> =
+                lookup.decode().unwrap();
+            if data.is_empty() {
+                empty_count += 1;
+            }
+        }
+    }
+
+    // Count networks with SkipEmptyValues
+    let mut count_with_skip = 0;
+    let opts = WithinOptions::default().skip_empty_values();
+
+    for result in reader.networks(opts).unwrap() {
+        let lookup = result.unwrap();
+        count_with_skip += 1;
+
+        if lookup.found() {
+            let data: std::collections::BTreeMap<String, serde_json::Value> =
+                lookup.decode().unwrap();
+            assert!(
+                !data.is_empty(),
+                "Should not see empty maps with skip_empty_values"
+            );
+        }
+    }
+
+    // Verify the option works
+    assert!(
+        empty_count > 0,
+        "Test database should have empty values, found {} empty out of {}",
+        empty_count,
+        count_without_skip
+    );
+    assert_eq!(
+        count_without_skip - empty_count,
+        count_with_skip,
+        "SkipEmptyValues should skip exactly the empty values"
+    );
+}
+
+/// Test SkipEmptyValues with other options combined
+#[test]
+fn test_skip_empty_values_with_other_options() {
+    let _ = env_logger::try_init();
+
+    let reader =
+        Reader::open_readfile("test-data/test-data/GeoIP2-Anonymous-IP-Test.mmdb").unwrap();
+
+    // Test with IncludeNetworksWithoutData - should still skip empty maps
+    let opts = WithinOptions::default()
+        .include_networks_without_data()
+        .skip_empty_values();
+
+    let mut count = 0;
+    for result in reader.networks(opts).unwrap() {
+        let lookup = result.unwrap();
+        count += 1;
+
+        if lookup.found() {
+            let data: std::collections::BTreeMap<String, serde_json::Value> =
+                lookup.decode().unwrap();
+            assert!(
+                !data.is_empty(),
+                "Should not see empty maps even with other options"
+            );
+        }
+    }
+
+    assert!(count > 0, "Should have some networks");
+}
+
+/// Test various NetworksWithin scenarios matching Go tests
+#[test]
+fn test_networks_within_scenarios() {
+    let _ = env_logger::try_init();
+
+    struct TestCase {
+        network: &'static str,
+        database: &'static str,
+        expected: Vec<&'static str>,
+    }
+
+    let test_cases = vec![
+        TestCase {
+            network: "0.0.0.0/0",
+            database: "ipv4",
+            expected: vec![
+                "1.1.1.1/32",
+                "1.1.1.2/31",
+                "1.1.1.4/30",
+                "1.1.1.8/29",
+                "1.1.1.16/28",
+                "1.1.1.32/32",
+            ],
+        },
+        TestCase {
+            network: "1.1.1.1/30",
+            database: "ipv4",
+            expected: vec!["1.1.1.1/32", "1.1.1.2/31"],
+        },
+        TestCase {
+            network: "1.1.1.2/31",
+            database: "ipv4",
+            expected: vec!["1.1.1.2/31"],
+        },
+        TestCase {
+            network: "1.1.1.1/32",
+            database: "ipv4",
+            expected: vec!["1.1.1.1/32"],
+        },
+        TestCase {
+            network: "1.1.1.2/32",
+            database: "ipv4",
+            expected: vec!["1.1.1.2/31"],
+        },
+        TestCase {
+            network: "1.1.1.3/32",
+            database: "ipv4",
+            expected: vec!["1.1.1.2/31"],
+        },
+        TestCase {
+            network: "1.1.1.19/32",
+            database: "ipv4",
+            expected: vec!["1.1.1.16/28"],
+        },
+        TestCase {
+            network: "255.255.255.0/24",
+            database: "ipv4",
+            expected: vec![],
+        },
+        TestCase {
+            network: "1.1.1.1/32",
+            database: "mixed",
+            expected: vec!["1.1.1.1/32"],
+        },
+        TestCase {
+            network: "255.255.255.0/24",
+            database: "mixed",
+            expected: vec![],
+        },
+        TestCase {
+            network: "::1:ffff:ffff/128",
+            database: "ipv6",
+            expected: vec!["::1:ffff:ffff/128"],
+        },
+        TestCase {
+            network: "::/0",
+            database: "ipv6",
+            expected: vec![
+                "::1:ffff:ffff/128",
+                "::2:0:0/122",
+                "::2:0:40/124",
+                "::2:0:50/125",
+                "::2:0:58/127",
+            ],
+        },
+        TestCase {
+            network: "::2:0:40/123",
+            database: "ipv6",
+            expected: vec!["::2:0:40/124", "::2:0:50/125", "::2:0:58/127"],
+        },
+        TestCase {
+            network: "0:0:0:0:0:ffff:ffff:ff00/120",
+            database: "ipv6",
+            expected: vec![],
+        },
+        TestCase {
+            network: "0.0.0.0/0",
+            database: "mixed",
+            expected: vec![
+                "1.1.1.1/32",
+                "1.1.1.2/31",
+                "1.1.1.4/30",
+                "1.1.1.8/29",
+                "1.1.1.16/28",
+                "1.1.1.32/32",
+            ],
+        },
+        TestCase {
+            network: "1.1.1.16/28",
+            database: "mixed",
+            expected: vec!["1.1.1.16/28"],
+        },
+        TestCase {
+            network: "1.1.1.4/30",
+            database: "ipv4",
+            expected: vec!["1.1.1.4/30"],
+        },
+    ];
+
+    for record_size in &[24_u32, 28, 32] {
+        for test in &test_cases {
+            let filename = format!(
+                "test-data/test-data/MaxMind-DB-test-{}-{}.mmdb",
+                test.database, record_size
+            );
+            let reader = Reader::open_readfile(&filename).unwrap();
+
+            let cidr: IpNetwork = test.network.parse().unwrap();
+            let mut networks: Vec<String> = Vec::new();
+
+            for result in reader.within(cidr, Default::default()).unwrap() {
+                let lookup = result.unwrap();
+                networks.push(lookup.network().unwrap().to_string());
+            }
+
+            let expected: Vec<String> = test.expected.iter().map(|s| s.to_string()).collect();
+            assert_eq!(
+                networks, expected,
+                "Mismatch for {} in {}-{}: expected {:?}, got {:?}",
+                test.network, test.database, record_size, expected, networks
+            );
+        }
+    }
+}
+
+/// Test GeoIP database-specific NetworksWithin
+#[test]
+fn test_geoip_networks_within() {
+    let _ = env_logger::try_init();
+
+    let reader = Reader::open_readfile("test-data/test-data/GeoIP2-Country-Test.mmdb").unwrap();
+
+    let cidr: IpNetwork = "81.2.69.128/26".parse().unwrap();
+    let expected = vec!["81.2.69.142/31", "81.2.69.144/28", "81.2.69.160/27"];
+
+    let mut networks: Vec<String> = Vec::new();
+    for result in reader.within(cidr, Default::default()).unwrap() {
+        let lookup = result.unwrap();
+        networks.push(lookup.network().unwrap().to_string());
+    }
+
+    assert_eq!(networks, expected);
 }

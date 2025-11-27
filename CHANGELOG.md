@@ -13,6 +13,21 @@
 - **BREAKING CHANGE:** The `Within` iterator now yields `LookupResult` instead
   of `WithinItem<T>`. Access the network via `result.network()?` and decode
   data via `result.decode::<T>()?`.
+- **BREAKING CHANGE:** The `within()` method now takes a second `options`
+  parameter of type `WithinOptions`. Use `Default::default()` for the previous
+  behavior:
+  - Old: `reader.within(cidr)?`
+  - New: `reader.within(cidr, Default::default())?`
+- Added `WithinOptions` struct to control network iteration behavior:
+  - `include_aliased_networks()` - Include IPv4 networks multiple times when
+    accessed via IPv6 aliases (e.g., `::ffff:0:0/96`, `2001::/32`, `2002::/16`)
+  - `include_networks_without_data()` - Include networks that have no associated
+    data record. `LookupResult::found()` returns `false` for these.
+  - `skip_empty_values()` - Skip networks whose data is an empty map `{}` or
+    empty array `[]`
+- Added `networks()` method as a convenience for iterating over all networks in
+  the database. Equivalent to `within("::/0", options)` for IPv6 databases or
+  `within("0.0.0.0/0", options)` for IPv4-only databases.
 - Added `LookupResult` type with methods:
   - `found()` - Check if IP was found in database
   - `network()` - Get the network containing the IP
