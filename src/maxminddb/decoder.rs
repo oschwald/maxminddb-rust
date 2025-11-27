@@ -5,10 +5,21 @@ use std::convert::TryInto;
 
 use super::MaxMindDbError;
 
-// MaxMind DB type constants (only those actually used)
+// MaxMind DB type constants
+const TYPE_EXTENDED: u8 = 0;
 pub(crate) const TYPE_POINTER: u8 = 1;
+const TYPE_STRING: u8 = 2;
+const TYPE_DOUBLE: u8 = 3;
+const TYPE_BYTES: u8 = 4;
+const TYPE_UINT16: u8 = 5;
+const TYPE_UINT32: u8 = 6;
 pub(crate) const TYPE_MAP: u8 = 7;
+const TYPE_INT32: u8 = 8;
+const TYPE_UINT64: u8 = 9;
+const TYPE_UINT128: u8 = 10;
 pub(crate) const TYPE_ARRAY: u8 = 11;
+const TYPE_BOOL: u8 = 14;
+const TYPE_FLOAT: u8 = 15;
 
 fn to_usize(base: u8, bytes: &[u8]) -> usize {
     bytes
@@ -56,8 +67,8 @@ impl<'de> Decoder<'de> {
     #[inline(always)]
     fn size_from_ctrl_byte(&mut self, ctrl_byte: u8, type_num: u8) -> usize {
         let size = (ctrl_byte & 0x1f) as usize;
-        // extended
-        if type_num == 0 {
+        // Extended type - size field is used differently
+        if type_num == TYPE_EXTENDED {
             return size;
         }
 
@@ -79,9 +90,9 @@ impl<'de> Decoder<'de> {
     fn size_and_type(&mut self) -> (usize, u8) {
         let ctrl_byte = self.eat_byte();
         let mut type_num = ctrl_byte >> 5;
-        // Extended type
-        if type_num == 0 {
-            type_num = self.eat_byte() + 7;
+        // Extended type: type 0 means read next byte for actual type
+        if type_num == TYPE_EXTENDED {
+            type_num = self.eat_byte() + TYPE_MAP; // Extended types start at 7
         }
         let size = self.size_from_ctrl_byte(ctrl_byte, type_num);
         (size, type_num)
@@ -114,25 +125,25 @@ impl<'de> Decoder<'de> {
         let (size, type_num) = self.size_and_type();
 
         Ok(match type_num {
-            1 => {
+            TYPE_POINTER => {
                 let new_ptr = self.decode_pointer(size);
                 let prev_ptr = self.current_ptr;
                 self.current_ptr = new_ptr;
 
                 Value::Any { prev_ptr }
             }
-            2 => Value::String(self.decode_string(size)?),
-            3 => Value::F64(self.decode_double(size)?),
-            4 => Value::Bytes(self.decode_bytes(size)?),
-            5 => Value::U16(self.decode_uint16(size)?),
-            6 => Value::U32(self.decode_uint32(size)?),
-            7 => self.decode_map(size),
-            8 => Value::I32(self.decode_int(size)?),
-            9 => Value::U64(self.decode_uint64(size)?),
-            10 => Value::U128(self.decode_uint128(size)?),
-            11 => self.decode_array(size),
-            14 => Value::Bool(self.decode_bool(size)?),
-            15 => Value::F32(self.decode_float(size)?),
+            TYPE_STRING => Value::String(self.decode_string(size)?),
+            TYPE_DOUBLE => Value::F64(self.decode_double(size)?),
+            TYPE_BYTES => Value::Bytes(self.decode_bytes(size)?),
+            TYPE_UINT16 => Value::U16(self.decode_uint16(size)?),
+            TYPE_UINT32 => Value::U32(self.decode_uint32(size)?),
+            TYPE_MAP => self.decode_map(size),
+            TYPE_INT32 => Value::I32(self.decode_int(size)?),
+            TYPE_UINT64 => Value::U64(self.decode_uint64(size)?),
+            TYPE_UINT128 => Value::U128(self.decode_uint128(size)?),
+            TYPE_ARRAY => self.decode_array(size),
+            TYPE_BOOL => Value::Bool(self.decode_bool(size)?),
+            TYPE_FLOAT => Value::F32(self.decode_float(size)?),
             u => {
                 return Err(MaxMindDbError::InvalidDatabase(format!(
                     "Unknown data type: {u:?}"
@@ -385,7 +396,7 @@ impl<'de> Decoder<'de> {
     /// Gets size and type, following any pointers.
     fn size_and_type_following_pointers(&mut self) -> DecodeResult<(usize, u8)> {
         let (size, type_num) = self.size_and_type();
-        if type_num == 1 {
+        if type_num == TYPE_POINTER {
             // Pointer - follow it
             let new_ptr = self.decode_pointer(size);
             self.current_ptr = new_ptr;
@@ -406,7 +417,7 @@ impl<'de> Decoder<'de> {
             let result = self.read_string();
             self.current_ptr = saved_ptr;
             result
-        } else if type_num == 2 {
+        } else if type_num == TYPE_STRING {
             self.decode_string(size)
         } else {
             Err(MaxMindDbError::InvalidDatabase(format!(
@@ -434,8 +445,7 @@ impl<'de> Decoder<'de> {
         follow_pointers: bool,
     ) -> DecodeResult<()> {
         match type_num {
-            1 => {
-                // Pointer
+            TYPE_POINTER => {
                 let new_ptr = self.decode_pointer(size);
                 if follow_pointers {
                     let saved_ptr = self.current_ptr;
@@ -445,12 +455,12 @@ impl<'de> Decoder<'de> {
                 }
                 Ok(())
             }
-            2 | 4 => {
+            TYPE_STRING | TYPE_BYTES => {
                 // String or Bytes - skip size bytes
                 self.current_ptr += size;
                 Ok(())
             }
-            3 => {
+            TYPE_DOUBLE => {
                 // Double - must be exactly 8 bytes
                 if size != 8 {
                     return Err(MaxMindDbError::InvalidDatabase(format!(
@@ -460,7 +470,7 @@ impl<'de> Decoder<'de> {
                 self.current_ptr += size;
                 Ok(())
             }
-            15 => {
+            TYPE_FLOAT => {
                 // Float - must be exactly 4 bytes
                 if size != 4 {
                     return Err(MaxMindDbError::InvalidDatabase(format!(
@@ -470,16 +480,16 @@ impl<'de> Decoder<'de> {
                 self.current_ptr += size;
                 Ok(())
             }
-            5 | 6 | 8 | 9 | 10 => {
+            TYPE_UINT16 | TYPE_UINT32 | TYPE_INT32 | TYPE_UINT64 | TYPE_UINT128 => {
                 // Numeric types - skip size bytes
                 self.current_ptr += size;
                 Ok(())
             }
-            14 => {
+            TYPE_BOOL => {
                 // Boolean - size field IS the value, no data bytes to skip
                 Ok(())
             }
-            7 => {
+            TYPE_MAP => {
                 // Map - skip size key-value pairs
                 for _ in 0..size {
                     self.skip_value_inner_with_follow(follow_pointers)?; // key
@@ -487,7 +497,7 @@ impl<'de> Decoder<'de> {
                 }
                 Ok(())
             }
-            11 => {
+            TYPE_ARRAY => {
                 // Array - skip size elements
                 for _ in 0..size {
                     self.skip_value_inner_with_follow(follow_pointers)?;
