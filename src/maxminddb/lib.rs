@@ -77,7 +77,7 @@
 //! ```
 
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt::Display;
 use std::fs;
 use std::io;
@@ -97,6 +97,9 @@ use std::fs::File;
 
 #[cfg(all(feature = "simdutf8", feature = "unsafe-str-decode"))]
 compile_error!("features `simdutf8` and `unsafe-str-decode` are mutually exclusive");
+
+/// Size of the data section separator (16 zero bytes).
+const DATA_SECTION_SEPARATOR_SIZE: usize = 16;
 
 #[derive(Error, Debug)]
 pub enum MaxMindDbError {
@@ -843,6 +846,166 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         }
 
         Ok(resolved)
+    }
+
+    /// Performs comprehensive validation of the MaxMind DB file.
+    ///
+    /// This method validates:
+    /// - Metadata section: format versions, required fields, and value constraints
+    /// - Search tree: traverses all networks to verify tree structure integrity
+    /// - Data section separator: validates the 16-byte separator between tree and data
+    /// - Data section: verifies all data records referenced by the search tree
+    ///
+    /// The verifier is stricter than the MaxMind DB specification and may return
+    /// errors on some databases that are still readable by normal operations.
+    /// This method is useful for:
+    /// - Validating database files after download or generation
+    /// - Debugging database corruption issues
+    /// - Ensuring database integrity in critical applications
+    ///
+    /// Note: Verification traverses the entire database and may be slow on large files.
+    /// The method is thread-safe and can be called on an active Reader.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use maxminddb::Reader;
+    ///
+    /// let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    /// reader.verify().expect("Database should be valid");
+    /// ```
+    pub fn verify(&self) -> Result<(), MaxMindDbError> {
+        self.verify_metadata()?;
+        self.verify_database()
+    }
+
+    fn verify_metadata(&self) -> Result<(), MaxMindDbError> {
+        let m = &self.metadata;
+
+        if m.binary_format_major_version != 2 {
+            return Err(MaxMindDbError::InvalidDatabase(format!(
+                "binary_format_major_version - Expected: 2 Actual: {}",
+                m.binary_format_major_version
+            )));
+        }
+        if m.binary_format_minor_version != 0 {
+            return Err(MaxMindDbError::InvalidDatabase(format!(
+                "binary_format_minor_version - Expected: 0 Actual: {}",
+                m.binary_format_minor_version
+            )));
+        }
+        if m.database_type.is_empty() {
+            return Err(MaxMindDbError::InvalidDatabase(
+                "database_type - Expected: non-empty string Actual: \"\"".to_owned(),
+            ));
+        }
+        if m.description.is_empty() {
+            return Err(MaxMindDbError::InvalidDatabase(
+                "description - Expected: non-empty map Actual: {}".to_owned(),
+            ));
+        }
+        if m.ip_version != 4 && m.ip_version != 6 {
+            return Err(MaxMindDbError::InvalidDatabase(format!(
+                "ip_version - Expected: 4 or 6 Actual: {}",
+                m.ip_version
+            )));
+        }
+        if m.record_size != 24 && m.record_size != 28 && m.record_size != 32 {
+            return Err(MaxMindDbError::InvalidDatabase(format!(
+                "record_size - Expected: 24, 28, or 32 Actual: {}",
+                m.record_size
+            )));
+        }
+        if m.node_count == 0 {
+            return Err(MaxMindDbError::InvalidDatabase(
+                "node_count - Expected: positive integer Actual: 0".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn verify_database(&self) -> Result<(), MaxMindDbError> {
+        let offsets = self.verify_search_tree()?;
+        self.verify_data_section_separator()?;
+        self.verify_data_section(offsets)
+    }
+
+    fn verify_search_tree(&self) -> Result<HashSet<usize>, MaxMindDbError> {
+        let mut offsets = HashSet::new();
+        let opts = WithinOptions::default().include_networks_without_data();
+
+        // Maximum number of networks we can expect in a valid database.
+        // A database with N nodes can have at most 2N data entries (each leaf node
+        // can have data). We add some margin for safety.
+        let max_iterations = (self.metadata.node_count as usize).saturating_mul(3);
+        let mut iteration_count = 0usize;
+
+        for result in self.networks(opts)? {
+            let lookup = result?;
+            if let Some(offset) = lookup.offset() {
+                offsets.insert(offset);
+            }
+
+            iteration_count += 1;
+            if iteration_count > max_iterations {
+                return Err(MaxMindDbError::InvalidDatabase(format!(
+                    "search tree appears to have a cycle or invalid structure (exceeded {} iterations)",
+                    max_iterations
+                )));
+            }
+        }
+        Ok(offsets)
+    }
+
+    fn verify_data_section_separator(&self) -> Result<(), MaxMindDbError> {
+        let separator_start =
+            self.metadata.node_count as usize * self.metadata.record_size as usize / 4;
+        let separator_end = separator_start + DATA_SECTION_SEPARATOR_SIZE;
+
+        if separator_end > self.buf.as_ref().len() {
+            return Err(MaxMindDbError::InvalidDatabase(
+                "data section separator extends past end of file".to_owned(),
+            ));
+        }
+
+        let separator = &self.buf.as_ref()[separator_start..separator_end];
+
+        for &b in separator {
+            if b != 0 {
+                return Err(MaxMindDbError::InvalidDatabase(format!(
+                    "unexpected byte in data separator: {:?}",
+                    separator
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn verify_data_section(&self, offsets: HashSet<usize>) -> Result<(), MaxMindDbError> {
+        let data_section = &self.buf.as_ref()[self.pointer_base..];
+
+        // Verify each offset from the search tree points to valid, decodable data
+        for &offset in &offsets {
+            if offset >= data_section.len() {
+                return Err(MaxMindDbError::InvalidDatabase(format!(
+                    "search tree pointer {} is beyond data section (len: {})",
+                    offset,
+                    data_section.len()
+                )));
+            }
+
+            let mut dec = decoder::Decoder::new(data_section, offset);
+
+            // Try to skip/decode the value to verify it's valid
+            if let Err(e) = dec.skip_value_for_verification() {
+                return Err(MaxMindDbError::InvalidDatabase(format!(
+                    "received decoding error ({}) at offset {}",
+                    e, offset
+                )));
+            }
+        }
+
+        Ok(())
     }
 }
 

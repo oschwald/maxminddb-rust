@@ -38,8 +38,9 @@
   - `PathElement::Key("name")` - Navigate into map by key
   - `PathElement::Index(0)` - Navigate into array by index
   - `PathElement::Index(-1)` - Python-style negative indexing
-- Added low-level `Decoder` API (`Kind`, `MapReader`, `ArrayReader`) for
-  FFI bindings and custom deserialization without serde overhead.
+- Added `verify()` method for comprehensive database validation. Validates
+  metadata, search tree structure, data section separator, and data records.
+  Useful for validating database files after download or generation.
 
 ## 0.26.0 - 2025-03-28
 

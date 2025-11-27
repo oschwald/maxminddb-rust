@@ -1036,3 +1036,88 @@ fn test_geoip_networks_within() {
 
     assert_eq!(networks, expected);
 }
+
+/// Test that verify() succeeds on valid databases (matching Go's TestVerifyOnGoodDatabases)
+#[test]
+fn test_verify_good_databases() {
+    let _ = env_logger::try_init();
+
+    let databases = [
+        "GeoIP2-Anonymous-IP-Test.mmdb",
+        "GeoIP2-City-Test.mmdb",
+        "GeoIP2-Connection-Type-Test.mmdb",
+        "GeoIP2-Country-Test.mmdb",
+        "GeoIP2-Domain-Test.mmdb",
+        "GeoIP2-ISP-Test.mmdb",
+        "GeoIP2-Precision-Enterprise-Test.mmdb",
+        "MaxMind-DB-no-ipv4-search-tree.mmdb",
+        "MaxMind-DB-string-value-entries.mmdb",
+        "MaxMind-DB-test-decoder.mmdb",
+        "MaxMind-DB-test-ipv4-24.mmdb",
+        "MaxMind-DB-test-ipv4-28.mmdb",
+        "MaxMind-DB-test-ipv4-32.mmdb",
+        "MaxMind-DB-test-ipv6-24.mmdb",
+        "MaxMind-DB-test-ipv6-28.mmdb",
+        "MaxMind-DB-test-ipv6-32.mmdb",
+        "MaxMind-DB-test-mixed-24.mmdb",
+        "MaxMind-DB-test-mixed-28.mmdb",
+        "MaxMind-DB-test-mixed-32.mmdb",
+        "MaxMind-DB-test-nested.mmdb",
+    ];
+
+    for database in &databases {
+        let path = format!("test-data/test-data/{}", database);
+        let reader = Reader::open_readfile(&path)
+            .unwrap_or_else(|e| panic!("Failed to open {}: {}", database, e));
+
+        reader
+            .verify()
+            .unwrap_or_else(|e| panic!("verify() failed for {}: {}", database, e));
+    }
+}
+
+/// Test that verify() returns errors on broken databases (matching Go's TestVerifyOnBrokenDatabases)
+#[test]
+fn test_verify_broken_double_format() {
+    let _ = env_logger::try_init();
+
+    let reader =
+        Reader::open_readfile("test-data/test-data/GeoIP2-City-Test-Broken-Double-Format.mmdb")
+            .unwrap();
+
+    let result = reader.verify();
+    assert!(
+        result.is_err(),
+        "Expected verify() to return error for Broken-Double-Format, but it succeeded"
+    );
+}
+
+#[test]
+fn test_verify_broken_pointers() {
+    let _ = env_logger::try_init();
+
+    let reader =
+        Reader::open_readfile("test-data/test-data/MaxMind-DB-test-broken-pointers-24.mmdb")
+            .unwrap();
+
+    let result = reader.verify();
+    assert!(
+        result.is_err(),
+        "Expected verify() to return error for broken-pointers, but it succeeded"
+    );
+}
+
+#[test]
+fn test_verify_broken_search_tree() {
+    let _ = env_logger::try_init();
+
+    let reader =
+        Reader::open_readfile("test-data/test-data/MaxMind-DB-test-broken-search-tree-24.mmdb")
+            .unwrap();
+
+    let result = reader.verify();
+    assert!(
+        result.is_err(),
+        "Expected verify() to return error for broken-search-tree, but it succeeded"
+    );
+}
