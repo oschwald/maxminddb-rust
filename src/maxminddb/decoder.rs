@@ -546,6 +546,10 @@ struct ArrayAccess<'a, 'de: 'a> {
 impl<'de> SeqAccess<'de> for ArrayAccess<'_, 'de> {
     type Error = MaxMindDbError;
 
+    fn size_hint(&self) -> Option<usize> {
+        Some(self.count)
+    }
+
     fn next_element_seed<T>(&mut self, seed: T) -> DecodeResult<Option<T::Value>>
     where
         T: DeserializeSeed<'de>,
@@ -570,6 +574,10 @@ struct MapAccessor<'a, 'de: 'a> {
 // through entries of the map.
 impl<'de> MapAccess<'de> for MapAccessor<'_, 'de> {
     type Error = MaxMindDbError;
+
+    fn size_hint(&self) -> Option<usize> {
+        Some(self.count / 2)
+    }
 
     fn next_key_seed<K>(&mut self, seed: K) -> DecodeResult<Option<K::Value>>
     where

@@ -1121,3 +1121,92 @@ fn test_verify_broken_search_tree() {
         "Expected verify() to return error for broken-search-tree, but it succeeded"
     );
 }
+
+/// Test that size hints are properly returned for sequences and maps
+#[test]
+fn test_size_hints() {
+    use serde::de::{Deserializer, MapAccess, SeqAccess, Visitor};
+    use std::fmt;
+
+    let _ = env_logger::try_init();
+
+    // Wrapper that captures size_hint for sequences
+    struct SeqSizeHint {
+        hint: Option<usize>,
+        values: Vec<u32>,
+    }
+
+    impl<'de> Deserialize<'de> for SeqSizeHint {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            struct V;
+            impl<'de> Visitor<'de> for V {
+                type Value = SeqSizeHint;
+                fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                    f.write_str("sequence")
+                }
+                fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                    let hint = seq.size_hint();
+                    let mut values = Vec::new();
+                    while let Some(v) = seq.next_element()? {
+                        values.push(v);
+                    }
+                    Ok(SeqSizeHint { hint, values })
+                }
+            }
+            deserializer.deserialize_seq(V)
+        }
+    }
+
+    // Wrapper that captures size_hint for maps
+    struct MapSizeHint {
+        hint: Option<usize>,
+        len: usize,
+    }
+
+    impl<'de> Deserialize<'de> for MapSizeHint {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            struct V;
+            impl<'de> Visitor<'de> for V {
+                type Value = MapSizeHint;
+                fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                    f.write_str("map")
+                }
+                fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                    let hint = map.size_hint();
+                    let mut len = 0;
+                    while map.next_entry::<String, serde::de::IgnoredAny>()?.is_some() {
+                        len += 1;
+                    }
+                    Ok(MapSizeHint { hint, len })
+                }
+            }
+            deserializer.deserialize_map(V)
+        }
+    }
+
+    #[derive(Deserialize)]
+    struct TestType {
+        array: SeqSizeHint,
+        map: MapSizeHint,
+    }
+
+    let r = Reader::open_readfile("test-data/test-data/MaxMind-DB-test-decoder.mmdb").unwrap();
+    let ip: IpAddr = FromStr::from_str("1.1.1.0").unwrap();
+    let lookup = r.lookup(ip).unwrap();
+    assert!(lookup.found());
+    let result: TestType = lookup.decode().unwrap();
+
+    // Verify array size hint matches actual length
+    assert_eq!(result.array.hint, Some(3));
+    assert_eq!(result.array.values, vec![1, 2, 3]);
+
+    // Verify map size hint matches actual entry count
+    assert_eq!(result.map.hint, Some(result.map.len));
+    assert!(result.map.len > 0, "Map should have entries");
+}
