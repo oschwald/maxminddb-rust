@@ -551,10 +551,22 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
         visitor.visit_unit()
     }
 
+    fn deserialize_enum<V>(
+        self,
+        _name: &'static str,
+        _variants: &'static [&'static str],
+        visitor: V,
+    ) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        visitor.visit_enum(EnumAccessor { de: self })
+    }
+
     forward_to_deserialize_any! {
         bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
         bytes byte_buf unit unit_struct newtype_struct seq tuple
-        tuple_struct map struct enum identifier
+        tuple_struct map struct identifier
     }
 }
 
@@ -627,5 +639,56 @@ impl<'de> MapAccess<'de> for MapAccessor<'_, 'de> {
 
         // Deserialize a map value.
         seed.deserialize(&mut *self.de)
+    }
+}
+
+struct EnumAccessor<'a, 'de: 'a> {
+    de: &'a mut Decoder<'de>,
+}
+
+impl<'de> de::EnumAccess<'de> for EnumAccessor<'_, 'de> {
+    type Error = MaxMindDbError;
+    type Variant = Self;
+
+    fn variant_seed<V>(self, seed: V) -> DecodeResult<(V::Value, Self::Variant)>
+    where
+        V: DeserializeSeed<'de>,
+    {
+        // Deserialize the variant identifier (string)
+        let variant = seed.deserialize(&mut *self.de)?;
+        Ok((variant, self))
+    }
+}
+
+impl<'de> de::VariantAccess<'de> for EnumAccessor<'_, 'de> {
+    type Error = MaxMindDbError;
+
+    fn unit_variant(self) -> DecodeResult<()> {
+        Ok(())
+    }
+
+    fn newtype_variant_seed<T>(self, seed: T) -> DecodeResult<T::Value>
+    where
+        T: DeserializeSeed<'de>,
+    {
+        seed.deserialize(&mut *self.de)
+    }
+
+    fn tuple_variant<V>(self, _len: usize, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        de::Deserializer::deserialize_seq(&mut *self.de, visitor)
+    }
+
+    fn struct_variant<V>(
+        self,
+        _fields: &'static [&'static str],
+        visitor: V,
+    ) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        de::Deserializer::deserialize_map(&mut *self.de, visitor)
     }
 }

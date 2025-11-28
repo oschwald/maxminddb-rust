@@ -1236,3 +1236,28 @@ fn test_ignored_any() {
 
     assert_eq!(result.utf8_string, "unicode! ☯ - ♫");
 }
+
+/// Test that string values can be deserialized into enums
+#[test]
+fn test_enum_deserialization() {
+    let _ = env_logger::try_init();
+
+    #[derive(Deserialize, Debug, PartialEq)]
+    enum ConnType {
+        #[serde(rename = "Cable/DSL")]
+        CableDsl,
+    }
+
+    #[derive(Deserialize)]
+    struct Record {
+        connection_type: ConnType,
+    }
+
+    let r = Reader::open_readfile("test-data/test-data/GeoIP2-Connection-Type-Test.mmdb").unwrap();
+    let ip: IpAddr = FromStr::from_str("96.1.20.112").unwrap();
+    let lookup = r.lookup(ip).unwrap();
+    assert!(lookup.found());
+    let result: Record = lookup.decode().unwrap();
+
+    assert_eq!(result.connection_type, ConnType::CableDsl);
+}
