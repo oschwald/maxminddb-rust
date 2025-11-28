@@ -231,29 +231,34 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
         let buf = &self.reader.buf.as_ref()[self.reader.pointer_base..];
         let mut decoder = super::decoder::Decoder::new(buf, offset);
 
-        // Navigate through the path
-        for element in path {
-            match element {
+        // Navigate through the path, tracking position for error context
+        for (i, element) in path.iter().enumerate() {
+            // Closure to add path context to errors during navigation.
+            // Shows path up to and including the current element where the error occurred.
+            let with_path = |e| add_path_context(e, &path[..=i]);
+
+            match *element {
                 PathElement::Key(key) => {
-                    let (_, type_num) = decoder.peek_type()?;
+                    let (_, type_num) = decoder.peek_type().map_err(with_path)?;
                     if type_num != TYPE_MAP {
-                        return Err(MaxMindDbError::decoding_at(
-                            format!("expected map for Key navigation, got type {type_num}"),
+                        return Err(MaxMindDbError::decoding_at_path(
+                            format!("expected map for Key(\"{key}\"), got type {type_num}"),
                             decoder.offset(),
+                            render_path(&path[..=i]),
                         ));
                     }
 
                     // Consume the map header and get size
-                    let size = decoder.consume_map_header()?;
+                    let size = decoder.consume_map_header().map_err(with_path)?;
 
                     let mut found = false;
                     for _ in 0..size {
-                        let k = decoder.read_string()?;
-                        if k == *key {
+                        let k = decoder.read_string().map_err(with_path)?;
+                        if k == key {
                             found = true;
                             break;
                         } else {
-                            decoder.skip_value()?;
+                            decoder.skip_value().map_err(with_path)?;
                         }
                     }
 
@@ -262,57 +267,90 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
                     }
                 }
                 PathElement::Index(idx) => {
-                    let (_, type_num) = decoder.peek_type()?;
+                    let (_, type_num) = decoder.peek_type().map_err(with_path)?;
                     if type_num != TYPE_ARRAY {
-                        return Err(MaxMindDbError::decoding_at(
-                            format!("expected array for Index navigation, got type {type_num}"),
+                        return Err(MaxMindDbError::decoding_at_path(
+                            format!("expected array for Index({idx}), got type {type_num}"),
                             decoder.offset(),
+                            render_path(&path[..=i]),
                         ));
                     }
 
                     // Consume the array header and get size
-                    let size = decoder.consume_array_header()?;
+                    let size = decoder.consume_array_header().map_err(with_path)?;
 
-                    if *idx >= size {
+                    if idx >= size {
                         return Ok(None); // Out of bounds
                     }
 
                     // Skip to the target index
-                    for _ in 0..*idx {
-                        decoder.skip_value()?;
+                    for _ in 0..idx {
+                        decoder.skip_value().map_err(with_path)?;
                     }
                 }
                 PathElement::IndexFromEnd(idx) => {
-                    let (_, type_num) = decoder.peek_type()?;
+                    let (_, type_num) = decoder.peek_type().map_err(with_path)?;
                     if type_num != TYPE_ARRAY {
-                        return Err(MaxMindDbError::decoding_at(
-                            format!(
-                                "expected array for IndexFromEnd navigation, got type {type_num}"
-                            ),
+                        return Err(MaxMindDbError::decoding_at_path(
+                            format!("expected array for IndexFromEnd({idx}), got type {type_num}"),
                             decoder.offset(),
+                            render_path(&path[..=i]),
                         ));
                     }
 
                     // Consume the array header and get size
-                    let size = decoder.consume_array_header()?;
+                    let size = decoder.consume_array_header().map_err(with_path)?;
 
-                    if *idx >= size {
+                    if idx >= size {
                         return Ok(None); // Out of bounds
                     }
 
-                    let actual_idx = size - 1 - *idx;
+                    let actual_idx = size - 1 - idx;
 
                     // Skip to the target index
                     for _ in 0..actual_idx {
-                        decoder.skip_value()?;
+                        decoder.skip_value().map_err(with_path)?;
                     }
                 }
             }
         }
 
         // Decode the value at the current position
-        T::deserialize(&mut decoder).map(Some)
+        T::deserialize(&mut decoder)
+            .map(Some)
+            .map_err(|e| add_path_context(e, path))
     }
+}
+
+/// Adds path context to a Decoding error if it doesn't already have one.
+fn add_path_context(err: MaxMindDbError, path: &[PathElement<'_>]) -> MaxMindDbError {
+    match err {
+        MaxMindDbError::Decoding {
+            message,
+            offset,
+            path: None,
+        } => MaxMindDbError::Decoding {
+            message,
+            offset,
+            path: Some(render_path(path)),
+        },
+        _ => err,
+    }
+}
+
+/// Renders path elements as a JSON-pointer-like string (e.g., "/city/names/0").
+fn render_path(path: &[PathElement<'_>]) -> String {
+    use std::fmt::Write;
+    let mut s = String::new();
+    for elem in path {
+        s.push('/');
+        match elem {
+            PathElement::Key(k) => s.push_str(k),
+            PathElement::Index(i) => write!(s, "{i}").unwrap(),
+            PathElement::IndexFromEnd(i) => write!(s, "{}", -((*i as isize) + 1)).unwrap(),
+        }
+    }
+    s
 }
 
 /// A path element for navigating into nested data structures.
@@ -594,5 +632,65 @@ mod tests {
     fn test_path_macro_empty() {
         let p: [PathElement; 0] = path![];
         assert_eq!(p.len(), 0);
+    }
+
+    #[test]
+    fn test_render_path() {
+        assert_eq!(render_path(&[]), "");
+        assert_eq!(render_path(&[PathElement::Key("city")]), "/city");
+        assert_eq!(
+            render_path(&[PathElement::Key("city"), PathElement::Key("names")]),
+            "/city/names"
+        );
+        assert_eq!(
+            render_path(&[PathElement::Key("arr"), PathElement::Index(0)]),
+            "/arr/0"
+        );
+        assert_eq!(
+            render_path(&[PathElement::Key("arr"), PathElement::Index(42)]),
+            "/arr/42"
+        );
+        // IndexFromEnd(0) = last = -1, IndexFromEnd(1) = second-to-last = -2
+        assert_eq!(
+            render_path(&[PathElement::Key("arr"), PathElement::IndexFromEnd(0)]),
+            "/arr/-1"
+        );
+        assert_eq!(
+            render_path(&[PathElement::Key("arr"), PathElement::IndexFromEnd(1)]),
+            "/arr/-2"
+        );
+    }
+
+    #[test]
+    fn test_decode_path_error_includes_path() {
+        use crate::Reader;
+
+        let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+        let ip: IpAddr = "89.160.20.128".parse().unwrap();
+        let result = reader.lookup(ip).unwrap();
+
+        // Try to navigate with Index on a map (root is a map, not array)
+        let err = result
+            .decode_path::<String>(&[PathElement::Index(0)])
+            .unwrap_err();
+        let err_str = err.to_string();
+        assert!(
+            err_str.contains("path: /0"),
+            "error should include path context: {err_str}"
+        );
+        assert!(
+            err_str.contains("expected array"),
+            "error should mention expected type: {err_str}"
+        );
+
+        // Try to navigate deeper and fail at second element
+        let err = result
+            .decode_path::<String>(&[PathElement::Key("city"), PathElement::Index(0)])
+            .unwrap_err();
+        let err_str = err.to_string();
+        assert!(
+            err_str.contains("path: /city/0"),
+            "error should include full path to failure: {err_str}"
+        );
     }
 }

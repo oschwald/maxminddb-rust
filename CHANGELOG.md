@@ -42,6 +42,8 @@
   - String literals become `Key` elements: `path!["country", "iso_code"]`
   - Non-negative integers become `Index` elements: `path!["array", 0]`
   - Negative integers become `IndexFromEnd` elements: `path!["array", -1]` (last element)
+- `decode_path()` errors now include path context showing where navigation failed
+  (e.g., `path: /city/names/0`), making it easier to debug issues with nested data.
 - `Metadata` and `WithinOptions` now implement `PartialEq` and `Eq` traits.
 - Added `verify()` method for comprehensive database validation. Validates
   metadata, search tree structure, data section separator, and data records.
