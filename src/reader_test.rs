@@ -1213,6 +1213,7 @@ fn test_ignored_any() {
 
     // Struct that only reads some fields, ignoring others via IgnoredAny
     #[derive(Deserialize, Debug)]
+    #[allow(dead_code)]
     struct PartialRead {
         utf8_string: String,
         // These fields use IgnoredAny to skip decoding
