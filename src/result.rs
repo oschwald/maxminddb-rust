@@ -50,14 +50,11 @@ use crate::reader::Reader;
 #[derive(Debug, Clone, Copy)]
 pub struct LookupResult<'a, S: AsRef<[u8]>> {
     reader: &'a Reader<S>,
-    /// Offset into the data section, or usize::MAX if not found
-    data_offset: usize,
+    /// Offset into the data section, or None if not found.
+    data_offset: Option<usize>,
     prefix_len: u8,
     ip: IpAddr,
 }
-
-/// Not found sentinel value
-const NOT_FOUND: usize = usize::MAX;
 
 impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// Creates a new LookupResult for a found IP.
@@ -69,7 +66,7 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     ) -> Self {
         LookupResult {
             reader,
-            data_offset,
+            data_offset: Some(data_offset),
             prefix_len,
             ip,
         }
@@ -79,7 +76,7 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     pub(crate) fn new_not_found(reader: &'a Reader<S>, prefix_len: u8, ip: IpAddr) -> Self {
         LookupResult {
             reader,
-            data_offset: NOT_FOUND,
+            data_offset: None,
             prefix_len,
             ip,
         }
@@ -91,7 +88,7 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// which is different from an error during lookup.
     #[inline]
     pub fn found(&self) -> bool {
-        self.data_offset != NOT_FOUND
+        self.data_offset.is_some()
     }
 
     /// Returns the network containing the looked-up IP address.
@@ -145,7 +142,7 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// Returns `None` if the IP was not found.
     #[inline]
     pub fn offset(&self) -> Option<usize> {
-        self.found().then_some(self.data_offset)
+        self.data_offset
     }
 
     /// Decodes the full record into the specified type.
@@ -168,14 +165,14 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     where
         T: Deserialize<'a>,
     {
-        if !self.found() {
+        let Some(offset) = self.data_offset else {
             return Err(MaxMindDbError::decoding(
                 "cannot decode: IP address not found in database",
             ));
-        }
+        };
 
         let buf = &self.reader.buf.as_ref()[self.reader.pointer_base..];
-        let mut decoder = super::decoder::Decoder::new(buf, self.data_offset);
+        let mut decoder = super::decoder::Decoder::new(buf, offset);
         T::deserialize(&mut decoder)
     }
 
@@ -223,12 +220,12 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     where
         T: Deserialize<'a>,
     {
-        if !self.found() {
+        let Some(offset) = self.data_offset else {
             return Ok(None);
-        }
+        };
 
         let buf = &self.reader.buf.as_ref()[self.reader.pointer_base..];
-        let mut decoder = super::decoder::Decoder::new(buf, self.data_offset);
+        let mut decoder = super::decoder::Decoder::new(buf, offset);
 
         // Navigate through the path
         for element in path {
