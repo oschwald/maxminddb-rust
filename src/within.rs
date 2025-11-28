@@ -32,11 +32,11 @@ use crate::result::LookupResult;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct WithinOptions {
     /// Include IPv4 networks multiple times when accessed via IPv6 aliases.
-    pub include_aliased_networks: bool,
+    include_aliased_networks: bool,
     /// Include networks that have no associated data record.
-    pub include_networks_without_data: bool,
+    include_networks_without_data: bool,
     /// Skip networks whose data is an empty map or empty array.
-    pub skip_empty_values: bool,
+    skip_empty_values: bool,
 }
 
 impl WithinOptions {
