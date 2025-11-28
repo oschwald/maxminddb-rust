@@ -36,8 +36,8 @@
   - `decode_path()` - Selectively decode specific fields by path
 - Added `PathElement` enum for navigating nested structures:
   - `PathElement::Key("name")` - Navigate into map by key
-  - `PathElement::Index(0)` - Navigate into array by index
-  - `PathElement::Index(-1)` - Python-style negative indexing
+  - `PathElement::Index(0)` - Navigate into array by index (0 = first element)
+  - `PathElement::IndexFromEnd(0)` - Navigate from the end (0 = last element)
 - Added `verify()` method for comprehensive database validation. Validates
   metadata, search tree structure, data section separator, and data records.
   Useful for validating database files after download or generation.

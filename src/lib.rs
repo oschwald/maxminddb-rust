@@ -338,17 +338,17 @@ mod tests {
             .unwrap();
         assert!(arr_oob.is_none());
 
-        // Test negative index: -1 means last element
-        let arr_neg1: Option<u32> = result
-            .decode_path(&[PathElement::Key("array"), PathElement::Index(-1)])
+        // Test IndexFromEnd: 0 means last element
+        let arr_last: Option<u32> = result
+            .decode_path(&[PathElement::Key("array"), PathElement::IndexFromEnd(0)])
             .unwrap();
-        assert_eq!(arr_neg1, Some(3));
+        assert_eq!(arr_last, Some(3));
 
-        // Test negative index: -3 means first element
-        let arr_neg3: Option<u32> = result
-            .decode_path(&[PathElement::Key("array"), PathElement::Index(-3)])
+        // Test IndexFromEnd: 2 means first element (array has 3 elements)
+        let arr_first: Option<u32> = result
+            .decode_path(&[PathElement::Key("array"), PathElement::IndexFromEnd(2)])
             .unwrap();
-        assert_eq!(arr_neg3, Some(1));
+        assert_eq!(arr_first, Some(1));
 
         // Test nested path: map.mapX.arrayX[1]
         let nested: Option<u32> = result

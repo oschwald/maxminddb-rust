@@ -188,8 +188,8 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// # Path Elements
     ///
     /// - `PathElement::Key("name")` - Navigate into a map by key
-    /// - `PathElement::Index(0)` - Navigate into an array by index
-    /// - `PathElement::Index(-1)` - Last element (Python-style negative indexing)
+    /// - `PathElement::Index(0)` - Navigate into an array by index (0 = first element)
+    /// - `PathElement::IndexFromEnd(0)` - Navigate from the end (0 = last element)
     ///
     /// # Example
     ///
@@ -269,20 +269,34 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
                     // Consume the array header and get size
                     let size = decoder.consume_array_header()?;
 
-                    // Handle negative indexing (Python-style)
-                    let actual_idx = if *idx < 0 {
-                        let positive = (-*idx) as usize;
-                        if positive > size {
-                            return Ok(None); // Out of bounds
-                        }
-                        size - positive
-                    } else {
-                        let positive = *idx as usize;
-                        if positive >= size {
-                            return Ok(None); // Out of bounds
-                        }
-                        positive
-                    };
+                    if *idx >= size {
+                        return Ok(None); // Out of bounds
+                    }
+
+                    // Skip to the target index
+                    for _ in 0..*idx {
+                        decoder.skip_value()?;
+                    }
+                }
+                PathElement::IndexFromEnd(idx) => {
+                    let (_, type_num) = decoder.peek_type()?;
+                    if type_num != TYPE_ARRAY {
+                        return Err(MaxMindDbError::decoding_at(
+                            format!(
+                                "expected array for IndexFromEnd navigation, got type {type_num}"
+                            ),
+                            decoder.offset(),
+                        ));
+                    }
+
+                    // Consume the array header and get size
+                    let size = decoder.consume_array_header()?;
+
+                    if *idx >= size {
+                        return Ok(None); // Out of bounds
+                    }
+
+                    let actual_idx = size - 1 - *idx;
 
                     // Skip to the target index
                     for _ in 0..actual_idx {
@@ -305,13 +319,16 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
 pub enum PathElement<'a> {
     /// Navigate into a map by key.
     Key(&'a str),
-    /// Navigate into an array by index.
+    /// Navigate into an array by index (0-based from the start).
     ///
-    /// Supports Python-style negative indexing:
     /// - `Index(0)` - first element
-    /// - `Index(-1)` - last element
-    /// - `Index(-2)` - second-to-last element
-    Index(isize),
+    /// - `Index(1)` - second element
+    Index(usize),
+    /// Navigate into an array by index from the end.
+    ///
+    /// - `IndexFromEnd(0)` - last element
+    /// - `IndexFromEnd(1)` - second-to-last element
+    IndexFromEnd(usize),
 }
 
 /// Masks an IP address to its network address given a prefix length.
@@ -373,6 +390,9 @@ mod tests {
     fn test_path_element_debug() {
         assert_eq!(format!("{:?}", PathElement::Key("test")), "Key(\"test\")");
         assert_eq!(format!("{:?}", PathElement::Index(5)), "Index(5)");
-        assert_eq!(format!("{:?}", PathElement::Index(-1)), "Index(-1)");
+        assert_eq!(
+            format!("{:?}", PathElement::IndexFromEnd(0)),
+            "IndexFromEnd(0)"
+        );
     }
 }
