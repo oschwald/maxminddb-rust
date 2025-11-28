@@ -26,3 +26,23 @@ pub struct Metadata {
     /// Size of each record in bits (24, 28, or 32).
     pub record_size: u16,
 }
+
+impl Metadata {
+    /// Returns the database build time as a `SystemTime`.
+    ///
+    /// This converts the `build_epoch` Unix timestamp to a `SystemTime`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use maxminddb::Reader;
+    ///
+    /// let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    /// let build_time = reader.metadata.build_time();
+    /// println!("Database built: {:?}", build_time);
+    /// ```
+    #[must_use]
+    pub fn build_time(&self) -> std::time::SystemTime {
+        std::time::UNIX_EPOCH + std::time::Duration::from_secs(self.build_epoch)
+    }
+}
