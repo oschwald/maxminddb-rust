@@ -37,7 +37,6 @@ const DATA_SECTION_SEPARATOR_SIZE: usize = 16;
 ///   decoding)
 /// - **`unsafe-str-decode`**: Skip UTF-8 validation entirely (unsafe, but
 ///   ~20% faster)
-#[derive(Debug)]
 pub struct Reader<S: AsRef<[u8]>> {
     pub(crate) buf: S,
     /// Database metadata.
@@ -47,6 +46,18 @@ pub struct Reader<S: AsRef<[u8]>> {
     /// correct prefix lengths for IPv4 lookups in IPv6 databases.
     pub(crate) ipv4_start_bit_depth: usize,
     pub(crate) pointer_base: usize,
+}
+
+impl<S: AsRef<[u8]>> std::fmt::Debug for Reader<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Reader")
+            .field("buf_len", &self.buf.as_ref().len())
+            .field("metadata", &self.metadata)
+            .field("ipv4_start", &self.ipv4_start)
+            .field("ipv4_start_bit_depth", &self.ipv4_start_bit_depth)
+            .field("pointer_base", &self.pointer_base)
+            .finish_non_exhaustive()
+    }
 }
 
 #[cfg(feature = "mmap")]
