@@ -7,7 +7,7 @@ readme = "README.md"
 keywords = ["MaxMind", "GeoIP2", "GeoIP", "geolocation", "ip"]
 categories = ["database", "network-programming"]
 homepage = "https://github.com/oschwald/maxminddb-rust"
-documentation = "http://oschwald.github.io/maxminddb-rust/maxminddb/struct.Reader.html"
+documentation = "https://docs.rs/maxminddb"
 repository = "https://github.com/oschwald/maxminddb-rust"
 license = "ISC"
 include = ["/Cargo.toml", "/benches/*.rs", "/src/**/*.rs", "/README.md", "/LICENSE"]
@@ -15,8 +15,11 @@ edition = "2021"
 
 [features]
 default = []
+# SIMD-accelerated UTF-8 validation during string decoding
 simdutf8 = ["dep:simdutf8"]
+# Memory-mapped file access for better performance in long-running applications
 mmap = ["memmap2"]
+# Skip UTF-8 validation for maximum performance (mutually exclusive with simdutf8)
 unsafe-str-decode = []
 
 [lib]

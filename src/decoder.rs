@@ -1,3 +1,12 @@
+//! Binary format decoder for MaxMind DB files.
+//!
+//! This module implements deserialization of the MaxMind DB binary format
+//! into Rust types via serde. The decoder handles all MaxMind DB data types
+//! including pointers, maps, arrays, and primitive types.
+//!
+//! Most users should not need to interact with this module directly.
+//! Use [`Reader::lookup()`](crate::Reader::lookup) for normal lookups.
+
 use log::debug;
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::forward_to_deserialize_any;
@@ -47,6 +56,14 @@ enum Value<'a, 'de> {
     Array(ArrayAccess<'a, 'de>),
 }
 
+/// Low-level decoder for MaxMind DB binary data.
+///
+/// This decoder implements serde's `Deserializer` trait to convert
+/// MaxMind DB binary format into Rust types. It handles pointer
+/// resolution, type coercion, and nested data structures.
+///
+/// Most users should use [`LookupResult::decode()`](crate::LookupResult::decode)
+/// instead of this type directly.
 #[derive(Debug)]
 pub struct Decoder<'de> {
     buf: &'de [u8],

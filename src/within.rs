@@ -85,9 +85,28 @@ pub(crate) struct WithinNode {
 
 /// Iterator over IP networks within a CIDR range.
 ///
-/// This iterator yields [`LookupResult`] for each network in the database
-/// that falls within the specified CIDR range. Use [`LookupResult::decode()`]
-/// to deserialize the data for each result.
+/// Created by [`Reader::within()`](crate::Reader::within) or
+/// [`Reader::networks()`](crate::Reader::networks). Yields
+/// [`LookupResult`] for each network in the database that falls
+/// within the specified range.
+///
+/// Networks are yielded in depth-first order through the search tree.
+/// Use [`LookupResult::decode()`](crate::LookupResult::decode) to
+/// deserialize the data for each result.
+///
+/// # Example
+///
+/// ```
+/// use maxminddb::{Reader, WithinOptions, geoip2};
+///
+/// let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+/// for result in reader.within("89.160.20.0/24".parse().unwrap(), Default::default()).unwrap() {
+///     let lookup = result.unwrap();
+///     if let Some(city) = lookup.decode::<geoip2::City>().unwrap() {
+///         println!("{}: {:?}", lookup.network().unwrap(), city.city.names.english);
+///     }
+/// }
+/// ```
 #[derive(Debug)]
 pub struct Within<'de, S: AsRef<[u8]>> {
     pub(crate) reader: &'de Reader<S>,
