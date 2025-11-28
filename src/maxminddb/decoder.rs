@@ -539,6 +539,10 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
         visitor.visit_some(self)
     }
 
+    fn is_human_readable(&self) -> bool {
+        false
+    }
+
     forward_to_deserialize_any! {
         bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
         bytes byte_buf unit unit_struct newtype_struct seq tuple
