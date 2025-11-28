@@ -1,9 +1,9 @@
 name: Publish to crates.io
 
 on:
-  push:
-    tags:
-      - "v*"
+  release:
+    types:
+      - published
 
 jobs:
   publish:
