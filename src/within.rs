@@ -29,7 +29,7 @@ use crate::result::LookupResult;
 ///     .skip_empty_values()
 ///     .include_networks_without_data();
 /// ```
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct WithinOptions {
     /// Include IPv4 networks multiple times when accessed via IPv6 aliases.
     include_aliased_networks: bool,
