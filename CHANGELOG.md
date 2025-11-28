@@ -1,97 +1,66 @@
 # Change Log
 
-## 0.27.0 - UNRELEASED
+## 0.27.0 - 2025-11-28
 
-- **BREAKING CHANGE:** The `lookup` method now returns a `LookupResult` instead
-  of `Option<T>`. The new API enables lazy decoding - data is only deserialized
-  when explicitly requested via `decode()`. Migration:
-  - Old: `reader.lookup::<City>(ip)?` returns `Option<City>`
-  - New: `reader.lookup(ip)?.decode::<City>()` returns `City`
-  - Check if data exists: `reader.lookup(ip)?.has_data()` returns `bool`
-- **BREAKING CHANGE:** The `lookup_prefix` method has been removed. Use
-  `reader.lookup(ip)?.network()` to get the network containing the IP.
-- **BREAKING CHANGE:** The `Within` iterator now yields `LookupResult` instead
-  of `WithinItem<T>`. Access the network via `result.network()?` and decode
-  data via `result.decode::<T>()?`.
-- **BREAKING CHANGE:** The `within()` method now takes a second `options`
-  parameter of type `WithinOptions`. Use `Default::default()` for the previous
-  behavior:
-  - Old: `reader.within(cidr)?`
-  - New: `reader.within(cidr, Default::default())?`
-- Added `WithinOptions` struct to control network iteration behavior:
-  - `include_aliased_networks()` - Include IPv4 networks multiple times when
-    accessed via IPv6 aliases (e.g., `::ffff:0:0/96`, `2001::/32`, `2002::/16`)
-  - `include_networks_without_data()` - Include networks that have no associated
-    data record. `LookupResult::has_data()` returns `false` for these.
-  - `skip_empty_values()` - Skip networks whose data is an empty map `{}` or
-    empty array `[]`
-- Added `networks()` method as a convenience for iterating over all networks in
-  the database. Equivalent to `within("::/0", options)` for IPv6 databases or
-  `within("0.0.0.0/0", options)` for IPv4-only databases.
-- Added `LookupResult` type with methods:
+This release includes significant API changes. See [UPGRADING.md](UPGRADING.md)
+for migration guidance.
+
+### Breaking Changes
+
+#### Lookup API
+
+- `lookup()` now returns `LookupResult` instead of `Option<T>`. The new API
+  enables lazy decoding - data is only deserialized when explicitly requested.
+- `lookup_prefix()` has been removed. Use `lookup(ip)?.network()` instead.
+
+#### Iteration API
+
+- `within()` now requires a second `WithinOptions` parameter. Use
+  `Default::default()` for the previous behavior.
+- `Within` iterator now yields `LookupResult` instead of `WithinItem<T>`.
+
+#### GeoIP2 Structs
+
+- The `names` fields now use a `Names` struct instead of `BTreeMap<&str, &str>`.
+  Access names directly via language fields (e.g., `names.english`).
+- Nested struct fields (`city`, `country`, `location`, etc.) are now
+  non-optional with `Default`, simplifying access patterns.
+- Removed `is_anonymous_proxy` and `is_satellite_provider` from `Traits`.
+  These fields are no longer present in MaxMind databases.
+
+#### Error Types
+
+- `InvalidDatabase` and `Decoding` variants now use structured fields instead
+  of a single string. Pattern matching must be updated.
+- New `InvalidInput` variant for user input errors (e.g., IPv6 lookup in
+  IPv4-only database).
+
+### Added
+
+- `LookupResult` type with lazy decoding support:
   - `has_data()` - Check if data exists for this IP
   - `network()` - Get the network containing the IP
   - `offset()` - Get data offset for caching/deduplication
-  - `decode()` - Deserialize full record (returns `Result<Option<T>>`)
+  - `decode()` - Deserialize full record
   - `decode_path()` - Selectively decode specific fields by path
-- Added `PathElement` enum for navigating nested structures:
-  - `PathElement::Key("name")` - Navigate into map by key
-  - `PathElement::Index(0)` - Navigate into array by index (0 = first element)
-  - `PathElement::IndexFromEnd(0)` - Navigate from the end (0 = last element)
-- Added `path!` macro for ergonomic path construction:
-  - String literals become `Key` elements: `path!["country", "iso_code"]`
-  - Non-negative integers become `Index` elements: `path!["array", 0]`
-  - Negative integers become `IndexFromEnd` elements: `path!["array", -1]` (last element)
-- `decode_path()` errors now include path context showing where navigation failed
-  (e.g., `path: /city/names/0`), making it easier to debug issues with nested data.
-- `Metadata` and `WithinOptions` now implement `PartialEq` and `Eq` traits.
-- Added `Metadata::build_time()` method to convert `build_epoch` to `SystemTime`.
-- Added `verify()` method for comprehensive database validation. Validates
-  metadata, search tree structure, data section separator, and data records.
-  Useful for validating database files after download or generation.
-- Serde deserializer improvements:
-  - Added size hints to `SeqAccess` and `MapAccess` for efficient collection
-    pre-allocation
-  - `is_human_readable()` now returns `false` since MMDB is a binary format
-  - Implemented `deserialize_ignored_any` for efficient value skipping
-  - Implemented `deserialize_enum` for string-to-enum deserialization
-- Added recursion depth limit (512) matching libmaxminddb and the Go reader.
-  This prevents stack overflow when decoding malformed databases with deeply
-  nested structures.
-- **BREAKING CHANGE:** The `InvalidDatabase` and `Decoding` error variants now
-  use structured fields instead of a single string:
-  - `InvalidDatabase { message, offset }` - includes optional byte offset
-  - `Decoding { message, offset, path }` - includes optional byte offset and
-    JSON-pointer-style path for locating the error
-  - Pattern matching code must be updated (e.g., `InvalidDatabase(msg)` becomes
-    `InvalidDatabase { message, .. }`)
-- **BREAKING CHANGE:** A new `InvalidInput { message }` error variant has been
-  added for user input errors (e.g., looking up an IPv6 address in an IPv4-only
-  database). Previously this returned `InvalidDatabase`, which incorrectly
-  suggested the database was corrupted.
-- **BREAKING CHANGE:** The `names` fields in GeoIP2 structs now use a `Names`
-  struct instead of `BTreeMap<&str, &str>`. This improves performance (no map
-  allocation) and ergonomics. Each language field is `Option<&str>`:
-  - Old: `city.names.as_ref().and_then(|n| n.get("en"))`
-  - New: `city.city.names.english`
-  - Supported languages: `german`, `english`, `spanish`, `french`, `japanese`,
-    `brazilian_portuguese`, `russian`, `simplified_chinese`
-- **BREAKING CHANGE:** Nested struct fields in GeoIP2 record types (`City`,
-  `Country`, `Enterprise`) are now non-optional with `Default`. This simplifies
-  access patterns by removing nested Option unwrapping:
-  - Old: `city.city.as_ref().and_then(|c| c.names.english)`
-  - New: `city.city.names.english`
-  - Old: `city.subdivisions.as_ref().map(|v| v.iter())`
-  - New: `city.subdivisions.iter()` (empty Vec if not present)
-  - Leaf values (strings, numbers, bools) remain `Option<T>` to preserve
-    the distinction between "not present" and "present but empty"
-- **BREAKING CHANGE:** Removed `is_anonymous_proxy` and `is_satellite_provider`
-  fields from `country::Traits` and `enterprise::Traits`. These fields are no
-  longer present in MaxMind databases. Use the Anonymous IP database for
-  anonymity detection.
-- Error messages now include byte offsets when available, making it easier to
-  debug malformed databases. The `#[non_exhaustive]` attribute is added to
-  `MaxMindDbError` to allow future additions without breaking changes.
+- `PathElement` enum and `path!` macro for navigating nested structures.
+- `WithinOptions` to control network iteration behavior:
+  - `include_aliased_networks()` - Include IPv4 via IPv6 aliases
+  - `include_networks_without_data()` - Include networks without data records
+  - `skip_empty_values()` - Skip empty maps/arrays
+- `networks()` method for iterating over all networks in the database.
+- `verify()` method for comprehensive database validation.
+- `Metadata::build_time()` to convert `build_epoch` to `SystemTime`.
+- `PartialEq` and `Eq` implementations for `Metadata` and `WithinOptions`.
+
+### Changed
+
+- Error messages now include byte offsets when available.
+- `decode_path()` errors include path context showing where navigation failed.
+- Added recursion depth limit (512) matching libmaxminddb and Go reader.
+- Serde deserializer improvements: size hints, `is_human_readable()` returns
+  false, `deserialize_ignored_any`, and `deserialize_enum` support.
+- `MaxMindDbError` is now `#[non_exhaustive]`.
 
 ## 0.26.0 - 2025-03-28
 
