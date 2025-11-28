@@ -1210,3 +1210,29 @@ fn test_size_hints() {
     assert_eq!(result.map.hint, Some(result.map.len));
     assert!(result.map.len > 0, "Map should have entries");
 }
+
+/// Test that deserialize_ignored_any efficiently skips values
+#[test]
+fn test_ignored_any() {
+    use serde::de::IgnoredAny;
+
+    let _ = env_logger::try_init();
+
+    // Struct that only reads some fields, ignoring others via IgnoredAny
+    #[derive(Deserialize, Debug)]
+    struct PartialRead {
+        utf8_string: String,
+        // These fields use IgnoredAny to skip decoding
+        array: IgnoredAny,
+        map: IgnoredAny,
+        uint128: IgnoredAny,
+    }
+
+    let r = Reader::open_readfile("test-data/test-data/MaxMind-DB-test-decoder.mmdb").unwrap();
+    let ip: IpAddr = FromStr::from_str("1.1.1.0").unwrap();
+    let lookup = r.lookup(ip).unwrap();
+    assert!(lookup.found());
+    let result: PartialRead = lookup.decode().unwrap();
+
+    assert_eq!(result.utf8_string, "unicode! ☯ - ♫");
+}
