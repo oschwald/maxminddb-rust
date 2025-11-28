@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["MaxMindDbError"],"mod":["geoip2"],"struct":["Metadata","Reader","Within","WithinItem"]};
+window.SIDEBAR_ITEMS = {"enum":["MaxMindDbError","PathElement"],"macro":["path"],"mod":["geoip2"],"struct":["LookupResult","Metadata","Reader","Within","WithinOptions"]};

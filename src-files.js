@@ -1,2 +1,2 @@
-createSrcSidebar('[["maxminddb",["",[],["decoder.rs","geoip2.rs","lib.rs"]]]]');
-//{"start":19,"fragment_lengths":[57]}
+createSrcSidebar('[["maxminddb",["",[],["decoder.rs","error.rs","geoip2.rs","lib.rs","metadata.rs","reader.rs","result.rs","within.rs"]]]]');
+//{"start":19,"fragment_lengths":[118]}

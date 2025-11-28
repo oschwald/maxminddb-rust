@@ -1,0 +1,38 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Creates a path for use with `LookupResult::decode_path()`."><title>path in maxminddb - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../static.files/rustdoc-e56847b5.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="maxminddb" data-themes="" data-resource-suffix="" data-rustdoc-version="1.91.1 (ed61e7d7e 2025-11-07)" data-channel="1.91.1" data-search-js="search-e256b49e.js" data-stringdex-js="stringdex-c3e638e9.js" data-settings-js="settings-c38705f0.js" ><script src="../static.files/storage-e2aeef58.js"></script><script defer src="sidebar-items.js"></script><script defer src="../static.files/main-6dc2a7f3.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-263c88ec.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-044be391.svg"></head><body class="rustdoc macro"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">path</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../maxminddb/index.html">maxminddb</a><span class="version">0.27.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">path</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#syntax" title="Syntax">Syntax</a></li><li><a href="#examples" title="Examples">Examples</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="index.html">In crate maxminddb</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="index.html">maxminddb</a></div><h1>Macro <span class="macro">path</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../src/maxminddb/result.rs.html#478-482">Source</a> </span></div><pre class="rust item-decl"><code>macro_rules! path {
+    ($($elem:expr),* $(,)?) =&gt; { ... };
+}</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Creates a path for use with <a href="struct.LookupResult.html#method.decode_path" title="method maxminddb::LookupResult::decode_path"><code>LookupResult::decode_path()</code></a>.</p>
+<p>This macro provides a convenient way to construct paths with mixed string keys
+and integer indexes.</p>
+<h2 id="syntax"><a class="doc-anchor" href="#syntax">§</a>Syntax</h2>
+<ul>
+<li>String literals become <a href="enum.PathElement.html#variant.Key" title="variant maxminddb::PathElement::Key"><code>PathElement::Key</code></a></li>
+<li>Non-negative integers become <a href="enum.PathElement.html#variant.Index" title="variant maxminddb::PathElement::Index"><code>PathElement::Index</code></a></li>
+<li>Negative integers become <a href="enum.PathElement.html#variant.IndexFromEnd" title="variant maxminddb::PathElement::IndexFromEnd"><code>PathElement::IndexFromEnd</code></a> (e.g., <code>-1</code> is the last element)</li>
+</ul>
+<h2 id="examples"><a class="doc-anchor" href="#examples">§</a>Examples</h2>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>maxminddb::{Reader, path};
+<span class="kw">use </span>std::net::IpAddr;
+
+<span class="kw">let </span>reader = Reader::open_readfile(<span class="string">"test-data/test-data/GeoIP2-City-Test.mmdb"</span>).unwrap();
+<span class="kw">let </span>ip: IpAddr = <span class="string">"89.160.20.128"</span>.parse().unwrap();
+<span class="kw">let </span>result = reader.lookup(ip).unwrap();
+
+<span class="comment">// Navigate to country.iso_code
+</span><span class="kw">let </span>iso_code: <span class="prelude-ty">Option</span>&lt;String&gt; = result.decode_path(<span class="kw-2">&amp;</span><span class="macro">path!</span>[<span class="string">"country"</span>, <span class="string">"iso_code"</span>]).unwrap();
+
+<span class="comment">// Navigate to subdivisions[0].names.en
+</span><span class="kw">let </span>subdiv: <span class="prelude-ty">Option</span>&lt;String&gt; = result.decode_path(<span class="kw-2">&amp;</span><span class="macro">path!</span>[<span class="string">"subdivisions"</span>, <span class="number">0</span>, <span class="string">"names"</span>, <span class="string">"en"</span>]).unwrap();</code></pre></div>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>maxminddb::{Reader, path};
+<span class="kw">use </span>std::net::IpAddr;
+
+<span class="kw">let </span>reader = Reader::open_readfile(<span class="string">"test-data/test-data/MaxMind-DB-test-decoder.mmdb"</span>).unwrap();
+<span class="kw">let </span>ip: IpAddr = <span class="string">"::1.1.1.0"</span>.parse().unwrap();
+<span class="kw">let </span>result = reader.lookup(ip).unwrap();
+
+<span class="comment">// Access the last element of an array
+</span><span class="kw">let </span>last: <span class="prelude-ty">Option</span>&lt;u32&gt; = result.decode_path(<span class="kw-2">&amp;</span><span class="macro">path!</span>[<span class="string">"array"</span>, -<span class="number">1</span>]).unwrap();
+<span class="macro">assert_eq!</span>(last, <span class="prelude-val">Some</span>(<span class="number">3</span>));
+
+<span class="comment">// Access the second-to-last element
+</span><span class="kw">let </span>second_to_last: <span class="prelude-ty">Option</span>&lt;u32&gt; = result.decode_path(<span class="kw-2">&amp;</span><span class="macro">path!</span>[<span class="string">"array"</span>, -<span class="number">2</span>]).unwrap();
+<span class="macro">assert_eq!</span>(second_to_last, <span class="prelude-val">Some</span>(<span class="number">2</span>));</code></pre></div></div></details></section></div></main></body></html>
