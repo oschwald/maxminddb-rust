@@ -119,7 +119,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// Lookup an IP address in the database.
     ///
     /// Returns a [`LookupResult`] that can be used to:
-    /// - Check if the IP was found with [`found()`](LookupResult::found)
+    /// - Check if data exists with [`has_data()`](LookupResult::has_data)
     /// - Get the network containing the IP with [`network()`](LookupResult::network)
     /// - Decode the full record with [`decode()`](LookupResult::decode)
     /// - Decode a specific path with [`decode_path()`](LookupResult::decode_path)
@@ -138,7 +138,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// let ip: IpAddr = "89.160.20.128".parse().unwrap();
     /// let result = reader.lookup(ip)?;
     ///
-    /// if result.found() {
+    /// if result.has_data() {
     ///     let city: geoip2::City = result.decode()?;
     ///     if let Some(city_info) = city.city {
     ///         if let Some(names) = city_info.names {
@@ -311,7 +311,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// let opts = WithinOptions::default().include_networks_without_data();
     /// for result in reader.within("1.0.0.0/8".parse().unwrap(), opts).unwrap() {
     ///     let lookup = result.unwrap();
-    ///     if !lookup.found() {
+    ///     if !lookup.has_data() {
     ///         println!("Network {} has no data", lookup.network().unwrap());
     ///     }
     /// }

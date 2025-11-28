@@ -7,7 +7,7 @@
   when explicitly requested via `decode()`. Migration:
   - Old: `reader.lookup::<City>(ip)?` returns `Option<City>`
   - New: `reader.lookup(ip)?.decode::<City>()` returns `City`
-  - Check if found: `reader.lookup(ip)?.found()` returns `bool`
+  - Check if data exists: `reader.lookup(ip)?.has_data()` returns `bool`
 - **BREAKING CHANGE:** The `lookup_prefix` method has been removed. Use
   `reader.lookup(ip)?.network()` to get the network containing the IP.
 - **BREAKING CHANGE:** The `Within` iterator now yields `LookupResult` instead
@@ -22,14 +22,14 @@
   - `include_aliased_networks()` - Include IPv4 networks multiple times when
     accessed via IPv6 aliases (e.g., `::ffff:0:0/96`, `2001::/32`, `2002::/16`)
   - `include_networks_without_data()` - Include networks that have no associated
-    data record. `LookupResult::found()` returns `false` for these.
+    data record. `LookupResult::has_data()` returns `false` for these.
   - `skip_empty_values()` - Skip networks whose data is an empty map `{}` or
     empty array `[]`
 - Added `networks()` method as a convenience for iterating over all networks in
   the database. Equivalent to `within("::/0", options)` for IPv6 databases or
   `within("0.0.0.0/0", options)` for IPv4-only databases.
 - Added `LookupResult` type with methods:
-  - `found()` - Check if IP was found in database
+  - `has_data()` - Check if data exists for this IP
   - `network()` - Get the network containing the IP
   - `offset()` - Get data offset for caching/deduplication
   - `decode()` - Deserialize full record using serde

@@ -28,7 +28,7 @@
 //!
 //! // City lookup (most common)
 //! let result = reader.lookup(ip)?;
-//! if result.found() {
+//! if result.has_data() {
 //!     let city: geoip2::City = result.decode()?;
 //!     if let Some(city_names) = city.city.and_then(|c| c.names) {
 //!         if let Some(city_name) = city_names.get("en") {
@@ -42,7 +42,7 @@
 //!
 //! // Country-only lookup (smaller/faster)
 //! let result = reader.lookup(ip)?;
-//! if result.found() {
+//! if result.has_data() {
 //!     let country: geoip2::Country = result.decode()?;
 //!     if let Some(country_names) = country.country.and_then(|c| c.names) {
 //!         if let Some(country_name) = country_names.get("en") {

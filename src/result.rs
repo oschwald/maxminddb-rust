@@ -19,7 +19,7 @@ use crate::reader::Reader;
 /// This is a lightweight handle (~40 bytes) that stores the lookup result
 /// without immediately decoding the data. You can:
 ///
-/// - Check if the IP was found with [`found()`](Self::found)
+/// - Check if data exists with [`has_data()`](Self::has_data)
 /// - Get the network containing the IP with [`network()`](Self::network)
 /// - Decode the full record with [`decode()`](Self::decode)
 /// - Decode a specific path with [`decode_path()`](Self::decode_path)
@@ -35,7 +35,7 @@ use crate::reader::Reader;
 ///
 /// let result = reader.lookup(ip).unwrap();
 ///
-/// if result.found() {
+/// if result.has_data() {
 ///     // Full decode
 ///     let city: geoip2::City = result.decode().unwrap();
 ///
@@ -82,12 +82,12 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
         }
     }
 
-    /// Returns true if the IP address was found in the database.
+    /// Returns true if the database contains data for this IP address.
     ///
-    /// Note that "not found" means the database has no data for this IP,
+    /// Note that `false` means the database has no data for this IP,
     /// which is different from an error during lookup.
     #[inline]
-    pub fn found(&self) -> bool {
+    pub fn has_data(&self) -> bool {
         self.data_offset.is_some()
     }
 
@@ -183,7 +183,7 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// - `Ok(None)` if the path doesn't exist (key missing, index out of bounds)
     /// - `Err(...)` if there's a type mismatch during navigation (e.g., `Key` on an array)
     ///
-    /// If `found() == false`, returns `Ok(None)`.
+    /// If `has_data() == false`, returns `Ok(None)`.
     ///
     /// # Path Elements
     ///

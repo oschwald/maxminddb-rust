@@ -45,7 +45,7 @@ fn test_decoder() {
         .expect("error opening mmdb");
     let ip: IpAddr = "1.1.1.0".parse().unwrap();
     let lookup = r.lookup(ip).unwrap();
-    assert!(lookup.found(), "Expected IP to be found");
+    assert!(lookup.has_data(), "Expected IP to be found");
     let result: TestType = lookup.decode().unwrap();
 
     assert_eq!(result.array, vec![1_u32, 2_u32, 3_u32]);
@@ -100,7 +100,7 @@ fn test_broken_database() {
     struct TestType {}
 
     let lookup = r.lookup(ip).unwrap();
-    if lookup.found() {
+    if lookup.has_data() {
         match lookup.decode::<TestType>() {
             Err(e) => assert!(matches!(
                 e,
@@ -207,7 +207,7 @@ fn test_lookup_city() {
 
     let ip: IpAddr = "89.160.20.112".parse().unwrap();
     let lookup = reader.lookup(ip).unwrap();
-    assert!(lookup.found());
+    assert!(lookup.has_data());
     let city: geoip2::City = lookup.decode().unwrap();
 
     let iso_code = city.country.and_then(|cy| cy.iso_code);
@@ -225,7 +225,7 @@ fn test_lookup_country() {
 
     let ip: IpAddr = "89.160.20.112".parse().unwrap();
     let lookup = reader.lookup(ip).unwrap();
-    assert!(lookup.found());
+    assert!(lookup.has_data());
     let country: geoip2::Country = lookup.decode().unwrap();
     let country = country.country.unwrap();
 
@@ -243,7 +243,7 @@ fn test_lookup_connection_type() {
 
     let ip: IpAddr = "96.1.20.112".parse().unwrap();
     let lookup = reader.lookup(ip).unwrap();
-    assert!(lookup.found());
+    assert!(lookup.has_data());
     let connection_type: geoip2::ConnectionType = lookup.decode().unwrap();
 
     assert_eq!(connection_type.connection_type, Some("Cable/DSL"));
@@ -259,7 +259,7 @@ fn test_lookup_annonymous_ip() {
 
     let ip: IpAddr = "81.2.69.123".parse().unwrap();
     let lookup = reader.lookup(ip).unwrap();
-    assert!(lookup.found());
+    assert!(lookup.has_data());
     let anonymous_ip: geoip2::AnonymousIp = lookup.decode().unwrap();
 
     assert_eq!(anonymous_ip.is_anonymous, Some(true));
@@ -279,7 +279,7 @@ fn test_lookup_density_income() {
 
     let ip: IpAddr = "5.83.124.123".parse().unwrap();
     let lookup = reader.lookup(ip).unwrap();
-    assert!(lookup.found());
+    assert!(lookup.has_data());
     let density_income: geoip2::DensityIncome = lookup.decode().unwrap();
 
     assert_eq!(density_income.average_income, Some(32323));
@@ -296,7 +296,7 @@ fn test_lookup_domain() {
 
     let ip: IpAddr = "66.92.80.123".parse().unwrap();
     let lookup = reader.lookup(ip).unwrap();
-    assert!(lookup.found());
+    assert!(lookup.has_data());
     let domain: geoip2::Domain = lookup.decode().unwrap();
 
     assert_eq!(domain.domain, Some("speakeasy.net"));
@@ -312,7 +312,7 @@ fn test_lookup_isp() {
 
     let ip: IpAddr = "12.87.118.123".parse().unwrap();
     let lookup = reader.lookup(ip).unwrap();
-    assert!(lookup.found());
+    assert!(lookup.has_data());
     let isp: geoip2::Isp = lookup.decode().unwrap();
 
     assert_eq!(isp.autonomous_system_number, Some(7018));
@@ -330,7 +330,7 @@ fn test_lookup_asn() {
 
     let ip: IpAddr = "1.128.0.123".parse().unwrap();
     let lookup = reader.lookup(ip).unwrap();
-    assert!(lookup.found());
+    assert!(lookup.has_data());
     let asn: geoip2::Asn = lookup.decode().unwrap();
 
     assert_eq!(asn.autonomous_system_number, Some(1221));
@@ -346,7 +346,7 @@ fn test_lookup_network() {
     // --- IPv4 Check (Known) ---
     let ip: IpAddr = "89.160.20.128".parse().unwrap();
     let lookup = reader.lookup(ip).unwrap();
-    assert!(lookup.found(), "Expected Some(City) for known IPv4");
+    assert!(lookup.has_data(), "Expected Some(City) for known IPv4");
     let network = lookup.network().unwrap();
     assert_eq!(network.prefix(), 25);
     let city: geoip2::City = lookup.decode().unwrap();
@@ -355,7 +355,7 @@ fn test_lookup_network() {
     // --- IPv4 Check (Last Host, Known) ---
     let ip_last: IpAddr = "89.160.20.254".parse().unwrap();
     let lookup_last = reader.lookup(ip_last).unwrap();
-    assert!(lookup_last.found(), "Expected Some(City) for last host");
+    assert!(lookup_last.has_data(), "Expected Some(City) for last host");
     assert_eq!(lookup_last.network().unwrap().prefix(), 25); // Should be same network
 
     // --- IPv6 Check (Not Found in Data) ---
@@ -363,7 +363,7 @@ fn test_lookup_network() {
     let ip_v6_not_found: IpAddr = "2c0f:ff00::1".parse().unwrap();
     let lookup_nf = reader.lookup(ip_v6_not_found).unwrap();
     assert!(
-        !lookup_nf.found(),
+        !lookup_nf.has_data(),
         "Expected not found for non-existent IP 2c0f:ff00::1"
     );
     assert_eq!(
@@ -375,7 +375,7 @@ fn test_lookup_network() {
     // --- IPv6 Check (Known Data) ---
     let ip_v6_known: IpAddr = "2001:218:85a3:0:0:8a2e:370:7334".parse().unwrap();
     let lookup_v6 = reader.lookup(ip_v6_known).unwrap();
-    assert!(lookup_v6.found(), "Expected Some(City) for known IPv6");
+    assert!(lookup_v6.has_data(), "Expected Some(City) for known IPv6");
     assert_eq!(
         lookup_v6.network().unwrap().prefix(),
         32,
@@ -528,7 +528,7 @@ fn check_ip<S: AsRef<[u8]>>(reader: &Reader<S>, ip_version: usize) {
         );
         let lookup = lookup.unwrap();
         assert!(
-            lookup.found(),
+            lookup.has_data(),
             "Lookup for {} returned not found unexpectedly",
             subnet
         );
@@ -555,7 +555,7 @@ fn check_ip<S: AsRef<[u8]>>(reader: &Reader<S>, ip_version: usize) {
         let lookup = reader.lookup(ip).unwrap();
 
         assert!(
-            !lookup.found(),
+            !lookup.has_data(),
             "Expected not found for address {}, but it was found",
             address
         );
@@ -572,7 +572,7 @@ fn test_json_serialize() {
 
     let ip: IpAddr = "89.160.20.112".parse().unwrap();
     let lookup = reader.lookup(ip).unwrap();
-    assert!(lookup.found());
+    assert!(lookup.has_data());
     let city: geoip2::City = lookup.decode().unwrap();
 
     let json_value = json!(city);
@@ -604,7 +604,7 @@ fn test_networks() {
             for result in reader.networks(Default::default()).unwrap() {
                 let lookup = result.unwrap();
                 assert!(
-                    lookup.found(),
+                    lookup.has_data(),
                     "networks() should only yield found records by default"
                 );
 
@@ -763,7 +763,7 @@ fn test_include_networks_without_data() {
     for result in reader.within(cidr, opts).unwrap() {
         let lookup = result.unwrap();
         networks.push(lookup.network().unwrap().to_string());
-        if lookup.found() {
+        if lookup.has_data() {
             found_count += 1;
         } else {
             not_found_count += 1;
@@ -794,7 +794,7 @@ fn test_skip_empty_values() {
         let lookup = result.unwrap();
         count_without_skip += 1;
 
-        if lookup.found() {
+        if lookup.has_data() {
             let data: std::collections::BTreeMap<String, serde_json::Value> =
                 lookup.decode().unwrap();
             if data.is_empty() {
@@ -811,7 +811,7 @@ fn test_skip_empty_values() {
         let lookup = result.unwrap();
         count_with_skip += 1;
 
-        if lookup.found() {
+        if lookup.has_data() {
             let data: std::collections::BTreeMap<String, serde_json::Value> =
                 lookup.decode().unwrap();
             assert!(
@@ -853,7 +853,7 @@ fn test_skip_empty_values_with_other_options() {
         let lookup = result.unwrap();
         count += 1;
 
-        if lookup.found() {
+        if lookup.has_data() {
             let data: std::collections::BTreeMap<String, serde_json::Value> =
                 lookup.decode().unwrap();
             assert!(
@@ -1192,7 +1192,7 @@ fn test_size_hints() {
     let r = Reader::open_readfile("test-data/test-data/MaxMind-DB-test-decoder.mmdb").unwrap();
     let ip: IpAddr = "1.1.1.0".parse().unwrap();
     let lookup = r.lookup(ip).unwrap();
-    assert!(lookup.found());
+    assert!(lookup.has_data());
     let result: TestType = lookup.decode().unwrap();
 
     // Verify array size hint matches actual length
@@ -1224,7 +1224,7 @@ fn test_ignored_any() {
     let r = Reader::open_readfile("test-data/test-data/MaxMind-DB-test-decoder.mmdb").unwrap();
     let ip: IpAddr = "1.1.1.0".parse().unwrap();
     let lookup = r.lookup(ip).unwrap();
-    assert!(lookup.found());
+    assert!(lookup.has_data());
     let result: PartialRead = lookup.decode().unwrap();
 
     assert_eq!(result.utf8_string, "unicode! ☯ - ♫");
@@ -1249,7 +1249,7 @@ fn test_enum_deserialization() {
     let r = Reader::open_readfile("test-data/test-data/GeoIP2-Connection-Type-Test.mmdb").unwrap();
     let ip: IpAddr = "96.1.20.112".parse().unwrap();
     let lookup = r.lookup(ip).unwrap();
-    assert!(lookup.found());
+    assert!(lookup.has_data());
     let result: Record = lookup.decode().unwrap();
 
     assert_eq!(result.connection_type, ConnType::CableDsl);
@@ -1280,7 +1280,7 @@ fn test_serde_flatten() {
     let r = Reader::open_readfile("test-data/test-data/GeoIP2-Country-Test.mmdb").unwrap();
     let ip: IpAddr = "81.2.69.160".parse().unwrap();
     let lookup = r.lookup(ip).unwrap();
-    assert!(lookup.found());
+    assert!(lookup.has_data());
 
     let result: PartialCountry = lookup.decode().unwrap();
     assert_eq!(result.continent.code, "EU");

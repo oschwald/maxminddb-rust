@@ -58,7 +58,7 @@ impl WithinOptions {
     ///
     /// Some tree nodes point to "no data" (the node_count sentinel). By default
     /// these are skipped. When enabled, these networks are yielded and
-    /// [`LookupResult::found()`] returns `false` for them.
+    /// [`LookupResult::has_data()`] returns `false` for them.
     #[must_use]
     pub fn include_networks_without_data(mut self) -> Self {
         self.include_networks_without_data = true;

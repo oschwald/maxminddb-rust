@@ -33,7 +33,7 @@ where
 {
     for ip in ips.iter() {
         let result = reader.lookup(*ip).unwrap();
-        if result.found() {
+        if result.has_data() {
             let _: geoip2::City = result.decode().unwrap();
         }
     }
@@ -46,7 +46,7 @@ where
 {
     ips.par_iter().for_each(|ip| {
         let result = reader.lookup(*ip).unwrap();
-        if result.found() {
+        if result.has_data() {
             let _: geoip2::City = result.decode().unwrap();
         }
     });

@@ -45,7 +45,7 @@
 //!     let ip: IpAddr = "89.160.20.128".parse()?;
 //!     let result = reader.lookup(ip)?;
 //!
-//!     if result.found() {
+//!     if result.has_data() {
 //!         let city: geoip2::City = result.decode()?;
 //!         if let Some(country) = city.country {
 //!             println!("Country: {}", country.iso_code.unwrap_or("Unknown"));
@@ -215,13 +215,13 @@ mod tests {
             let result = reader.lookup(ip).unwrap();
 
             assert_eq!(
-                result.found(),
+                result.has_data(),
                 test.expected_found,
-                "IP {} in {}: expected found={}, got found={}",
+                "IP {} in {}: expected has_data={}, got has_data={}",
                 test.ip,
                 test.db_file,
                 test.expected_found,
-                result.found()
+                result.has_data()
             );
 
             let network = result.network().unwrap();
@@ -243,7 +243,7 @@ mod tests {
         let ip: IpAddr = "89.160.20.128".parse().unwrap();
 
         let result = reader.lookup(ip).unwrap();
-        assert!(result.found(), "lookup should find known IP");
+        assert!(result.has_data(), "lookup should find known IP");
 
         // Decode the data
         let city: geoip2::City = result.decode().unwrap();
@@ -314,7 +314,7 @@ mod tests {
         let ip: IpAddr = "::1.1.1.0".parse().unwrap();
 
         let result = reader.lookup(ip).unwrap();
-        assert!(result.found());
+        assert!(result.has_data());
 
         // Test simple path: uint16
         let u16_val: Option<u16> = result.decode_path(&[PathElement::Key("uint16")]).unwrap();

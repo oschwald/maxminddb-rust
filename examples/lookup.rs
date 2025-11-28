@@ -18,7 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let result = reader.lookup(ip)?;
 
-    if result.found() {
+    if result.has_data() {
         let city: geoip2::City = result.decode()?;
         println!("City data for IP {}: {city:#?}", ip);
 
