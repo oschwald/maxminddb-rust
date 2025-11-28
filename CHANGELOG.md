@@ -57,6 +57,10 @@
     JSON-pointer-style path for locating the error
   - Pattern matching code must be updated (e.g., `InvalidDatabase(msg)` becomes
     `InvalidDatabase { message, .. }`)
+- **BREAKING CHANGE:** A new `InvalidInput { message }` error variant has been
+  added for user input errors (e.g., looking up an IPv6 address in an IPv4-only
+  database). Previously this returned `InvalidDatabase`, which incorrectly
+  suggested the database was corrupted.
 - Error messages now include byte offsets when available, making it easier to
   debug malformed databases. The `#[non_exhaustive]` attribute is added to
   `MaxMindDbError` to allow future additions without breaking changes.

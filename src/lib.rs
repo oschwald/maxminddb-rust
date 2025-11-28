@@ -292,7 +292,7 @@ mod tests {
 
         let result = reader.lookup(ip);
         match result {
-            Err(MaxMindDbError::InvalidDatabase { message, .. }) => {
+            Err(MaxMindDbError::InvalidInput { message }) => {
                 assert!(
                     message.contains("IPv6") && message.contains("IPv4"),
                     "Expected error message about IPv6 in IPv4 database, got: {}",
@@ -300,7 +300,7 @@ mod tests {
                 );
             }
             Err(e) => panic!(
-                "Expected InvalidDatabase error for IPv6 in IPv4 database, got: {:?}",
+                "Expected InvalidInput error for IPv6 in IPv4 database, got: {:?}",
                 e
             ),
             Ok(_) => panic!("Expected error for IPv6 lookup in IPv4-only database"),

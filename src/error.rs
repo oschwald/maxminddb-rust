@@ -51,6 +51,13 @@ pub enum MaxMindDbError {
         #[source]
         IpNetworkError,
     ),
+
+    /// The provided input is invalid for this operation.
+    #[error("invalid input: {message}")]
+    InvalidInput {
+        /// Description of what is invalid about the input.
+        message: String,
+    },
 }
 
 fn format_invalid_database(message: &str, offset: &Option<usize>) -> String {
@@ -114,6 +121,13 @@ impl MaxMindDbError {
             message: message.into(),
             offset: Some(offset),
             path: Some(path.into()),
+        }
+    }
+
+    /// Creates an InvalidInput error.
+    pub fn invalid_input(message: impl Into<String>) -> Self {
+        MaxMindDbError::InvalidInput {
+            message: message.into(),
         }
     }
 }
@@ -185,6 +199,12 @@ mod tests {
         assert_eq!(
             format!("{}", MaxMindDbError::from(net_err)),
             "invalid network: invalid prefix".to_owned(),
+        );
+
+        // InvalidInput error
+        assert_eq!(
+            format!("{}", MaxMindDbError::invalid_input("bad address")),
+            "invalid input: bad address".to_owned(),
         );
     }
 }

@@ -176,8 +176,8 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     pub fn lookup(&'de self, address: IpAddr) -> Result<LookupResult<'de, S>, MaxMindDbError> {
         // Check for IPv6 address in IPv4-only database
         if matches!(address, IpAddr::V6(_)) && self.metadata.ip_version == 4 {
-            return Err(MaxMindDbError::invalid_database(
-                "you attempted to look up an IPv6 address in an IPv4-only database",
+            return Err(MaxMindDbError::invalid_input(
+                "cannot look up IPv6 address in IPv4-only database",
             ));
         }
 
