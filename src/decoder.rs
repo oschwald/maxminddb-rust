@@ -56,23 +56,19 @@ enum Value<'a, 'de> {
     Array(ArrayAccess<'a, 'de>),
 }
 
-/// Low-level decoder for MaxMind DB binary data.
+/// Decoder for MaxMind DB binary format.
 ///
-/// This decoder implements serde's `Deserializer` trait to convert
-/// MaxMind DB binary format into Rust types. It handles pointer
-/// resolution, type coercion, and nested data structures.
-///
-/// Most users should use [`LookupResult::decode()`](crate::LookupResult::decode)
-/// instead of this type directly.
+/// Implements serde's `Deserializer` trait. Handles pointer resolution,
+/// type coercion, and nested data structures.
 #[derive(Debug)]
-pub struct Decoder<'de> {
+pub(crate) struct Decoder<'de> {
     buf: &'de [u8],
     current_ptr: usize,
     depth: u16,
 }
 
 impl<'de> Decoder<'de> {
-    pub fn new(buf: &'de [u8], start_ptr: usize) -> Decoder<'de> {
+    pub(crate) fn new(buf: &'de [u8], start_ptr: usize) -> Decoder<'de> {
         Decoder {
             buf,
             current_ptr: start_ptr,
@@ -110,9 +106,8 @@ impl<'de> Decoder<'de> {
         MaxMindDbError::decoding_at(msg, self.current_ptr)
     }
 
-    /// Returns the current offset in the data section.
     #[inline]
-    pub fn offset(&self) -> usize {
+    pub(crate) fn offset(&self) -> usize {
         self.current_ptr
     }
 
