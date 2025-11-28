@@ -319,6 +319,23 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
 ///
 /// Used with [`LookupResult::decode_path()`] to selectively decode
 /// specific fields without parsing the entire record.
+///
+/// # Creating Path Elements
+///
+/// You can create path elements directly or use the [`path!`](crate::path) macro
+/// for a more convenient syntax:
+///
+/// ```
+/// use maxminddb::{path, PathElement};
+///
+/// // Direct construction
+/// let path = [PathElement::Key("country"), PathElement::Key("iso_code")];
+///
+/// // Using the macro - string literals become Keys, integers become Indexes
+/// let path = path!["country", "iso_code"];
+/// let path = path!["subdivisions", 0, "names"];  // Mixed keys and indexes
+/// let path = path!["array", -1];  // Negative indexes count from the end
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PathElement<'a> {
     /// Navigate into a map by key.
@@ -333,6 +350,97 @@ pub enum PathElement<'a> {
     /// - `IndexFromEnd(0)` - last element
     /// - `IndexFromEnd(1)` - second-to-last element
     IndexFromEnd(usize),
+}
+
+impl<'a> From<&'a str> for PathElement<'a> {
+    fn from(s: &'a str) -> Self {
+        PathElement::Key(s)
+    }
+}
+
+impl From<i32> for PathElement<'_> {
+    /// Converts an integer to a path element.
+    ///
+    /// - Non-negative values become `Index(n)`
+    /// - Negative values become `IndexFromEnd(-n - 1)`, so `-1` is the last element
+    fn from(n: i32) -> Self {
+        if n >= 0 {
+            PathElement::Index(n as usize)
+        } else {
+            PathElement::IndexFromEnd((-n - 1) as usize)
+        }
+    }
+}
+
+impl From<usize> for PathElement<'_> {
+    fn from(n: usize) -> Self {
+        PathElement::Index(n)
+    }
+}
+
+impl From<isize> for PathElement<'_> {
+    /// Converts a signed integer to a path element.
+    ///
+    /// - Non-negative values become `Index(n)`
+    /// - Negative values become `IndexFromEnd(-n - 1)`, so `-1` is the last element
+    fn from(n: isize) -> Self {
+        if n >= 0 {
+            PathElement::Index(n as usize)
+        } else {
+            PathElement::IndexFromEnd((-n - 1) as usize)
+        }
+    }
+}
+
+/// Creates a path for use with [`LookupResult::decode_path()`](crate::LookupResult::decode_path).
+///
+/// This macro provides a convenient way to construct paths with mixed string keys
+/// and integer indexes.
+///
+/// # Syntax
+///
+/// - String literals become [`PathElement::Key`]
+/// - Non-negative integers become [`PathElement::Index`]
+/// - Negative integers become [`PathElement::IndexFromEnd`] (e.g., `-1` is the last element)
+///
+/// # Examples
+///
+/// ```
+/// use maxminddb::{Reader, path};
+/// use std::net::IpAddr;
+///
+/// let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+/// let ip: IpAddr = "89.160.20.128".parse().unwrap();
+/// let result = reader.lookup(ip).unwrap();
+///
+/// // Navigate to country.iso_code
+/// let iso_code: Option<String> = result.decode_path(&path!["country", "iso_code"]).unwrap();
+///
+/// // Navigate to subdivisions[0].names.en
+/// let subdiv: Option<String> = result.decode_path(&path!["subdivisions", 0, "names", "en"]).unwrap();
+/// ```
+///
+/// ```
+/// use maxminddb::{Reader, path};
+/// use std::net::IpAddr;
+///
+/// let reader = Reader::open_readfile("test-data/test-data/MaxMind-DB-test-decoder.mmdb").unwrap();
+/// let ip: IpAddr = "::1.1.1.0".parse().unwrap();
+/// let result = reader.lookup(ip).unwrap();
+///
+/// // Access the last element of an array
+/// let last: Option<u32> = result.decode_path(&path!["array", -1]).unwrap();
+/// assert_eq!(last, Some(3));
+///
+/// // Access the second-to-last element
+/// let second_to_last: Option<u32> = result.decode_path(&path!["array", -2]).unwrap();
+/// assert_eq!(second_to_last, Some(2));
+/// ```
+#[macro_export]
+macro_rules! path {
+    ($($elem:expr),* $(,)?) => {
+        [$($crate::PathElement::from($elem)),*]
+    };
 }
 
 /// Masks an IP address to its network address given a prefix length.
@@ -398,5 +506,93 @@ mod tests {
             format!("{:?}", PathElement::IndexFromEnd(0)),
             "IndexFromEnd(0)"
         );
+    }
+
+    #[test]
+    fn test_path_element_from_str() {
+        let elem: PathElement = "key".into();
+        assert_eq!(elem, PathElement::Key("key"));
+    }
+
+    #[test]
+    fn test_path_element_from_i32() {
+        // Positive values become Index
+        let elem: PathElement = PathElement::from(0i32);
+        assert_eq!(elem, PathElement::Index(0));
+
+        let elem: PathElement = PathElement::from(5i32);
+        assert_eq!(elem, PathElement::Index(5));
+
+        // Negative values become IndexFromEnd
+        // -1 → IndexFromEnd(0) (last element)
+        let elem: PathElement = PathElement::from(-1i32);
+        assert_eq!(elem, PathElement::IndexFromEnd(0));
+
+        // -2 → IndexFromEnd(1) (second-to-last)
+        let elem: PathElement = PathElement::from(-2i32);
+        assert_eq!(elem, PathElement::IndexFromEnd(1));
+
+        // -3 → IndexFromEnd(2)
+        let elem: PathElement = PathElement::from(-3i32);
+        assert_eq!(elem, PathElement::IndexFromEnd(2));
+    }
+
+    #[test]
+    fn test_path_element_from_usize() {
+        let elem: PathElement = PathElement::from(0usize);
+        assert_eq!(elem, PathElement::Index(0));
+
+        let elem: PathElement = PathElement::from(42usize);
+        assert_eq!(elem, PathElement::Index(42));
+    }
+
+    #[test]
+    fn test_path_element_from_isize() {
+        let elem: PathElement = PathElement::from(0isize);
+        assert_eq!(elem, PathElement::Index(0));
+
+        let elem: PathElement = PathElement::from(-1isize);
+        assert_eq!(elem, PathElement::IndexFromEnd(0));
+    }
+
+    #[test]
+    fn test_path_macro_keys_only() {
+        let p = path!["country", "iso_code"];
+        assert_eq!(p.len(), 2);
+        assert_eq!(p[0], PathElement::Key("country"));
+        assert_eq!(p[1], PathElement::Key("iso_code"));
+    }
+
+    #[test]
+    fn test_path_macro_mixed() {
+        let p = path!["subdivisions", 0, "names", "en"];
+        assert_eq!(p.len(), 4);
+        assert_eq!(p[0], PathElement::Key("subdivisions"));
+        assert_eq!(p[1], PathElement::Index(0));
+        assert_eq!(p[2], PathElement::Key("names"));
+        assert_eq!(p[3], PathElement::Key("en"));
+    }
+
+    #[test]
+    fn test_path_macro_negative_indexes() {
+        let p = path!["array", -1];
+        assert_eq!(p.len(), 2);
+        assert_eq!(p[0], PathElement::Key("array"));
+        assert_eq!(p[1], PathElement::IndexFromEnd(0)); // last element
+
+        let p = path!["data", -2, "value"];
+        assert_eq!(p[1], PathElement::IndexFromEnd(1)); // second-to-last
+    }
+
+    #[test]
+    fn test_path_macro_trailing_comma() {
+        let p = path!["a", "b",];
+        assert_eq!(p.len(), 2);
+    }
+
+    #[test]
+    fn test_path_macro_empty() {
+        let p: [PathElement; 0] = path![];
+        assert_eq!(p.len(), 0);
     }
 }

@@ -38,6 +38,10 @@
   - `PathElement::Key("name")` - Navigate into map by key
   - `PathElement::Index(0)` - Navigate into array by index (0 = first element)
   - `PathElement::IndexFromEnd(0)` - Navigate from the end (0 = last element)
+- Added `path!` macro for ergonomic path construction:
+  - String literals become `Key` elements: `path!["country", "iso_code"]`
+  - Non-negative integers become `Index` elements: `path!["array", 0]`
+  - Negative integers become `IndexFromEnd` elements: `path!["array", -1]` (last element)
 - `Metadata` and `WithinOptions` now implement `PartialEq` and `Eq` traits.
 - Added `verify()` method for comprehensive database validation. Validates
   metadata, search tree structure, data section separator, and data records.
