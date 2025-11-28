@@ -25,12 +25,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             continue; // Skip networks without data
         };
 
-        let continent = info.continent.and_then(|c| c.code).unwrap_or("");
-        let country = info.country.and_then(|c| c.iso_code).unwrap_or("");
-        let city = match info.city.and_then(|c| c.names) {
-            Some(names) => names.get("en").copied().unwrap_or(""),
-            None => "",
-        };
+        let continent = info.continent.code.unwrap_or("");
+        let country = info.country.iso_code.unwrap_or("");
+        let city = info.city.names.english.unwrap_or("");
         if !city.is_empty() {
             println!("{} {}-{}-{}", network, continent, country, city);
         } else if !country.is_empty() {

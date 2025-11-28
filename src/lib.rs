@@ -46,9 +46,8 @@
 //!     let result = reader.lookup(ip)?;
 //!
 //!     if let Some(city) = result.decode::<geoip2::City>()? {
-//!         if let Some(country) = city.country {
-//!             println!("Country: {}", country.iso_code.unwrap_or("Unknown"));
-//!         }
+//!         // Access nested structs directly - no Option unwrapping needed
+//!         println!("Country: {}", city.country.iso_code.unwrap_or("Unknown"));
 //!     }
 //!
 //!     Ok(())
@@ -246,7 +245,7 @@ mod tests {
 
         // Decode the data
         let city: geoip2::City = result.decode().unwrap().unwrap();
-        assert!(city.city.is_some(), "Expected city data");
+        assert!(!city.city.is_empty(), "Expected city data");
 
         // Check full network (not just prefix)
         let network = result.network().unwrap();

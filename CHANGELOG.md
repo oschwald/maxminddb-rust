@@ -68,6 +68,22 @@
   added for user input errors (e.g., looking up an IPv6 address in an IPv4-only
   database). Previously this returned `InvalidDatabase`, which incorrectly
   suggested the database was corrupted.
+- **BREAKING CHANGE:** The `names` fields in GeoIP2 structs now use a `Names`
+  struct instead of `BTreeMap<&str, &str>`. This improves performance (no map
+  allocation) and ergonomics. Each language field is `Option<&str>`:
+  - Old: `city.names.as_ref().and_then(|n| n.get("en"))`
+  - New: `city.city.names.english`
+  - Supported languages: `german`, `english`, `spanish`, `french`, `japanese`,
+    `brazilian_portuguese`, `russian`, `simplified_chinese`
+- **BREAKING CHANGE:** Nested struct fields in GeoIP2 record types (`City`,
+  `Country`, `Enterprise`) are now non-optional with `Default`. This simplifies
+  access patterns by removing nested Option unwrapping:
+  - Old: `city.city.as_ref().and_then(|c| c.names.english)`
+  - New: `city.city.names.english`
+  - Old: `city.subdivisions.as_ref().map(|v| v.iter())`
+  - New: `city.subdivisions.iter()` (empty Vec if not present)
+  - Leaf values (strings, numbers, bools) remain `Option<T>` to preserve
+    the distinction between "not present" and "present but empty"
 - Error messages now include byte offsets when available, making it easier to
   debug malformed databases. The `#[non_exhaustive]` attribute is added to
   `MaxMindDbError` to allow future additions without breaking changes.

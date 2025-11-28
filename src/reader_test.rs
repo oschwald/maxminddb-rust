@@ -210,7 +210,7 @@ fn test_lookup_city() {
     assert!(lookup.has_data());
     let city: geoip2::City = lookup.decode().unwrap().unwrap();
 
-    let iso_code = city.country.and_then(|cy| cy.iso_code);
+    let iso_code = city.country.iso_code;
 
     assert_eq!(iso_code, Some("SE"));
 }
@@ -227,10 +227,9 @@ fn test_lookup_country() {
     let lookup = reader.lookup(ip).unwrap();
     assert!(lookup.has_data());
     let country: geoip2::Country = lookup.decode().unwrap().unwrap();
-    let country = country.country.unwrap();
 
-    assert_eq!(country.iso_code, Some("SE"));
-    assert_eq!(country.is_in_european_union, Some(true));
+    assert_eq!(country.country.iso_code, Some("SE"));
+    assert_eq!(country.country.is_in_european_union, Some(true));
 }
 
 #[test]
@@ -350,7 +349,7 @@ fn test_lookup_network() {
     let network = lookup.network().unwrap();
     assert_eq!(network.prefix(), 25);
     let city: geoip2::City = lookup.decode().unwrap().unwrap();
-    assert!(city.country.is_some());
+    assert!(!city.country.is_empty());
 
     // --- IPv4 Check (Last Host, Known) ---
     let ip_last: IpAddr = "89.160.20.254".parse().unwrap();
@@ -382,7 +381,7 @@ fn test_lookup_network() {
         "Prefix length mismatch for known IPv6"
     );
     let city_v6: geoip2::City = lookup_v6.decode().unwrap().unwrap();
-    assert!(city_v6.country.is_some());
+    assert!(!city_v6.country.is_empty());
 }
 
 #[test]
@@ -443,8 +442,8 @@ fn test_within_city() {
         if network.prefix() == 31 {
             // 81.2.69.142/31
             let city: geoip2::City = lookup.decode().unwrap().unwrap();
-            assert!(city.city.is_some());
-            assert_eq!(city.city.unwrap().geoname_id, Some(2643743)); // London
+            assert!(!city.city.is_empty());
+            assert_eq!(city.city.geoname_id, Some(2643743)); // London
         }
         found_count += 1;
     }

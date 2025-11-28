@@ -150,12 +150,9 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// let result = reader.lookup(ip)?;
     ///
     /// if let Some(city) = result.decode::<geoip2::City>()? {
-    ///     if let Some(city_info) = city.city {
-    ///         if let Some(names) = city_info.names {
-    ///             if let Some(name) = names.get("en") {
-    ///                 println!("City: {}", name);
-    ///             }
-    ///         }
+    ///     // Access nested structs directly - no Option unwrapping needed
+    ///     if let Some(name) = city.city.names.english {
+    ///         println!("City: {}", name);
     ///     }
     /// } else {
     ///     println!("No data found for IP {}", ip);
@@ -281,9 +278,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     ///     let lookup = result.unwrap();
     ///     let network = lookup.network().unwrap();
     ///     let city: geoip2::City = lookup.decode().unwrap().unwrap();
-    ///     let city_name = city.city.as_ref()
-    ///         .and_then(|c| c.names.as_ref())
-    ///         .and_then(|n| n.get("en"));
+    ///     let city_name = city.city.names.english;
     ///     println!("Network: {}, City: {:?}", network, city_name);
     ///     count += 1;
     ///     if count >= 10 { break; } // Limit output for example
