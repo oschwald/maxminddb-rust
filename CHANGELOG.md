@@ -1,5 +1,73 @@
 # Change Log
 
+## 0.27.0 - 2025-11-28
+
+This release includes significant API changes. See [UPGRADING.md](UPGRADING.md)
+for migration guidance.
+
+### Breaking Changes
+
+#### Lookup API
+
+- `lookup()` now returns `LookupResult` instead of `Option<T>`. The new API
+  enables lazy decoding - data is only deserialized when explicitly requested.
+- `lookup_prefix()` has been removed. Use `lookup(ip)?.network()` instead.
+
+#### Iteration API
+
+- `within()` now requires a second `WithinOptions` parameter. Use
+  `Default::default()` for the previous behavior.
+- `Within` iterator now yields `LookupResult` instead of `WithinItem<T>`.
+
+#### GeoIP2 Structs
+
+- The `names` fields now use a `Names` struct instead of `BTreeMap<&str, &str>`.
+  Access names directly via language fields (e.g., `names.english`).
+- Nested struct fields (`city`, `country`, `location`, etc.) are now
+  non-optional with `Default`, simplifying access patterns.
+- Removed `is_anonymous_proxy` and `is_satellite_provider` from `Traits`.
+  These fields are no longer present in MaxMind databases.
+
+#### Error Types
+
+- `InvalidDatabase` and `Decoding` variants now use structured fields instead
+  of a single string. Pattern matching must be updated.
+- New `InvalidInput` variant for user input errors (e.g., IPv6 lookup in
+  IPv4-only database).
+
+#### Memory Mapping
+
+- `Reader::open_mmap` is now `unsafe`. The caller must ensure the database
+  file is not modified or truncated while the `Reader` exists. This fixes a
+  soundness issue. Reported by paolobarbolini. GitHub #86.
+
+### Added
+
+- `LookupResult` type with lazy decoding support:
+  - `has_data()` - Check if data exists for this IP
+  - `network()` - Get the network containing the IP
+  - `offset()` - Get data offset for caching/deduplication
+  - `decode()` - Deserialize full record
+  - `decode_path()` - Selectively decode specific fields by path
+- `PathElement` enum and `path!` macro for navigating nested structures.
+- `WithinOptions` to control network iteration behavior:
+  - `include_aliased_networks()` - Include IPv4 via IPv6 aliases
+  - `include_networks_without_data()` - Include networks without data records
+  - `skip_empty_values()` - Skip empty maps/arrays
+- `networks()` method for iterating over all networks in the database.
+- `verify()` method for comprehensive database validation.
+- `Metadata::build_time()` to convert `build_epoch` to `SystemTime`.
+- `PartialEq` and `Eq` implementations for `Metadata` and `WithinOptions`.
+
+### Changed
+
+- Error messages now include byte offsets when available.
+- `decode_path()` errors include path context showing where navigation failed.
+- Added recursion depth limit (512) matching libmaxminddb and Go reader.
+- Serde deserializer improvements: size hints, `is_human_readable()` returns
+  false, `deserialize_ignored_any`, and `deserialize_enum` support.
+- `MaxMindDbError` is now `#[non_exhaustive]`.
+
 ## 0.26.0 - 2025-03-28
 
 - **BREAKING CHANGE:** The `lookup` and `lookup_prefix` methods now return

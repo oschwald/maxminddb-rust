@@ -28,22 +28,52 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-maxminddb = "0.26"
+maxminddb = "0.27"
 ```
-
-and this to your crate root:
-
-```rust
-extern crate maxminddb;
-```
-
-## API Documentation
-
-The API docs are on [Docs.rs](https://docs.rs/maxminddb/latest/maxminddb/struct.Reader.html).
 
 ## Example
 
-See [`examples/lookup.rs`](https://github.com/oschwald/maxminddb-rust/blob/main/examples/lookup.rs) for a basic example.
+```rust
+use maxminddb::{geoip2, Reader};
+use std::net::IpAddr;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let reader = Reader::open_readfile("/path/to/GeoLite2-City.mmdb")?;
+
+    let ip: IpAddr = "89.160.20.128".parse()?;
+    let result = reader.lookup(ip)?;
+
+    if let Some(city) = result.decode::<geoip2::City>()? {
+        println!("Country: {}", city.country.iso_code.unwrap_or("N/A"));
+        println!("City: {}", city.city.names.english.unwrap_or("N/A"));
+    }
+
+    Ok(())
+}
+```
+
+See the [examples](examples/) directory for more usage patterns.
+
+## Features
+
+Optional features:
+
+- **`mmap`**: Memory-mapped file access for long-running applications
+- **`simdutf8`**: SIMD-accelerated UTF-8 validation
+- **`unsafe-str-decode`**: Skip UTF-8 validation (requires trusted data)
+
+Enable in `Cargo.toml`:
+
+```toml
+[dependencies]
+maxminddb = { version = "0.27", features = ["mmap"] }
+```
+
+Note: `simdutf8` and `unsafe-str-decode` are mutually exclusive.
+
+## Documentation
+
+[API documentation on docs.rs](https://docs.rs/maxminddb)
 
 ## Benchmarks
 
@@ -63,10 +93,6 @@ cargo bench
 If [gnuplot](http://www.gnuplot.info/) is installed, Criterion.rs can generate
 an HTML report displaying the results of the benchmark under
 `target/criterion/report/index.html`.
-
-Result of doing 100 random IP lookups:
-
-![](/assets/pdf_small.svg)
 
 ## Contributing
 
