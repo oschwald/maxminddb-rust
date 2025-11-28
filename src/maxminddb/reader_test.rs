@@ -1261,3 +1261,34 @@ fn test_enum_deserialization() {
 
     assert_eq!(result.connection_type, ConnType::CableDsl);
 }
+
+/// Test serde flatten attribute with HashMap<String, IgnoredAny>
+///
+/// Real-world GeoIP2/GeoLite2 databases don't contain u128 values, so
+/// `#[serde(flatten)]` works without issues.
+#[test]
+fn test_serde_flatten() {
+    use serde::de::IgnoredAny;
+
+    let _ = env_logger::try_init();
+
+    #[derive(Deserialize, Debug)]
+    struct PartialCountry {
+        continent: Continent,
+        #[serde(flatten)]
+        _rest: std::collections::HashMap<String, IgnoredAny>,
+    }
+
+    #[derive(Deserialize, Debug)]
+    struct Continent {
+        code: String,
+    }
+
+    let r = Reader::open_readfile("test-data/test-data/GeoIP2-Country-Test.mmdb").unwrap();
+    let ip: IpAddr = FromStr::from_str("81.2.69.160").unwrap();
+    let lookup = r.lookup(ip).unwrap();
+    assert!(lookup.found());
+
+    let result: PartialCountry = lookup.decode().unwrap();
+    assert_eq!(result.continent.code, "EU");
+}
