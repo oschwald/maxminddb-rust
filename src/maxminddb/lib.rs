@@ -101,26 +101,45 @@ compile_error!("features `simdutf8` and `unsafe-str-decode` are mutually exclusi
 /// Size of the data section separator (16 zero bytes).
 const DATA_SECTION_SEPARATOR_SIZE: usize = 16;
 
+/// Error returned by MaxMind DB operations.
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum MaxMindDbError {
-    #[error("Invalid database: {0}")]
-    InvalidDatabase(String),
+    /// The database file is invalid or corrupted.
+    #[error("{}", format_invalid_database(.message, .offset))]
+    InvalidDatabase {
+        /// Description of what is invalid.
+        message: String,
+        /// Byte offset in the database where the error was detected.
+        offset: Option<usize>,
+    },
 
-    #[error("I/O error: {0}")]
+    /// An I/O error occurred while reading the database.
+    #[error("i/o error: {0}")]
     Io(
         #[from]
         #[source]
         io::Error,
     ),
 
+    /// Memory mapping failed.
     #[cfg(feature = "mmap")]
-    #[error("Memory map error: {0}")]
+    #[error("memory map error: {0}")]
     Mmap(#[source] io::Error),
 
-    #[error("Decoding error: {0}")]
-    Decoding(String),
+    /// Error decoding data from the database.
+    #[error("{}", format_decoding_error(.message, .offset, .path.as_deref()))]
+    Decoding {
+        /// Description of the decoding error.
+        message: String,
+        /// Byte offset in the data section where the error occurred.
+        offset: Option<usize>,
+        /// JSON-pointer-like path to the field (e.g., "/city/names/en").
+        path: Option<String>,
+    },
 
-    #[error("Invalid network: {0}")]
+    /// The provided network/CIDR is invalid.
+    #[error("invalid network: {0}")]
     InvalidNetwork(
         #[from]
         #[source]
@@ -128,9 +147,74 @@ pub enum MaxMindDbError {
     ),
 }
 
+fn format_invalid_database(message: &str, offset: &Option<usize>) -> String {
+    match offset {
+        Some(off) => format!("invalid database at offset {off}: {message}"),
+        None => format!("invalid database: {message}"),
+    }
+}
+
+fn format_decoding_error(message: &str, offset: &Option<usize>, path: Option<&str>) -> String {
+    match (offset, path) {
+        (Some(off), Some(p)) => format!("decoding error at offset {off} (path: {p}): {message}"),
+        (Some(off), None) => format!("decoding error at offset {off}: {message}"),
+        (None, Some(p)) => format!("decoding error (path: {p}): {message}"),
+        (None, None) => format!("decoding error: {message}"),
+    }
+}
+
+impl MaxMindDbError {
+    /// Creates an InvalidDatabase error with just a message.
+    pub fn invalid_database(message: impl Into<String>) -> Self {
+        MaxMindDbError::InvalidDatabase {
+            message: message.into(),
+            offset: None,
+        }
+    }
+
+    /// Creates an InvalidDatabase error with message and offset.
+    pub fn invalid_database_at(message: impl Into<String>, offset: usize) -> Self {
+        MaxMindDbError::InvalidDatabase {
+            message: message.into(),
+            offset: Some(offset),
+        }
+    }
+
+    /// Creates a Decoding error with just a message.
+    pub fn decoding(message: impl Into<String>) -> Self {
+        MaxMindDbError::Decoding {
+            message: message.into(),
+            offset: None,
+            path: None,
+        }
+    }
+
+    /// Creates a Decoding error with message and offset.
+    pub fn decoding_at(message: impl Into<String>, offset: usize) -> Self {
+        MaxMindDbError::Decoding {
+            message: message.into(),
+            offset: Some(offset),
+            path: None,
+        }
+    }
+
+    /// Creates a Decoding error with message, offset, and path.
+    pub fn decoding_at_path(
+        message: impl Into<String>,
+        offset: usize,
+        path: impl Into<String>,
+    ) -> Self {
+        MaxMindDbError::Decoding {
+            message: message.into(),
+            offset: Some(offset),
+            path: Some(path.into()),
+        }
+    }
+}
+
 impl de::Error for MaxMindDbError {
     fn custom<T: Display>(msg: T) -> Self {
-        MaxMindDbError::Decoding(format!("{msg}"))
+        MaxMindDbError::decoding(msg.to_string())
     }
 }
 
@@ -546,8 +630,8 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     pub fn lookup(&'de self, address: IpAddr) -> Result<LookupResult<'de, S>, MaxMindDbError> {
         // Check for IPv6 address in IPv4-only database
         if matches!(address, IpAddr::V6(_)) && self.metadata.ip_version == 4 {
-            return Err(MaxMindDbError::InvalidDatabase(
-                "you attempted to look up an IPv6 address in an IPv4-only database".to_string(),
+            return Err(MaxMindDbError::invalid_database(
+                "you attempted to look up an IPv6 address in an IPv4-only database",
             ));
         }
 
@@ -755,8 +839,8 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
             // return 0 as the pointer value to signify "not found".
             n if n == node => Ok((0, prefix_len)),
             n if node > n => Ok((node, prefix_len)),
-            _ => Err(MaxMindDbError::InvalidDatabase(
-                "invalid node in search tree".to_owned(),
+            _ => Err(MaxMindDbError::invalid_database(
+                "invalid node in search tree",
             )),
         }
     }
@@ -824,9 +908,8 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
                     | buf[offset + 3] as usize
             }
             s => {
-                return Err(MaxMindDbError::InvalidDatabase(format!(
-                    "unknown record size: \
-                     {s:?}"
+                return Err(MaxMindDbError::invalid_database(format!(
+                    "unknown record size: {s}"
                 )))
             }
         };
@@ -840,8 +923,8 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
 
         // Check bounds using pointer_base which marks the start of the data section
         if resolved >= (self.buf.as_ref().len() - self.pointer_base) {
-            return Err(MaxMindDbError::InvalidDatabase(
-                "the MaxMind DB file's data pointer resolves to an invalid location".to_owned(),
+            return Err(MaxMindDbError::invalid_database(
+                "the MaxMind DB file's data pointer resolves to an invalid location",
             ));
         }
 
@@ -883,42 +966,42 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let m = &self.metadata;
 
         if m.binary_format_major_version != 2 {
-            return Err(MaxMindDbError::InvalidDatabase(format!(
+            return Err(MaxMindDbError::invalid_database(format!(
                 "binary_format_major_version - Expected: 2 Actual: {}",
                 m.binary_format_major_version
             )));
         }
         if m.binary_format_minor_version != 0 {
-            return Err(MaxMindDbError::InvalidDatabase(format!(
+            return Err(MaxMindDbError::invalid_database(format!(
                 "binary_format_minor_version - Expected: 0 Actual: {}",
                 m.binary_format_minor_version
             )));
         }
         if m.database_type.is_empty() {
-            return Err(MaxMindDbError::InvalidDatabase(
-                "database_type - Expected: non-empty string Actual: \"\"".to_owned(),
+            return Err(MaxMindDbError::invalid_database(
+                "database_type - Expected: non-empty string Actual: \"\"",
             ));
         }
         if m.description.is_empty() {
-            return Err(MaxMindDbError::InvalidDatabase(
-                "description - Expected: non-empty map Actual: {}".to_owned(),
+            return Err(MaxMindDbError::invalid_database(
+                "description - Expected: non-empty map Actual: {}",
             ));
         }
         if m.ip_version != 4 && m.ip_version != 6 {
-            return Err(MaxMindDbError::InvalidDatabase(format!(
+            return Err(MaxMindDbError::invalid_database(format!(
                 "ip_version - Expected: 4 or 6 Actual: {}",
                 m.ip_version
             )));
         }
         if m.record_size != 24 && m.record_size != 28 && m.record_size != 32 {
-            return Err(MaxMindDbError::InvalidDatabase(format!(
+            return Err(MaxMindDbError::invalid_database(format!(
                 "record_size - Expected: 24, 28, or 32 Actual: {}",
                 m.record_size
             )));
         }
         if m.node_count == 0 {
-            return Err(MaxMindDbError::InvalidDatabase(
-                "node_count - Expected: positive integer Actual: 0".to_owned(),
+            return Err(MaxMindDbError::invalid_database(
+                "node_count - Expected: positive integer Actual: 0",
             ));
         }
         Ok(())
@@ -948,9 +1031,8 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
 
             iteration_count += 1;
             if iteration_count > max_iterations {
-                return Err(MaxMindDbError::InvalidDatabase(format!(
-                    "search tree appears to have a cycle or invalid structure (exceeded {} iterations)",
-                    max_iterations
+                return Err(MaxMindDbError::invalid_database(format!(
+                    "search tree appears to have a cycle or invalid structure (exceeded {max_iterations} iterations)"
                 )));
             }
         }
@@ -963,8 +1045,9 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let separator_end = separator_start + DATA_SECTION_SEPARATOR_SIZE;
 
         if separator_end > self.buf.as_ref().len() {
-            return Err(MaxMindDbError::InvalidDatabase(
-                "data section separator extends past end of file".to_owned(),
+            return Err(MaxMindDbError::invalid_database_at(
+                "data section separator extends past end of file",
+                separator_start,
             ));
         }
 
@@ -972,10 +1055,10 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
 
         for &b in separator {
             if b != 0 {
-                return Err(MaxMindDbError::InvalidDatabase(format!(
-                    "unexpected byte in data separator: {:?}",
-                    separator
-                )));
+                return Err(MaxMindDbError::invalid_database_at(
+                    format!("unexpected byte in data separator: {separator:?}"),
+                    separator_start,
+                ));
             }
         }
         Ok(())
@@ -987,21 +1070,23 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         // Verify each offset from the search tree points to valid, decodable data
         for &offset in &offsets {
             if offset >= data_section.len() {
-                return Err(MaxMindDbError::InvalidDatabase(format!(
-                    "search tree pointer {} is beyond data section (len: {})",
+                return Err(MaxMindDbError::invalid_database_at(
+                    format!(
+                        "search tree pointer is beyond data section (len: {})",
+                        data_section.len()
+                    ),
                     offset,
-                    data_section.len()
-                )));
+                ));
             }
 
             let mut dec = decoder::Decoder::new(data_section, offset);
 
             // Try to skip/decode the value to verify it's valid
             if let Err(e) = dec.skip_value_for_verification() {
-                return Err(MaxMindDbError::InvalidDatabase(format!(
-                    "received decoding error ({}) at offset {}",
-                    e, offset
-                )));
+                return Err(MaxMindDbError::invalid_database_at(
+                    format!("decoding error: {e}"),
+                    offset,
+                ));
             }
         }
 
@@ -1015,9 +1100,7 @@ fn find_metadata_start(buf: &[u8]) -> Result<usize, MaxMindDbError> {
     memchr::memmem::rfind(buf, METADATA_START_MARKER)
         .map(|x| x + METADATA_START_MARKER.len())
         .ok_or_else(|| {
-            MaxMindDbError::InvalidDatabase(
-                "Could not find MaxMind DB metadata in file.".to_owned(),
-            )
+            MaxMindDbError::invalid_database("could not find MaxMind DB metadata in file")
         })
 }
 
@@ -1038,17 +1121,26 @@ mod tests {
 
     #[test]
     fn test_error_display() {
+        // Error without offset
         assert_eq!(
             format!(
                 "{}",
-                MaxMindDbError::InvalidDatabase("something went wrong".to_owned())
+                MaxMindDbError::invalid_database("something went wrong")
             ),
-            "Invalid database: something went wrong".to_owned(),
+            "invalid database: something went wrong".to_owned(),
+        );
+        // Error with offset
+        assert_eq!(
+            format!(
+                "{}",
+                MaxMindDbError::invalid_database_at("something went wrong", 42)
+            ),
+            "invalid database at offset 42: something went wrong".to_owned(),
         );
         let io_err = Error::new(ErrorKind::NotFound, "file not found");
         assert_eq!(
             format!("{}", MaxMindDbError::from(io_err)),
-            "I/O error: file not found".to_owned(),
+            "i/o error: file not found".to_owned(),
         );
 
         #[cfg(feature = "mmap")]
@@ -1056,19 +1148,33 @@ mod tests {
             let mmap_io_err = Error::new(ErrorKind::PermissionDenied, "mmap failed");
             assert_eq!(
                 format!("{}", MaxMindDbError::Mmap(mmap_io_err)),
-                "Memory map error: mmap failed".to_owned(),
+                "memory map error: mmap failed".to_owned(),
             );
         }
 
+        // Decoding error without offset
         assert_eq!(
-            format!("{}", MaxMindDbError::Decoding("unexpected type".to_owned())),
-            "Decoding error: unexpected type".to_owned(),
+            format!("{}", MaxMindDbError::decoding("unexpected type")),
+            "decoding error: unexpected type".to_owned(),
+        );
+        // Decoding error with offset
+        assert_eq!(
+            format!("{}", MaxMindDbError::decoding_at("unexpected type", 100)),
+            "decoding error at offset 100: unexpected type".to_owned(),
+        );
+        // Decoding error with offset and path
+        assert_eq!(
+            format!(
+                "{}",
+                MaxMindDbError::decoding_at_path("unexpected type", 100, "/city/names/en")
+            ),
+            "decoding error at offset 100 (path: /city/names/en): unexpected type".to_owned(),
         );
 
         let net_err = IpNetworkError::InvalidPrefix;
         assert_eq!(
             format!("{}", MaxMindDbError::from(net_err)),
-            "Invalid network: invalid prefix".to_owned(),
+            "invalid network: invalid prefix".to_owned(),
         );
     }
 
@@ -1271,11 +1377,11 @@ mod tests {
 
         let result = reader.lookup(ip);
         match result {
-            Err(MaxMindDbError::InvalidDatabase(msg)) => {
+            Err(MaxMindDbError::InvalidDatabase { message, .. }) => {
                 assert!(
-                    msg.contains("IPv6") && msg.contains("IPv4"),
+                    message.contains("IPv6") && message.contains("IPv4"),
                     "Expected error message about IPv6 in IPv4 database, got: {}",
-                    msg
+                    message
                 );
             }
             Err(e) => panic!(

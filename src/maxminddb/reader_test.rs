@@ -111,7 +111,7 @@ fn test_broken_database() {
         match lookup.decode::<TestType>() {
             Err(e) => assert!(matches!(
                 e,
-                MaxMindDbError::InvalidDatabase(_) // Check variant, message might vary slightly
+                MaxMindDbError::InvalidDatabase { .. } // Check variant, message might vary slightly
             )),
             Ok(_) => panic!("Unexpected success with broken data"),
         }
@@ -139,7 +139,7 @@ fn test_non_database() {
     match r {
         Ok(_) => panic!("Received Reader when opening a non-MMDB file"),
         Err(e) => assert!(
-            matches!(&e, MaxMindDbError::InvalidDatabase(s) if s == "Could not find MaxMind DB metadata in file."),
+            matches!(&e, MaxMindDbError::InvalidDatabase { message, .. } if message == "could not find MaxMind DB metadata in file"),
             "Expected InvalidDatabase error with specific message, but got: {:?}",
             e
         ),

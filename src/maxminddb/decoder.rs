@@ -67,8 +67,8 @@ impl<'de> Decoder<'de> {
     #[inline]
     fn enter_nested(&mut self) -> DecodeResult<()> {
         if self.depth >= MAXIMUM_DATA_STRUCTURE_DEPTH {
-            return Err(MaxMindDbError::InvalidDatabase(
-                "exceeded maximum data structure depth; database is likely corrupt".to_owned(),
+            return Err(self.invalid_db_error(
+                "exceeded maximum data structure depth; database is likely corrupt",
             ));
         }
         self.depth += 1;
@@ -84,13 +84,19 @@ impl<'de> Decoder<'de> {
     /// Create an InvalidDatabase error with current offset context.
     #[inline]
     fn invalid_db_error(&self, msg: &str) -> MaxMindDbError {
-        MaxMindDbError::InvalidDatabase(format!("{msg} at offset {}", self.current_ptr))
+        MaxMindDbError::invalid_database_at(msg, self.current_ptr)
     }
 
     /// Create a Decoding error with current offset context.
     #[inline]
     fn decode_error(&self, msg: &str) -> MaxMindDbError {
-        MaxMindDbError::Decoding(format!("{msg} at offset {}", self.current_ptr))
+        MaxMindDbError::decoding_at(msg, self.current_ptr)
+    }
+
+    /// Returns the current offset in the data section.
+    #[inline]
+    pub fn offset(&self) -> usize {
+        self.current_ptr
     }
 
     #[inline(always)]
@@ -647,7 +653,7 @@ impl<'de> MapAccess<'de> for MapAccessor<'_, 'de> {
     {
         // Check if there are no more entries.
         if self.count == 0 {
-            return Err(MaxMindDbError::Decoding("no more entries".to_owned()));
+            return Err(self.de.decode_error("no more entries"));
         }
         self.count -= 1;
 

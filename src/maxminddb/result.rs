@@ -172,8 +172,8 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
         T: Deserialize<'a>,
     {
         if !self.found() {
-            return Err(MaxMindDbError::Decoding(
-                "cannot decode: IP address not found in database".to_owned(),
+            return Err(MaxMindDbError::decoding(
+                "cannot decode: IP address not found in database",
             ));
         }
 
@@ -239,9 +239,10 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
                 PathElement::Key(key) => {
                     let (_, type_num) = decoder.peek_type()?;
                     if type_num != TYPE_MAP {
-                        return Err(MaxMindDbError::Decoding(format!(
-                            "expected map for Key navigation, got type {type_num}"
-                        )));
+                        return Err(MaxMindDbError::decoding_at(
+                            format!("expected map for Key navigation, got type {type_num}"),
+                            decoder.offset(),
+                        ));
                     }
 
                     // Consume the map header and get size
@@ -265,9 +266,10 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
                 PathElement::Index(idx) => {
                     let (_, type_num) = decoder.peek_type()?;
                     if type_num != TYPE_ARRAY {
-                        return Err(MaxMindDbError::Decoding(format!(
-                            "expected array for Index navigation, got type {type_num}"
-                        )));
+                        return Err(MaxMindDbError::decoding_at(
+                            format!("expected array for Index navigation, got type {type_num}"),
+                            decoder.offset(),
+                        ));
                     }
 
                     // Consume the array header and get size
