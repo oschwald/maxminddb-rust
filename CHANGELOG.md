@@ -85,6 +85,10 @@
   - New: `city.subdivisions.iter()` (empty Vec if not present)
   - Leaf values (strings, numbers, bools) remain `Option<T>` to preserve
     the distinction between "not present" and "present but empty"
+- **BREAKING CHANGE:** Removed `is_anonymous_proxy` and `is_satellite_provider`
+  fields from `country::Traits` and `enterprise::Traits`. These fields are no
+  longer present in MaxMind databases. Use the Anonymous IP database for
+  anonymity detection.
 - Error messages now include byte offsets when available, making it easier to
   debug malformed databases. The `#[non_exhaustive]` attribute is added to
   `MaxMindDbError` to allow future additions without breaking changes.

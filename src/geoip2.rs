@@ -329,11 +329,7 @@ pub mod country {
     #[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
     pub struct Traits {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub is_anonymous_proxy: Option<bool>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
         pub is_anycast: Option<bool>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub is_satellite_provider: Option<bool>,
     }
 
     impl Traits {
@@ -541,8 +537,6 @@ pub mod enterprise {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub is_anonymous: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub is_anonymous_proxy: Option<bool>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
         pub is_anonymous_vpn: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub is_anycast: Option<bool>,
@@ -554,8 +548,6 @@ pub mod enterprise {
         pub is_public_proxy: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub is_residential_proxy: Option<bool>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub is_satellite_provider: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub is_tor_exit_node: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
