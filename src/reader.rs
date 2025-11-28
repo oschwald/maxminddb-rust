@@ -138,8 +138,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// let ip: IpAddr = "89.160.20.128".parse().unwrap();
     /// let result = reader.lookup(ip)?;
     ///
-    /// if result.has_data() {
-    ///     let city: geoip2::City = result.decode()?;
+    /// if let Some(city) = result.decode::<geoip2::City>()? {
     ///     if let Some(city_info) = city.city {
     ///         if let Some(names) = city_info.names {
     ///             if let Some(name) = names.get("en") {
@@ -270,7 +269,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// for result in reader.within(ipv4_all, Default::default()).unwrap() {
     ///     let lookup = result.unwrap();
     ///     let network = lookup.network().unwrap();
-    ///     let city: geoip2::City = lookup.decode().unwrap();
+    ///     let city: geoip2::City = lookup.decode().unwrap().unwrap();
     ///     let city_name = city.city.as_ref()
     ///         .and_then(|c| c.names.as_ref())
     ///         .and_then(|n| n.get("en"));

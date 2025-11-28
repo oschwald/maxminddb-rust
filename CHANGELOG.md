@@ -32,7 +32,7 @@
   - `has_data()` - Check if data exists for this IP
   - `network()` - Get the network containing the IP
   - `offset()` - Get data offset for caching/deduplication
-  - `decode()` - Deserialize full record using serde
+  - `decode()` - Deserialize full record (returns `Result<Option<T>>`)
   - `decode_path()` - Selectively decode specific fields by path
 - Added `PathElement` enum for navigating nested structures:
   - `PathElement::Key("name")` - Navigate into map by key

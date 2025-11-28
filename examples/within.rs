@@ -21,12 +21,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for next in iter {
         let lookup = next?;
         let network = lookup.network()?;
-        let info: geoip2::City = lookup.decode()?;
+        let Some(info) = lookup.decode::<geoip2::City>()? else {
+            continue; // Skip networks without data
+        };
 
         let continent = info.continent.and_then(|c| c.code).unwrap_or("");
         let country = info.country.and_then(|c| c.iso_code).unwrap_or("");
         let city = match info.city.and_then(|c| c.names) {
-            Some(names) => names.get("en").unwrap_or(&""),
+            Some(names) => names.get("en").copied().unwrap_or(""),
             None => "",
         };
         if !city.is_empty() {

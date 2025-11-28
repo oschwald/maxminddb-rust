@@ -18,19 +18,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let result = reader.lookup(ip)?;
 
-    if result.has_data() {
-        let city: geoip2::City = result.decode()?;
+    if let Some(city) = result.decode::<geoip2::City>()? {
         println!("City data for IP {}: {city:#?}", ip);
-
-        // Also show the network
-        let network = result.network()?;
-        println!("Network: {}", network);
     } else {
         println!("No city data found for IP {}", ip);
-
-        // Even if not found, we can still show the network
-        let network = result.network()?;
-        println!("Network (no data): {}", network);
     }
+
+    // Show the network (available regardless of whether data was found)
+    let network = result.network()?;
+    println!("Network: {}", network);
     Ok(())
 }

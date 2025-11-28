@@ -45,8 +45,7 @@
 //!     let ip: IpAddr = "89.160.20.128".parse()?;
 //!     let result = reader.lookup(ip)?;
 //!
-//!     if result.has_data() {
-//!         let city: geoip2::City = result.decode()?;
+//!     if let Some(city) = result.decode::<geoip2::City>()? {
 //!         if let Some(country) = city.country {
 //!             println!("Country: {}", country.iso_code.unwrap_or("Unknown"));
 //!         }
@@ -246,7 +245,7 @@ mod tests {
         assert!(result.has_data(), "lookup should find known IP");
 
         // Decode the data
-        let city: geoip2::City = result.decode().unwrap();
+        let city: geoip2::City = result.decode().unwrap().unwrap();
         assert!(city.city.is_some(), "Expected city data");
 
         // Check full network (not just prefix)

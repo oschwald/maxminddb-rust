@@ -37,7 +37,7 @@ use crate::reader::Reader;
 ///
 /// if result.has_data() {
 ///     // Full decode
-///     let city: geoip2::City = result.decode().unwrap();
+///     let city: geoip2::City = result.decode().unwrap().unwrap();
 ///
 ///     // Or selective decode via path
 ///     let country_code: Option<String> = result.decode_path(&[
@@ -147,7 +147,10 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
 
     /// Decodes the full record into the specified type.
     ///
-    /// Returns an error if the IP was not found or if decoding fails.
+    /// Returns:
+    /// - `Ok(Some(T))` if found and successfully decoded
+    /// - `Ok(None)` if the IP was not found in the database
+    /// - `Err(...)` if decoding fails
     ///
     /// # Example
     ///
@@ -159,21 +162,22 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// let ip: IpAddr = "89.160.20.128".parse().unwrap();
     ///
     /// let result = reader.lookup(ip).unwrap();
-    /// let city: geoip2::City = result.decode().unwrap();
+    /// if let Some(city) = result.decode::<geoip2::City>()? {
+    ///     println!("Found city data");
+    /// }
+    /// # Ok::<(), maxminddb::MaxMindDbError>(())
     /// ```
-    pub fn decode<T>(&self) -> Result<T, MaxMindDbError>
+    pub fn decode<T>(&self) -> Result<Option<T>, MaxMindDbError>
     where
         T: Deserialize<'a>,
     {
         let Some(offset) = self.data_offset else {
-            return Err(MaxMindDbError::decoding(
-                "cannot decode: IP address not found in database",
-            ));
+            return Ok(None);
         };
 
         let buf = &self.reader.buf.as_ref()[self.reader.pointer_base..];
         let mut decoder = super::decoder::Decoder::new(buf, offset);
-        T::deserialize(&mut decoder)
+        T::deserialize(&mut decoder).map(Some)
     }
 
     /// Decodes a value at a specific path within the record.
