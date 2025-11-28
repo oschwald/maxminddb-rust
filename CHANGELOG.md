@@ -47,6 +47,9 @@
   - `is_human_readable()` now returns `false` since MMDB is a binary format
   - Implemented `deserialize_ignored_any` for efficient value skipping
   - Implemented `deserialize_enum` for string-to-enum deserialization
+- Added recursion depth limit (512) matching libmaxminddb and the Go reader.
+  This prevents stack overflow when decoding malformed databases with deeply
+  nested structures.
 
 ## 0.26.0 - 2025-03-28
 

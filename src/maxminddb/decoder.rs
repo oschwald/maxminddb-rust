@@ -21,6 +21,10 @@ pub(crate) const TYPE_ARRAY: u8 = 11;
 const TYPE_BOOL: u8 = 14;
 const TYPE_FLOAT: u8 = 15;
 
+/// Maximum recursion depth for nested data structures.
+/// This matches the value used in libmaxminddb and the Go reader.
+const MAXIMUM_DATA_STRUCTURE_DEPTH: u16 = 512;
+
 fn to_usize(base: u8, bytes: &[u8]) -> usize {
     bytes
         .iter()
@@ -47,6 +51,7 @@ enum Value<'a, 'de> {
 pub struct Decoder<'de> {
     buf: &'de [u8],
     current_ptr: usize,
+    depth: u16,
 }
 
 impl<'de> Decoder<'de> {
@@ -54,7 +59,26 @@ impl<'de> Decoder<'de> {
         Decoder {
             buf,
             current_ptr: start_ptr,
+            depth: 0,
         }
+    }
+
+    /// Check and increment depth, returning error if limit exceeded.
+    #[inline]
+    fn enter_nested(&mut self) -> DecodeResult<()> {
+        if self.depth >= MAXIMUM_DATA_STRUCTURE_DEPTH {
+            return Err(MaxMindDbError::InvalidDatabase(
+                "exceeded maximum data structure depth; database is likely corrupt".to_owned(),
+            ));
+        }
+        self.depth += 1;
+        Ok(())
+    }
+
+    /// Decrement depth when exiting a nested structure.
+    #[inline]
+    fn exit_nested(&mut self) {
+        self.depth = self.depth.saturating_sub(1);
     }
 
     #[inline(always)]
@@ -101,7 +125,10 @@ impl<'de> Decoder<'de> {
     fn decode_any<V: Visitor<'de>>(&mut self, visitor: V) -> DecodeResult<V::Value> {
         match self.decode_any_value()? {
             Value::Any { prev_ptr } => {
+                // Pointer dereference - track depth
+                self.enter_nested()?;
                 let res = self.decode_any(visitor);
+                self.exit_nested();
                 self.current_ptr = prev_ptr;
                 res
             }
@@ -115,8 +142,17 @@ impl<'de> Decoder<'de> {
             Value::U128(x) => visitor.visit_u128(x),
             Value::F64(x) => visitor.visit_f64(x),
             Value::F32(x) => visitor.visit_f32(x),
-            Value::Map(x) => visitor.visit_map(x),
-            Value::Array(x) => visitor.visit_seq(x),
+            // Maps and arrays enter_nested in decode_any_value; exit when done
+            Value::Map(x) => {
+                let res = visitor.visit_map(x);
+                self.exit_nested();
+                res
+            }
+            Value::Array(x) => {
+                let res = visitor.visit_seq(x);
+                self.exit_nested();
+                res
+            }
         }
     }
 
@@ -137,11 +173,17 @@ impl<'de> Decoder<'de> {
             TYPE_BYTES => Value::Bytes(self.decode_bytes(size)?),
             TYPE_UINT16 => Value::U16(self.decode_uint16(size)?),
             TYPE_UINT32 => Value::U32(self.decode_uint32(size)?),
-            TYPE_MAP => self.decode_map(size),
+            TYPE_MAP => {
+                self.enter_nested()?;
+                self.decode_map(size)
+            }
             TYPE_INT32 => Value::I32(self.decode_int(size)?),
             TYPE_UINT64 => Value::U64(self.decode_uint64(size)?),
             TYPE_UINT128 => Value::U128(self.decode_uint128(size)?),
-            TYPE_ARRAY => self.decode_array(size),
+            TYPE_ARRAY => {
+                self.enter_nested()?;
+                self.decode_array(size)
+            }
             TYPE_BOOL => Value::Bool(self.decode_bool(size)?),
             TYPE_FLOAT => Value::F32(self.decode_float(size)?),
             u => {
