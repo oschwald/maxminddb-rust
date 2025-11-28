@@ -189,7 +189,8 @@ fn test_reader_mmap() {
                 "test-data/test-data/MaxMind-DB-test-ipv{}-{}.mmdb",
                 ip_version, record_size
             );
-            let reader = Reader::open_mmap(filename).ok().unwrap();
+            // SAFETY: The test database file will not be modified during the test.
+            let reader = unsafe { Reader::open_mmap(filename) }.ok().unwrap();
 
             check_metadata(&reader, *ip_version, *record_size);
             check_ip(&reader, *ip_version);

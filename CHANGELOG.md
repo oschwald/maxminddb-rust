@@ -35,6 +35,12 @@ for migration guidance.
 - New `InvalidInput` variant for user input errors (e.g., IPv6 lookup in
   IPv4-only database).
 
+#### Memory Mapping
+
+- `Reader::open_mmap` is now `unsafe`. The caller must ensure the database
+  file is not modified or truncated while the `Reader` exists. This fixes a
+  soundness issue. Reported by paolobarbolini. GitHub #86.
+
 ### Added
 
 - `LookupResult` type with lazy decoding support:

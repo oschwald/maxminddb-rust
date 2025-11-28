@@ -64,17 +64,28 @@ impl<S: AsRef<[u8]>> std::fmt::Debug for Reader<S> {
 impl Reader<Mmap> {
     /// Open a MaxMind DB database file by memory mapping it.
     ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the database file is not modified or
+    /// truncated while the `Reader` exists. Modifying or truncating the
+    /// file while it is memory-mapped will result in undefined behavior.
+    ///
     /// # Example
     ///
     /// ```
     /// # #[cfg(feature = "mmap")]
     /// # {
-    /// let reader = maxminddb::Reader::open_mmap("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    /// // SAFETY: The database file will not be modified while the reader exists.
+    /// let reader = unsafe {
+    ///     maxminddb::Reader::open_mmap("test-data/test-data/GeoIP2-City-Test.mmdb")
+    /// }.unwrap();
     /// # }
     /// ```
-    pub fn open_mmap<P: AsRef<Path>>(database: P) -> Result<Reader<Mmap>, MaxMindDbError> {
+    pub unsafe fn open_mmap<P: AsRef<Path>>(database: P) -> Result<Reader<Mmap>, MaxMindDbError> {
         let file_read = File::open(database)?;
-        let mmap = unsafe { MmapOptions::new().map(&file_read) }.map_err(MaxMindDbError::Mmap)?;
+        let mmap = MmapOptions::new()
+            .map(&file_read)
+            .map_err(MaxMindDbError::Mmap)?;
         Reader::from_source(mmap)
     }
 }

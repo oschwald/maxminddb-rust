@@ -59,7 +59,8 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     #[cfg(not(feature = "mmap"))]
     let reader = maxminddb::Reader::open_readfile(DB_FILE).unwrap();
     #[cfg(feature = "mmap")]
-    let reader = maxminddb::Reader::open_mmap(DB_FILE).unwrap();
+    // SAFETY: The benchmark database file will not be modified during the benchmark.
+    let reader = unsafe { maxminddb::Reader::open_mmap(DB_FILE) }.unwrap();
 
     c.bench_function("maxminddb", |b| b.iter(|| bench_maxminddb(&ips, &reader)));
 }
@@ -69,7 +70,8 @@ pub fn criterion_par_benchmark(c: &mut Criterion) {
     #[cfg(not(feature = "mmap"))]
     let reader = maxminddb::Reader::open_readfile(DB_FILE).unwrap();
     #[cfg(feature = "mmap")]
-    let reader = maxminddb::Reader::open_mmap(DB_FILE).unwrap();
+    // SAFETY: The benchmark database file will not be modified during the benchmark.
+    let reader = unsafe { maxminddb::Reader::open_mmap(DB_FILE) }.unwrap();
 
     c.bench_function("maxminddb_par", |b| {
         b.iter(|| bench_par_maxminddb(&ips, &reader))
