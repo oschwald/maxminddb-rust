@@ -41,6 +41,12 @@
 - Added `verify()` method for comprehensive database validation. Validates
   metadata, search tree structure, data section separator, and data records.
   Useful for validating database files after download or generation.
+- Serde deserializer improvements:
+  - Added size hints to `SeqAccess` and `MapAccess` for efficient collection
+    pre-allocation
+  - `is_human_readable()` now returns `false` since MMDB is a binary format
+  - Implemented `deserialize_ignored_any` for efficient value skipping
+  - Implemented `deserialize_enum` for string-to-enum deserialization
 
 ## 0.26.0 - 2025-03-28
 
