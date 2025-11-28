@@ -81,6 +81,18 @@ impl<'de> Decoder<'de> {
         self.depth = self.depth.saturating_sub(1);
     }
 
+    /// Create an InvalidDatabase error with current offset context.
+    #[inline]
+    fn invalid_db_error(&self, msg: &str) -> MaxMindDbError {
+        MaxMindDbError::InvalidDatabase(format!("{msg} at offset {}", self.current_ptr))
+    }
+
+    /// Create a Decoding error with current offset context.
+    #[inline]
+    fn decode_error(&self, msg: &str) -> MaxMindDbError {
+        MaxMindDbError::Decoding(format!("{msg} at offset {}", self.current_ptr))
+    }
+
     #[inline(always)]
     fn eat_byte(&mut self) -> u8 {
         let b = self.buf[self.current_ptr];
@@ -186,11 +198,7 @@ impl<'de> Decoder<'de> {
             }
             TYPE_BOOL => Value::Bool(self.decode_bool(size)?),
             TYPE_FLOAT => Value::F32(self.decode_float(size)?),
-            u => {
-                return Err(MaxMindDbError::InvalidDatabase(format!(
-                    "Unknown data type: {u:?}"
-                )))
-            }
+            u => return Err(self.invalid_db_error(&format!("unknown data type: {u}"))),
         })
     }
 
@@ -204,9 +212,7 @@ impl<'de> Decoder<'de> {
     fn decode_bool(&mut self, size: usize) -> DecodeResult<bool> {
         match size {
             0 | 1 => Ok(size != 0),
-            s => Err(MaxMindDbError::InvalidDatabase(format!(
-                "bool of size {s:?}"
-            ))),
+            s => Err(self.invalid_db_error(&format!("bool of size {s}"))),
         }
     }
 
@@ -222,12 +228,7 @@ impl<'de> Decoder<'de> {
         let new_offset = self.current_ptr + size;
         let value: [u8; 4] = self.buf[self.current_ptr..new_offset]
             .try_into()
-            .map_err(|_| {
-                MaxMindDbError::InvalidDatabase(format!(
-                    "float of size {:?}",
-                    new_offset - self.current_ptr
-                ))
-            })?;
+            .map_err(|_| self.invalid_db_error(&format!("float of size {size}")))?;
         self.current_ptr = new_offset;
         let float_value = f32::from_be_bytes(value);
         Ok(float_value)
@@ -237,12 +238,7 @@ impl<'de> Decoder<'de> {
         let new_offset = self.current_ptr + size;
         let value: [u8; 8] = self.buf[self.current_ptr..new_offset]
             .try_into()
-            .map_err(|_| {
-                MaxMindDbError::InvalidDatabase(format!(
-                    "double of size {:?}",
-                    new_offset - self.current_ptr
-                ))
-            })?;
+            .map_err(|_| self.invalid_db_error(&format!("double of size {size}")))?;
         self.current_ptr = new_offset;
         let float_value = f64::from_be_bytes(value);
         Ok(float_value)
@@ -259,9 +255,7 @@ impl<'de> Decoder<'de> {
                 self.current_ptr = new_offset;
                 Ok(value)
             }
-            s => Err(MaxMindDbError::InvalidDatabase(format!(
-                "u64 of size {s:?}"
-            ))),
+            s => Err(self.invalid_db_error(&format!("u64 of size {s}"))),
         }
     }
 
@@ -276,9 +270,7 @@ impl<'de> Decoder<'de> {
                 self.current_ptr = new_offset;
                 Ok(value)
             }
-            s => Err(MaxMindDbError::InvalidDatabase(format!(
-                "u128 of size {s:?}"
-            ))),
+            s => Err(self.invalid_db_error(&format!("u128 of size {s}"))),
         }
     }
 
@@ -293,9 +285,7 @@ impl<'de> Decoder<'de> {
                 self.current_ptr = new_offset;
                 Ok(value)
             }
-            s => Err(MaxMindDbError::InvalidDatabase(format!(
-                "u32 of size {s:?}"
-            ))),
+            s => Err(self.invalid_db_error(&format!("u32 of size {s}"))),
         }
     }
 
@@ -310,9 +300,7 @@ impl<'de> Decoder<'de> {
                 self.current_ptr = new_offset;
                 Ok(value)
             }
-            s => Err(MaxMindDbError::InvalidDatabase(format!(
-                "u16 of size {s:?}"
-            ))),
+            s => Err(self.invalid_db_error(&format!("u16 of size {s}"))),
         }
     }
 
@@ -327,9 +315,7 @@ impl<'de> Decoder<'de> {
                 self.current_ptr = new_offset;
                 Ok(value)
             }
-            s => Err(MaxMindDbError::InvalidDatabase(format!(
-                "int32 of size {s:?}"
-            ))),
+            s => Err(self.invalid_db_error(&format!("i32 of size {s}"))),
         }
     }
 
@@ -386,9 +372,7 @@ impl<'de> Decoder<'de> {
         self.current_ptr = new_offset;
         match from_utf8(bytes) {
             Ok(v) => Ok(v),
-            Err(_) => Err(MaxMindDbError::InvalidDatabase(
-                "error decoding string".to_owned(),
-            )),
+            Err(_) => Err(self.invalid_db_error("invalid UTF-8 in string")),
         }
     }
 
@@ -413,9 +397,7 @@ impl<'de> Decoder<'de> {
         } else if type_num == TYPE_MAP {
             Ok(size)
         } else {
-            Err(MaxMindDbError::Decoding(format!(
-                "expected map, got type {type_num}"
-            )))
+            Err(self.decode_error(&format!("expected map, got type {type_num}")))
         }
     }
 
@@ -429,9 +411,7 @@ impl<'de> Decoder<'de> {
         } else if type_num == TYPE_ARRAY {
             Ok(size)
         } else {
-            Err(MaxMindDbError::Decoding(format!(
-                "expected array, got type {type_num}"
-            )))
+            Err(self.decode_error(&format!("expected array, got type {type_num}")))
         }
     }
 
@@ -462,9 +442,7 @@ impl<'de> Decoder<'de> {
         } else if type_num == TYPE_STRING {
             self.decode_string(size)
         } else {
-            Err(MaxMindDbError::InvalidDatabase(format!(
-                "expected string, got type {type_num}"
-            )))
+            Err(self.invalid_db_error(&format!("expected string, got type {type_num}")))
         }
     }
 
@@ -505,9 +483,7 @@ impl<'de> Decoder<'de> {
             TYPE_DOUBLE => {
                 // Double - must be exactly 8 bytes
                 if size != 8 {
-                    return Err(MaxMindDbError::InvalidDatabase(format!(
-                        "double of size {size}"
-                    )));
+                    return Err(self.invalid_db_error(&format!("double of size {size}")));
                 }
                 self.current_ptr += size;
                 Ok(())
@@ -515,9 +491,7 @@ impl<'de> Decoder<'de> {
             TYPE_FLOAT => {
                 // Float - must be exactly 4 bytes
                 if size != 4 {
-                    return Err(MaxMindDbError::InvalidDatabase(format!(
-                        "float of size {size}"
-                    )));
+                    return Err(self.invalid_db_error(&format!("float of size {size}")));
                 }
                 self.current_ptr += size;
                 Ok(())
@@ -546,9 +520,7 @@ impl<'de> Decoder<'de> {
                 }
                 Ok(())
             }
-            u => Err(MaxMindDbError::InvalidDatabase(format!(
-                "Unknown data type: {u:?}"
-            ))),
+            u => Err(self.invalid_db_error(&format!("unknown data type: {u}"))),
         }
     }
 

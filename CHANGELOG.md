@@ -50,6 +50,8 @@
 - Added recursion depth limit (512) matching libmaxminddb and the Go reader.
   This prevents stack overflow when decoding malformed databases with deeply
   nested structures.
+- Decoding errors now include offset information for easier debugging of
+  malformed databases.
 
 ## 0.26.0 - 2025-03-28
 
