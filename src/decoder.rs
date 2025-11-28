@@ -3,7 +3,7 @@ use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::forward_to_deserialize_any;
 use std::convert::TryInto;
 
-use super::MaxMindDbError;
+use crate::error::MaxMindDbError;
 
 // MaxMind DB type constants
 const TYPE_EXTENDED: u8 = 0;

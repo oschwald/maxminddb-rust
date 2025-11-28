@@ -10,8 +10,9 @@ use std::net::IpAddr;
 use ipnetwork::IpNetwork;
 use serde::Deserialize;
 
-use super::decoder::{TYPE_ARRAY, TYPE_MAP};
-use super::{MaxMindDbError, Reader};
+use crate::decoder::{TYPE_ARRAY, TYPE_MAP};
+use crate::error::MaxMindDbError;
+use crate::reader::Reader;
 
 /// The result of looking up an IP address in a MaxMind DB.
 ///
