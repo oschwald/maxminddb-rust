@@ -837,8 +837,8 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         match node_count {
             // If node == node_count, it means we hit the placeholder "empty" node
             // return 0 as the pointer value to signify "not found".
-            n if n == node => Ok((0, prefix_len)),
-            n if node > n => Ok((node, prefix_len)),
+            _ if node == node_count => Ok((0, prefix_len)),
+            _ if node > node_count => Ok((node, prefix_len)),
             _ => Err(MaxMindDbError::invalid_database(
                 "invalid node in search tree",
             )),

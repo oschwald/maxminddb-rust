@@ -144,11 +144,7 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// Returns `None` if the IP was not found.
     #[inline]
     pub fn offset(&self) -> Option<usize> {
-        if self.found() {
-            Some(self.data_offset)
-        } else {
-            None
-        }
+        self.found().then_some(self.data_offset)
     }
 
     /// Decodes the full record into the specified type.

@@ -1,5 +1,4 @@
 use std::net::IpAddr;
-use std::str::FromStr;
 
 use ipnetwork::IpNetwork;
 use serde::Deserialize;
@@ -42,12 +41,9 @@ fn test_decoder() {
         utf8_string: String,
     }
 
-    let r = Reader::open_readfile("test-data/test-data/MaxMind-DB-test-decoder.mmdb");
-    if let Err(err) = r {
-        panic!("error opening mmdb: {err:?}");
-    }
-    let r = r.unwrap();
-    let ip: IpAddr = FromStr::from_str("1.1.1.0").unwrap();
+    let r = Reader::open_readfile("test-data/test-data/MaxMind-DB-test-decoder.mmdb")
+        .expect("error opening mmdb");
+    let ip: IpAddr = "1.1.1.0".parse().unwrap();
     let lookup = r.lookup(ip).unwrap();
     assert!(lookup.found(), "Expected IP to be found");
     let result: TestType = lookup.decode().unwrap();
@@ -87,11 +83,8 @@ fn test_decoder() {
 fn test_pointers_in_metadata() {
     let _ = env_logger::try_init();
 
-    let r = Reader::open_readfile("test-data/test-data/MaxMind-DB-test-metadata-pointers.mmdb");
-    if let Err(err) = r {
-        panic!("error opening mmdb: {err:?}");
-    }
-    r.unwrap();
+    Reader::open_readfile("test-data/test-data/MaxMind-DB-test-metadata-pointers.mmdb")
+        .expect("error opening mmdb");
 }
 
 #[test]
@@ -101,7 +94,7 @@ fn test_broken_database() {
     let r = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test-Broken-Double-Format.mmdb")
         .ok()
         .unwrap();
-    let ip: IpAddr = FromStr::from_str("2001:220::").unwrap();
+    let ip: IpAddr = "2001:220::".parse().unwrap();
 
     #[derive(Deserialize, Debug)]
     struct TestType {}
@@ -212,7 +205,7 @@ fn test_lookup_city() {
 
     let reader = Reader::open_readfile(filename).unwrap();
 
-    let ip: IpAddr = FromStr::from_str("89.160.20.112").unwrap();
+    let ip: IpAddr = "89.160.20.112".parse().unwrap();
     let lookup = reader.lookup(ip).unwrap();
     assert!(lookup.found());
     let city: geoip2::City = lookup.decode().unwrap();
@@ -230,7 +223,7 @@ fn test_lookup_country() {
 
     let reader = Reader::open_readfile(filename).unwrap();
 
-    let ip: IpAddr = FromStr::from_str("89.160.20.112").unwrap();
+    let ip: IpAddr = "89.160.20.112".parse().unwrap();
     let lookup = reader.lookup(ip).unwrap();
     assert!(lookup.found());
     let country: geoip2::Country = lookup.decode().unwrap();
@@ -248,7 +241,7 @@ fn test_lookup_connection_type() {
 
     let reader = Reader::open_readfile(filename).unwrap();
 
-    let ip: IpAddr = FromStr::from_str("96.1.20.112").unwrap();
+    let ip: IpAddr = "96.1.20.112".parse().unwrap();
     let lookup = reader.lookup(ip).unwrap();
     assert!(lookup.found());
     let connection_type: geoip2::ConnectionType = lookup.decode().unwrap();
@@ -264,7 +257,7 @@ fn test_lookup_annonymous_ip() {
 
     let reader = Reader::open_readfile(filename).unwrap();
 
-    let ip: IpAddr = FromStr::from_str("81.2.69.123").unwrap();
+    let ip: IpAddr = "81.2.69.123".parse().unwrap();
     let lookup = reader.lookup(ip).unwrap();
     assert!(lookup.found());
     let anonymous_ip: geoip2::AnonymousIp = lookup.decode().unwrap();
@@ -284,7 +277,7 @@ fn test_lookup_density_income() {
 
     let reader = Reader::open_readfile(filename).unwrap();
 
-    let ip: IpAddr = FromStr::from_str("5.83.124.123").unwrap();
+    let ip: IpAddr = "5.83.124.123".parse().unwrap();
     let lookup = reader.lookup(ip).unwrap();
     assert!(lookup.found());
     let density_income: geoip2::DensityIncome = lookup.decode().unwrap();
@@ -301,7 +294,7 @@ fn test_lookup_domain() {
 
     let reader = Reader::open_readfile(filename).unwrap();
 
-    let ip: IpAddr = FromStr::from_str("66.92.80.123").unwrap();
+    let ip: IpAddr = "66.92.80.123".parse().unwrap();
     let lookup = reader.lookup(ip).unwrap();
     assert!(lookup.found());
     let domain: geoip2::Domain = lookup.decode().unwrap();
@@ -317,7 +310,7 @@ fn test_lookup_isp() {
 
     let reader = Reader::open_readfile(filename).unwrap();
 
-    let ip: IpAddr = FromStr::from_str("12.87.118.123").unwrap();
+    let ip: IpAddr = "12.87.118.123".parse().unwrap();
     let lookup = reader.lookup(ip).unwrap();
     assert!(lookup.found());
     let isp: geoip2::Isp = lookup.decode().unwrap();
@@ -335,7 +328,7 @@ fn test_lookup_asn() {
 
     let reader = Reader::open_readfile(filename).unwrap();
 
-    let ip: IpAddr = FromStr::from_str("1.128.0.123").unwrap();
+    let ip: IpAddr = "1.128.0.123".parse().unwrap();
     let lookup = reader.lookup(ip).unwrap();
     assert!(lookup.found());
     let asn: geoip2::Asn = lookup.decode().unwrap();
@@ -524,7 +517,7 @@ fn check_ip<S: AsRef<[u8]>>(reader: &Reader<S>, ip_version: usize) {
 
     // Test lookups that are expected to succeed
     for subnet in &subnets {
-        let ip: IpAddr = FromStr::from_str(subnet).unwrap();
+        let ip: IpAddr = subnet.parse().unwrap();
         let lookup = reader.lookup(ip);
 
         assert!(
@@ -558,7 +551,7 @@ fn check_ip<S: AsRef<[u8]>>(reader: &Reader<S>, ip_version: usize) {
             continue; // Skip IPv4 addresses if testing IPv6 db
         }
 
-        let ip: IpAddr = FromStr::from_str(address).unwrap();
+        let ip: IpAddr = address.parse().unwrap();
         let lookup = reader.lookup(ip).unwrap();
 
         assert!(
@@ -577,7 +570,7 @@ fn test_json_serialize() {
 
     let reader = Reader::open_readfile(filename).unwrap();
 
-    let ip: IpAddr = FromStr::from_str("89.160.20.112").unwrap();
+    let ip: IpAddr = "89.160.20.112".parse().unwrap();
     let lookup = reader.lookup(ip).unwrap();
     assert!(lookup.found());
     let city: geoip2::City = lookup.decode().unwrap();
@@ -1197,7 +1190,7 @@ fn test_size_hints() {
     }
 
     let r = Reader::open_readfile("test-data/test-data/MaxMind-DB-test-decoder.mmdb").unwrap();
-    let ip: IpAddr = FromStr::from_str("1.1.1.0").unwrap();
+    let ip: IpAddr = "1.1.1.0".parse().unwrap();
     let lookup = r.lookup(ip).unwrap();
     assert!(lookup.found());
     let result: TestType = lookup.decode().unwrap();
@@ -1229,7 +1222,7 @@ fn test_ignored_any() {
     }
 
     let r = Reader::open_readfile("test-data/test-data/MaxMind-DB-test-decoder.mmdb").unwrap();
-    let ip: IpAddr = FromStr::from_str("1.1.1.0").unwrap();
+    let ip: IpAddr = "1.1.1.0".parse().unwrap();
     let lookup = r.lookup(ip).unwrap();
     assert!(lookup.found());
     let result: PartialRead = lookup.decode().unwrap();
@@ -1254,7 +1247,7 @@ fn test_enum_deserialization() {
     }
 
     let r = Reader::open_readfile("test-data/test-data/GeoIP2-Connection-Type-Test.mmdb").unwrap();
-    let ip: IpAddr = FromStr::from_str("96.1.20.112").unwrap();
+    let ip: IpAddr = "96.1.20.112".parse().unwrap();
     let lookup = r.lookup(ip).unwrap();
     assert!(lookup.found());
     let result: Record = lookup.decode().unwrap();
@@ -1285,7 +1278,7 @@ fn test_serde_flatten() {
     }
 
     let r = Reader::open_readfile("test-data/test-data/GeoIP2-Country-Test.mmdb").unwrap();
-    let ip: IpAddr = FromStr::from_str("81.2.69.160").unwrap();
+    let ip: IpAddr = "81.2.69.160".parse().unwrap();
     let lookup = r.lookup(ip).unwrap();
     assert!(lookup.found());
 
