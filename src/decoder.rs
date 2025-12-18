@@ -602,10 +602,23 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
         visitor.visit_enum(EnumAccessor { de: self })
     }
 
+    fn deserialize_identifier<V>(self, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        let (_, type_num) = self.peek_type()?;
+        if type_num == TYPE_STRING {
+            let bytes = self.read_str_as_bytes()?;
+            visitor.visit_borrowed_bytes(bytes)
+        } else {
+            self.decode_any(visitor)
+        }
+    }
+
     forward_to_deserialize_any! {
         bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
         bytes byte_buf unit unit_struct newtype_struct seq tuple
-        tuple_struct map struct identifier
+        tuple_struct map struct
     }
 }
 
