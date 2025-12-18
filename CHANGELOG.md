@@ -1,5 +1,13 @@
 # Change Log
 
+## 0.27.1 - 2025-12-18
+
+- Performance improvement: Skipped UTF-8 validation for map keys during
+  deserialization. This significantly speeds up full record decoding by
+  treating keys as raw bytes when matching against struct fields.
+- Performance improvement: Optimized tree traversal by reducing bounds checks
+  during node reading.
+
 ## 0.27.0 - 2025-11-28
 
 This release includes significant API changes. See [UPGRADING.md](UPGRADING.md)
