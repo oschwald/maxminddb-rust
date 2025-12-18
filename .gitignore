@@ -1,6 +1,7 @@
 *.rlib
 *.so
 *.sw?
+.claude
 Cargo.lock
 /*.mmdb
 target
