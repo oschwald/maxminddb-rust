@@ -1212,6 +1212,7 @@ fn test_ignored_any() {
     let _ = env_logger::try_init();
 
     // Struct that only reads some fields, ignoring others via IgnoredAny
+    #[allow(dead_code)]
     #[derive(Deserialize, Debug)]
     struct PartialRead {
         utf8_string: String,
