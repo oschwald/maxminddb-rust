@@ -252,9 +252,10 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
                     let size = decoder.consume_map_header().map_err(with_path)?;
 
                     let mut found = false;
+                    let key_bytes = key.as_bytes();
                     for _ in 0..size {
-                        let k = decoder.read_string().map_err(with_path)?;
-                        if k == key {
+                        let k = decoder.read_str_as_bytes().map_err(with_path)?;
+                        if k == key_bytes {
                             found = true;
                             break;
                         } else {

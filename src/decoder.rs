@@ -446,19 +446,26 @@ impl<'de> Decoder<'de> {
         }
     }
 
-    /// Reads a string directly, following pointers if needed.
-    pub(crate) fn read_string(&mut self) -> DecodeResult<&'de str> {
+    /// Reads a string's bytes directly, following pointers if needed.
+    /// Does NOT validate UTF-8.
+    pub(crate) fn read_str_as_bytes(&mut self) -> DecodeResult<&'de [u8]> {
         let (size, type_num) = self.size_and_type();
         if type_num == TYPE_POINTER {
             // Pointer
             let new_ptr = self.decode_pointer(size);
             let saved_ptr = self.current_ptr;
             self.current_ptr = new_ptr;
-            let result = self.read_string();
+            let result = self.read_str_as_bytes();
             self.current_ptr = saved_ptr;
             result
         } else if type_num == TYPE_STRING {
-            self.decode_string(size)
+            let new_offset = self.current_ptr + size;
+            if new_offset > self.buf.len() {
+                return Err(self.invalid_db_error("string length exceeds buffer"));
+            }
+            let bytes = &self.buf[self.current_ptr..new_offset];
+            self.current_ptr = new_offset;
+            Ok(bytes)
         } else {
             Err(self.invalid_db_error(&format!("expected string, got type {type_num}")))
         }
