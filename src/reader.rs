@@ -450,9 +450,8 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let val = match self.metadata.record_size {
             24 => {
                 let offset = base_offset + index * 3;
-                (buf[offset] as usize) << 16
-                    | (buf[offset + 1] as usize) << 8
-                    | buf[offset + 2] as usize
+                let bytes = &buf[offset..offset + 3];
+                (bytes[0] as usize) << 16 | (bytes[1] as usize) << 8 | bytes[2] as usize
             }
             28 => {
                 let middle = if index != 0 {
@@ -461,17 +460,19 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
                     (buf[base_offset + 3] & 0xF0) >> 4
                 };
                 let offset = base_offset + index * 4;
+                let bytes = &buf[offset..offset + 3];
                 (middle as usize) << 24
-                    | (buf[offset] as usize) << 16
-                    | (buf[offset + 1] as usize) << 8
-                    | buf[offset + 2] as usize
+                    | (bytes[0] as usize) << 16
+                    | (bytes[1] as usize) << 8
+                    | bytes[2] as usize
             }
             32 => {
                 let offset = base_offset + index * 4;
-                (buf[offset] as usize) << 24
-                    | (buf[offset + 1] as usize) << 16
-                    | (buf[offset + 2] as usize) << 8
-                    | buf[offset + 3] as usize
+                let bytes = &buf[offset..offset + 4];
+                (bytes[0] as usize) << 24
+                    | (bytes[1] as usize) << 16
+                    | (bytes[2] as usize) << 8
+                    | bytes[3] as usize
             }
             s => {
                 return Err(MaxMindDbError::invalid_database(format!(
