@@ -221,25 +221,17 @@ impl<'de, S: AsRef<[u8]>> Iterator for Within<'de, S> {
                         };
                     }
 
-                    let node = match self.reader.read_node(current.node, 1) {
-                        Ok(node) => node,
-                        Err(e) => return Some(Err(e)),
-                    };
-                    self.stack.push(WithinNode {
-                        node,
-                        ip_int: right_ip_int,
-                        prefix_len: current.prefix_len + 1,
-                    });
+                    if let Err(e) =
+                        self.push_child(current.node, 1, right_ip_int, current.prefix_len + 1)
+                    {
+                        return Some(Err(e));
+                    }
                     // left/0-bit
-                    let node = match self.reader.read_node(current.node, 0) {
-                        Ok(node) => node,
-                        Err(e) => return Some(Err(e)),
-                    };
-                    self.stack.push(WithinNode {
-                        node,
-                        ip_int: current.ip_int,
-                        prefix_len: current.prefix_len + 1,
-                    });
+                    if let Err(e) =
+                        self.push_child(current.node, 0, current.ip_int, current.prefix_len + 1)
+                    {
+                        return Some(Err(e));
+                    }
                 }
             }
         }
@@ -248,6 +240,22 @@ impl<'de, S: AsRef<[u8]>> Iterator for Within<'de, S> {
 }
 
 impl<'de, S: AsRef<[u8]>> Within<'de, S> {
+    fn push_child(
+        &mut self,
+        parent_node: usize,
+        direction: usize,
+        ip_int: IpInt,
+        prefix_len: usize,
+    ) -> Result<(), MaxMindDbError> {
+        let node = self.reader.read_node(parent_node, direction)?;
+        self.stack.push(WithinNode {
+            node,
+            ip_int,
+            prefix_len,
+        });
+        Ok(())
+    }
+
     /// Check if the value at the given data offset is an empty map or array.
     fn is_empty_value_at(&self, data_offset: usize) -> Result<bool, MaxMindDbError> {
         let buf = &self.reader.buf.as_ref()[self.reader.pointer_base..];
