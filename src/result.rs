@@ -267,11 +267,16 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
                         return Ok(None);
                     }
                 }
-                PathElement::Index(idx) => {
+                PathElement::Index(idx) | PathElement::IndexFromEnd(idx) => {
                     let (_, type_num) = decoder.peek_type().map_err(with_path)?;
                     if type_num != TYPE_ARRAY {
+                        let elem = match *element {
+                            PathElement::Index(i) => format!("Index({i})"),
+                            PathElement::IndexFromEnd(i) => format!("IndexFromEnd({i})"),
+                            PathElement::Key(_) => unreachable!(),
+                        };
                         return Err(MaxMindDbError::decoding_at_path(
-                            format!("expected array for Index({idx}), got type {type_num}"),
+                            format!("expected array for {elem}, got type {type_num}"),
                             decoder.offset(),
                             render_path(&path[..=i]),
                         ));
@@ -284,29 +289,11 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
                         return Ok(None); // Out of bounds
                     }
 
-                    // Skip to the target index
-                    for _ in 0..idx {
-                        decoder.skip_value().map_err(with_path)?;
-                    }
-                }
-                PathElement::IndexFromEnd(idx) => {
-                    let (_, type_num) = decoder.peek_type().map_err(with_path)?;
-                    if type_num != TYPE_ARRAY {
-                        return Err(MaxMindDbError::decoding_at_path(
-                            format!("expected array for IndexFromEnd({idx}), got type {type_num}"),
-                            decoder.offset(),
-                            render_path(&path[..=i]),
-                        ));
-                    }
-
-                    // Consume the array header and get size
-                    let size = decoder.consume_array_header().map_err(with_path)?;
-
-                    if idx >= size {
-                        return Ok(None); // Out of bounds
-                    }
-
-                    let actual_idx = size - 1 - idx;
+                    let actual_idx = match *element {
+                        PathElement::Index(i) => i,
+                        PathElement::IndexFromEnd(i) => size - 1 - i,
+                        PathElement::Key(_) => unreachable!(),
+                    };
 
                     // Skip to the target index
                     for _ in 0..actual_idx {
