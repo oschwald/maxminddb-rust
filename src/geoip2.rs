@@ -131,6 +131,18 @@ impl Names<'_> {
     }
 }
 
+macro_rules! impl_is_empty_via_default {
+    ($ty:ty) => {
+        impl $ty {
+            /// Returns true if all fields are empty/None.
+            #[must_use]
+            pub fn is_empty(&self) -> bool {
+                *self == Self::default()
+            }
+        }
+    };
+}
+
 /// GeoIP2/GeoLite2 Country database record.
 ///
 /// Contains country-level geolocation data for an IP address. This is the
@@ -358,13 +370,7 @@ pub mod country {
         pub names: Names<'a>,
     }
 
-    impl Continent<'_> {
-        /// Returns true if all fields are empty/None.
-        #[must_use]
-        pub fn is_empty(&self) -> bool {
-            *self == Self::default()
-        }
-    }
+    impl_is_empty_via_default!(Continent<'_>);
 
     /// Country data for an IP address.
     #[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
@@ -384,13 +390,7 @@ pub mod country {
         pub names: Names<'a>,
     }
 
-    impl Country<'_> {
-        /// Returns true if all fields are empty/None.
-        #[must_use]
-        pub fn is_empty(&self) -> bool {
-            *self == Self::default()
-        }
-    }
+    impl_is_empty_via_default!(Country<'_>);
 
     /// Represented country data.
     ///
@@ -416,13 +416,7 @@ pub mod country {
         pub representation_type: Option<&'a str>,
     }
 
-    impl RepresentedCountry<'_> {
-        /// Returns true if all fields are empty/None.
-        #[must_use]
-        pub fn is_empty(&self) -> bool {
-            *self == Self::default()
-        }
-    }
+    impl_is_empty_via_default!(RepresentedCountry<'_>);
 
     /// Traits data for Country/City records.
     #[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
@@ -433,13 +427,7 @@ pub mod country {
         pub is_anycast: Option<bool>,
     }
 
-    impl Traits {
-        /// Returns true if all fields are None.
-        #[must_use]
-        pub fn is_empty(&self) -> bool {
-            *self == Self::default()
-        }
-    }
+    impl_is_empty_via_default!(Traits);
 }
 
 /// City database model structs.
@@ -462,13 +450,7 @@ pub mod city {
         pub names: Names<'a>,
     }
 
-    impl City<'_> {
-        /// Returns true if all fields are empty/None.
-        #[must_use]
-        pub fn is_empty(&self) -> bool {
-            *self == Self::default()
-        }
-    }
+    impl_is_empty_via_default!(City<'_>);
 
     /// Location data for an IP address.
     #[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
@@ -497,13 +479,7 @@ pub mod city {
         pub time_zone: Option<&'a str>,
     }
 
-    impl Location<'_> {
-        /// Returns true if all fields are None.
-        #[must_use]
-        pub fn is_empty(&self) -> bool {
-            *self == Self::default()
-        }
-    }
+    impl_is_empty_via_default!(Location<'_>);
 
     /// Postal data for an IP address.
     #[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
@@ -514,13 +490,7 @@ pub mod city {
         pub code: Option<&'a str>,
     }
 
-    impl Postal<'_> {
-        /// Returns true if all fields are None.
-        #[must_use]
-        pub fn is_empty(&self) -> bool {
-            *self == Self::default()
-        }
-    }
+    impl_is_empty_via_default!(Postal<'_>);
 
     /// Subdivision (state, province, etc.) data for an IP address.
     #[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
@@ -537,13 +507,7 @@ pub mod city {
         pub names: Names<'a>,
     }
 
-    impl Subdivision<'_> {
-        /// Returns true if all fields are empty/None.
-        #[must_use]
-        pub fn is_empty(&self) -> bool {
-            *self == Self::default()
-        }
-    }
+    impl_is_empty_via_default!(Subdivision<'_>);
 }
 
 /// Enterprise database model structs.
@@ -571,13 +535,7 @@ pub mod enterprise {
         pub names: Names<'a>,
     }
 
-    impl City<'_> {
-        /// Returns true if all fields are empty/None.
-        #[must_use]
-        pub fn is_empty(&self) -> bool {
-            *self == Self::default()
-        }
-    }
+    impl_is_empty_via_default!(City<'_>);
 
     /// Country data with confidence score.
     #[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
@@ -601,13 +559,7 @@ pub mod enterprise {
         pub names: Names<'a>,
     }
 
-    impl Country<'_> {
-        /// Returns true if all fields are empty/None.
-        #[must_use]
-        pub fn is_empty(&self) -> bool {
-            *self == Self::default()
-        }
-    }
+    impl_is_empty_via_default!(Country<'_>);
 
     /// Location data for an IP address.
     #[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
@@ -636,13 +588,7 @@ pub mod enterprise {
         pub time_zone: Option<&'a str>,
     }
 
-    impl Location<'_> {
-        /// Returns true if all fields are None.
-        #[must_use]
-        pub fn is_empty(&self) -> bool {
-            *self == Self::default()
-        }
-    }
+    impl_is_empty_via_default!(Location<'_>);
 
     /// Postal data with confidence score.
     #[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
@@ -657,13 +603,7 @@ pub mod enterprise {
         pub confidence: Option<u8>,
     }
 
-    impl Postal<'_> {
-        /// Returns true if all fields are None.
-        #[must_use]
-        pub fn is_empty(&self) -> bool {
-            *self == Self::default()
-        }
-    }
+    impl_is_empty_via_default!(Postal<'_>);
 
     /// Subdivision data with confidence score.
     #[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
@@ -684,13 +624,7 @@ pub mod enterprise {
         pub names: Names<'a>,
     }
 
-    impl Subdivision<'_> {
-        /// Returns true if all fields are empty/None.
-        #[must_use]
-        pub fn is_empty(&self) -> bool {
-            *self == Self::default()
-        }
-    }
+    impl_is_empty_via_default!(Subdivision<'_>);
 
     /// Extended traits data for Enterprise records.
     ///
@@ -756,11 +690,5 @@ pub mod enterprise {
         pub user_type: Option<&'a str>,
     }
 
-    impl Traits<'_> {
-        /// Returns true if all fields are None.
-        #[must_use]
-        pub fn is_empty(&self) -> bool {
-            *self == Self::default()
-        }
-    }
+    impl_is_empty_via_default!(Traits<'_>);
 }
