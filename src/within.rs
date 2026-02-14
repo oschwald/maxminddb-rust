@@ -221,17 +221,9 @@ impl<'de, S: AsRef<[u8]>> Iterator for Within<'de, S> {
                         };
                     }
 
-                    if let Err(e) =
-                        self.push_child(current.node, 1, right_ip_int, current.prefix_len + 1)
-                    {
-                        return Some(Err(e));
-                    }
+                    self.push_child(current.node, 1, right_ip_int, current.prefix_len + 1);
                     // left/0-bit
-                    if let Err(e) =
-                        self.push_child(current.node, 0, current.ip_int, current.prefix_len + 1)
-                    {
-                        return Some(Err(e));
-                    }
+                    self.push_child(current.node, 0, current.ip_int, current.prefix_len + 1);
                 }
             }
         }
@@ -246,14 +238,13 @@ impl<'de, S: AsRef<[u8]>> Within<'de, S> {
         direction: usize,
         ip_int: IpInt,
         prefix_len: usize,
-    ) -> Result<(), MaxMindDbError> {
-        let node = self.reader.read_node(parent_node, direction)?;
+    ) {
+        let node = self.reader.read_node(parent_node, direction);
         self.stack.push(WithinNode {
             node,
             ip_int,
             prefix_len,
         });
-        Ok(())
     }
 
     /// Check if the value at the given data offset is an empty map or array.

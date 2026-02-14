@@ -463,6 +463,46 @@ impl<'de> Decoder<'de> {
         }
     }
 
+    /// Fast-path identifier decoding:
+    /// - Returns `Ok(Some(bytes))` and consumes the identifier when it is a string.
+    /// - Returns `Ok(None)` and restores `current_ptr` when the next value is not a string.
+    /// - Returns `Err` for malformed pointer chains or invalid string lengths.
+    fn try_read_identifier_bytes(&mut self) -> DecodeResult<Option<&'de [u8]>> {
+        let saved_ptr = self.current_ptr;
+        let (size, type_num) = self.size_and_type();
+        match type_num {
+            TYPE_STRING => self.read_string_bytes(size).map(Some),
+            TYPE_POINTER => {
+                let new_ptr = self.decode_pointer(size);
+                let after_pointer = self.current_ptr;
+                self.current_ptr = new_ptr;
+                let (inner_size, inner_type) = self.size_and_type();
+                let result = if inner_type == TYPE_POINTER {
+                    Err(self.invalid_db_error("pointer points to another pointer"))
+                } else if inner_type == TYPE_STRING {
+                    self.read_string_bytes(inner_size).map(Some)
+                } else {
+                    Ok(None)
+                };
+                // decode_pointer(size) temporarily dereferences by moving current_ptr
+                // to new_ptr; after size_and_type/read_string_bytes on the pointed
+                // value, restoring current_ptr = after_pointer resumes parsing right
+                // after the original pointer bytes. When result is Ok(None), also
+                // reset current_ptr = saved_ptr so the non-string identifier can be
+                // parsed normally by the caller without consuming the pointer token.
+                self.current_ptr = after_pointer;
+                if matches!(result, Ok(None)) {
+                    self.current_ptr = saved_ptr;
+                }
+                result
+            }
+            _ => {
+                self.current_ptr = saved_ptr;
+                Ok(None)
+            }
+        }
+    }
+
     /// Skips the current value, following pointers.
     pub(crate) fn skip_value(&mut self) -> DecodeResult<()> {
         let (size, type_num) = self.size_and_type();
@@ -598,12 +638,9 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
     where
         V: Visitor<'de>,
     {
-        let (_, type_num) = self.peek_type()?;
-        if type_num == TYPE_STRING {
-            let bytes = self.read_str_as_bytes()?;
-            visitor.visit_borrowed_bytes(bytes)
-        } else {
-            self.decode_any(visitor)
+        match self.try_read_identifier_bytes()? {
+            Some(bytes) => visitor.visit_borrowed_bytes(bytes),
+            None => self.decode_any(visitor),
         }
     }
 
