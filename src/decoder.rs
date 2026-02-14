@@ -288,25 +288,65 @@ impl<'de> Decoder<'de> {
 
     decode_int_like!(decode_uint64, u64, 8, "u64", 0_u64);
     decode_int_like!(decode_uint128, u128, 16, "u128", 0_u128);
-    decode_int_like!(decode_uint32, u32, 4, "u32", 0_u32);
-    decode_int_like!(decode_uint16, u16, 2, "u16", 0_u16);
+
+    #[inline(always)]
+    fn read_u32_be(&mut self, size: usize, label: &str) -> DecodeResult<u32> {
+        if size > 4 {
+            return Err(self.invalid_db_error(&format!("{label} of size {size}")));
+        }
+        let new_offset = self
+            .current_ptr
+            .checked_add(size)
+            .filter(|&offset| offset <= self.buf.len())
+            .ok_or_else(|| self.invalid_db_error(&format!("{label} of size {}", size)))?;
+        let p = self.current_ptr;
+        let value = match size {
+            0 => 0,
+            1 => self.buf[p] as u32,
+            2 => ((self.buf[p] as u32) << 8) | self.buf[p + 1] as u32,
+            3 => {
+                ((self.buf[p] as u32) << 16)
+                    | ((self.buf[p + 1] as u32) << 8)
+                    | self.buf[p + 2] as u32
+            }
+            _ => {
+                ((self.buf[p] as u32) << 24)
+                    | ((self.buf[p + 1] as u32) << 16)
+                    | ((self.buf[p + 2] as u32) << 8)
+                    | self.buf[p + 3] as u32
+            }
+        };
+        self.current_ptr = new_offset;
+        Ok(value)
+    }
+
+    #[inline(always)]
+    fn decode_uint32(&mut self, size: usize) -> DecodeResult<u32> {
+        self.read_u32_be(size, "u32")
+    }
+
+    #[inline(always)]
+    fn decode_uint16(&mut self, size: usize) -> DecodeResult<u16> {
+        if size > 2 {
+            return Err(self.invalid_db_error(&format!("u16 of size {size}")));
+        }
+        let new_offset = self
+            .current_ptr
+            .checked_add(size)
+            .filter(|&offset| offset <= self.buf.len())
+            .ok_or_else(|| self.invalid_db_error(&format!("u16 of size {}", size)))?;
+        let p = self.current_ptr;
+        let value = match size {
+            0 => 0,
+            1 => self.buf[p] as u16,
+            _ => ((self.buf[p] as u16) << 8) | self.buf[p + 1] as u16,
+        };
+        self.current_ptr = new_offset;
+        Ok(value)
+    }
 
     fn decode_int(&mut self, size: usize) -> DecodeResult<i32> {
-        match size {
-            s if s <= 4 => {
-                let new_offset = self
-                    .current_ptr
-                    .checked_add(size)
-                    .filter(|&offset| offset <= self.buf.len())
-                    .ok_or_else(|| self.invalid_db_error(&format!("i32 of size {}", size)))?;
-                let value = self.buf[self.current_ptr..new_offset]
-                    .iter()
-                    .fold(0_u32, |acc, &b| (acc << 8) | u32::from(b));
-                self.current_ptr = new_offset;
-                Ok(value as i32)
-            }
-            s => Err(self.invalid_db_error(&format!("i32 of size {}", s))),
-        }
+        self.read_u32_be(size, "i32").map(|value| value as i32)
     }
 
     fn decode_map(&mut self, size: usize) -> Value<'_, 'de> {
