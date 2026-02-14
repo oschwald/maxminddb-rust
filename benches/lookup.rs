@@ -1,30 +1,16 @@
 #[macro_use]
 extern crate criterion;
-extern crate fake;
 extern crate maxminddb;
 extern crate rayon;
 
 use criterion::Criterion;
-use fake::faker::internet::raw::IPv4;
-use fake::locales::EN;
-use fake::Fake;
 use maxminddb::geoip2;
 use rayon::prelude::*;
 
 use std::net::IpAddr;
-use std::str::FromStr;
 
-// Generate `count` IPv4 addresses
-#[must_use]
-pub fn generate_ipv4(count: u64) -> Vec<IpAddr> {
-    let mut ips = Vec::new();
-    for _i in 0..count {
-        let val: String = IPv4(EN).fake();
-        let ip: IpAddr = FromStr::from_str(&val).unwrap();
-        ips.push(ip);
-    }
-    ips
-}
+mod common;
+use common::generate_ipv4;
 
 // Single-threaded
 pub fn bench_maxminddb<T>(ips: &[IpAddr], reader: &maxminddb::Reader<T>)
@@ -81,7 +67,7 @@ pub fn criterion_par_benchmark(c: &mut Criterion) {
 criterion_group! {
     name = benches;
     config = Criterion::default()
-        .sample_size(10);
+        .sample_size(20);
 
     targets = criterion_benchmark, criterion_par_benchmark
 }

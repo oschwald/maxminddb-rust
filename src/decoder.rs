@@ -34,6 +34,7 @@ const TYPE_FLOAT: u8 = 15;
 /// This matches the value used in libmaxminddb and the Go reader.
 const MAXIMUM_DATA_STRUCTURE_DEPTH: u16 = 512;
 
+#[inline(always)]
 fn to_usize(base: u8, bytes: &[u8]) -> usize {
     bytes
         .iter()
@@ -136,44 +137,59 @@ impl<'de> Decoder<'de> {
     }
 
     #[inline(always)]
-    fn eat_byte(&mut self) -> u8 {
-        let b = self.buf[self.current_ptr];
-        self.current_ptr += 1;
-        b
+    fn checked_offset(&self, size: usize, label: &str) -> DecodeResult<usize> {
+        let new_offset = self.current_ptr.wrapping_add(size);
+        if new_offset < self.current_ptr || new_offset > self.buf.len() {
+            return Err(self.invalid_db_error(&format!("{label} of size {size}")));
+        }
+        Ok(new_offset)
     }
 
     #[inline(always)]
-    fn size_from_ctrl_byte(&mut self, ctrl_byte: u8, type_num: u8) -> usize {
+    fn eat_byte(&mut self) -> DecodeResult<u8> {
+        let b = *self
+            .buf
+            .get(self.current_ptr)
+            .ok_or_else(|| self.invalid_db_error("unexpected end of buffer"))?;
+        self.current_ptr += 1;
+        Ok(b)
+    }
+
+    #[inline(always)]
+    fn size_from_ctrl_byte(&mut self, ctrl_byte: u8, type_num: u8) -> DecodeResult<usize> {
         let size = (ctrl_byte & 0x1f) as usize;
         // Extended type - size field is used differently
         if type_num == TYPE_EXTENDED {
-            return size;
+            return Ok(size);
         }
 
-        let bytes_to_read = size.saturating_sub(28);
-
-        let new_offset = self.current_ptr + bytes_to_read;
-        let size_bytes = &self.buf[self.current_ptr..new_offset];
-        self.current_ptr = new_offset;
-
         match size {
-            s if s < 29 => s,
-            29 => 29_usize + size_bytes[0] as usize,
-            30 => 285_usize + to_usize(0, size_bytes),
-            _ => 65_821_usize + to_usize(0, size_bytes),
+            s if s < 29 => Ok(s),
+            29 => Ok(29_usize + self.eat_byte()? as usize),
+            30 => {
+                let b0 = self.eat_byte()? as usize;
+                let b1 = self.eat_byte()? as usize;
+                Ok(285_usize + (b0 << 8) + b1)
+            }
+            _ => {
+                let b0 = self.eat_byte()? as usize;
+                let b1 = self.eat_byte()? as usize;
+                let b2 = self.eat_byte()? as usize;
+                Ok(65_821_usize + (b0 << 16) + (b1 << 8) + b2)
+            }
         }
     }
 
     #[inline(always)]
-    fn size_and_type(&mut self) -> (usize, u8) {
-        let ctrl_byte = self.eat_byte();
+    fn size_and_type(&mut self) -> DecodeResult<(usize, u8)> {
+        let ctrl_byte = self.eat_byte()?;
         let mut type_num = ctrl_byte >> 5;
         // Extended type: type 0 means read next byte for actual type
         if type_num == TYPE_EXTENDED {
-            type_num = self.eat_byte() + TYPE_MAP; // Extended types start at 7
+            type_num = self.eat_byte()? + TYPE_MAP; // Extended types start at 7
         }
-        let size = self.size_from_ctrl_byte(ctrl_byte, type_num);
-        (size, type_num)
+        let size = self.size_from_ctrl_byte(ctrl_byte, type_num)?;
+        Ok((size, type_num))
     }
 
     fn decode_any<V: Visitor<'de>>(&mut self, visitor: V) -> DecodeResult<V::Value> {
@@ -212,7 +228,7 @@ impl<'de> Decoder<'de> {
 
     #[inline(always)]
     fn decode_any_value(&mut self) -> DecodeResult<Value<'_, 'de>> {
-        let (size, type_num) = self.size_and_type();
+        let (size, type_num) = self.size_and_type()?;
 
         Ok(match type_num {
             TYPE_POINTER => {
@@ -259,7 +275,7 @@ impl<'de> Decoder<'de> {
     }
 
     fn decode_bytes(&mut self, size: usize) -> DecodeResult<&'de [u8]> {
-        let new_offset = self.current_ptr + size;
+        let new_offset = self.checked_offset(size, "bytes")?;
         let u8_slice = &self.buf[self.current_ptr..new_offset];
         self.current_ptr = new_offset;
 
@@ -267,7 +283,7 @@ impl<'de> Decoder<'de> {
     }
 
     fn decode_float(&mut self, size: usize) -> DecodeResult<f32> {
-        let new_offset = self.current_ptr + size;
+        let new_offset = self.checked_offset(size, "float")?;
         let value: [u8; 4] = self.buf[self.current_ptr..new_offset]
             .try_into()
             .map_err(|_| self.invalid_db_error(&format!("float of size {size}")))?;
@@ -277,7 +293,7 @@ impl<'de> Decoder<'de> {
     }
 
     fn decode_double(&mut self, size: usize) -> DecodeResult<f64> {
-        let new_offset = self.current_ptr + size;
+        let new_offset = self.checked_offset(size, "double")?;
         let value: [u8; 8] = self.buf[self.current_ptr..new_offset]
             .try_into()
             .map_err(|_| self.invalid_db_error(&format!("double of size {size}")))?;
@@ -288,25 +304,65 @@ impl<'de> Decoder<'de> {
 
     decode_int_like!(decode_uint64, u64, 8, "u64", 0_u64);
     decode_int_like!(decode_uint128, u128, 16, "u128", 0_u128);
-    decode_int_like!(decode_uint32, u32, 4, "u32", 0_u32);
-    decode_int_like!(decode_uint16, u16, 2, "u16", 0_u16);
+
+    #[inline(always)]
+    fn read_u32_be(&mut self, size: usize, label: &str) -> DecodeResult<u32> {
+        if size > 4 {
+            return Err(self.invalid_db_error(&format!("{label} of size {size}")));
+        }
+        let new_offset = self
+            .current_ptr
+            .checked_add(size)
+            .filter(|&offset| offset <= self.buf.len())
+            .ok_or_else(|| self.invalid_db_error(&format!("{label} of size {}", size)))?;
+        let p = self.current_ptr;
+        let value = match size {
+            0 => 0,
+            1 => self.buf[p] as u32,
+            2 => ((self.buf[p] as u32) << 8) | self.buf[p + 1] as u32,
+            3 => {
+                ((self.buf[p] as u32) << 16)
+                    | ((self.buf[p + 1] as u32) << 8)
+                    | self.buf[p + 2] as u32
+            }
+            _ => {
+                ((self.buf[p] as u32) << 24)
+                    | ((self.buf[p + 1] as u32) << 16)
+                    | ((self.buf[p + 2] as u32) << 8)
+                    | self.buf[p + 3] as u32
+            }
+        };
+        self.current_ptr = new_offset;
+        Ok(value)
+    }
+
+    #[inline(always)]
+    fn decode_uint32(&mut self, size: usize) -> DecodeResult<u32> {
+        self.read_u32_be(size, "u32")
+    }
+
+    #[inline(always)]
+    fn decode_uint16(&mut self, size: usize) -> DecodeResult<u16> {
+        if size > 2 {
+            return Err(self.invalid_db_error(&format!("u16 of size {size}")));
+        }
+        let new_offset = self
+            .current_ptr
+            .checked_add(size)
+            .filter(|&offset| offset <= self.buf.len())
+            .ok_or_else(|| self.invalid_db_error(&format!("u16 of size {}", size)))?;
+        let p = self.current_ptr;
+        let value = match size {
+            0 => 0,
+            1 => self.buf[p] as u16,
+            _ => ((self.buf[p] as u16) << 8) | self.buf[p + 1] as u16,
+        };
+        self.current_ptr = new_offset;
+        Ok(value)
+    }
 
     fn decode_int(&mut self, size: usize) -> DecodeResult<i32> {
-        match size {
-            s if s <= 4 => {
-                let new_offset = self
-                    .current_ptr
-                    .checked_add(size)
-                    .filter(|&offset| offset <= self.buf.len())
-                    .ok_or_else(|| self.invalid_db_error(&format!("i32 of size {}", size)))?;
-                let value = self.buf[self.current_ptr..new_offset]
-                    .iter()
-                    .fold(0_u32, |acc, &b| (acc << 8) | u32::from(b));
-                self.current_ptr = new_offset;
-                Ok(value as i32)
-            }
-            s => Err(self.invalid_db_error(&format!("i32 of size {}", s))),
-        }
+        self.read_u32_be(size, "i32").map(|value| value as i32)
     }
 
     fn decode_map(&mut self, size: usize) -> Value<'_, 'de> {
@@ -316,11 +372,22 @@ impl<'de> Decoder<'de> {
         })
     }
 
+    #[inline(always)]
     fn decode_pointer(&mut self, size: usize) -> usize {
         let pointer_value_offset = [0, 0, 2048, 526_336, 0];
         let pointer_size = ((size >> 3) & 0x3) + 1;
-        let new_offset = self.current_ptr + pointer_size;
-        let pointer_bytes = &self.buf[self.current_ptr..new_offset];
+        let p = self.current_ptr;
+        let len = self.buf.len();
+        let new_offset = match p.checked_add(pointer_size) {
+            Some(offset) if offset <= len => offset,
+            _ => {
+                // Clamp to the end of the buffer so the next decode step fails
+                // with a normal bounds error instead of panicking here.
+                self.current_ptr = len;
+                return len;
+            }
+        };
+        let pointer_bytes = &self.buf[p..new_offset];
         self.current_ptr = new_offset;
 
         let base = if pointer_size == 4 {
@@ -337,7 +404,7 @@ impl<'de> Decoder<'de> {
     fn decode_string(&mut self, size: usize) -> DecodeResult<&'de str> {
         use std::str::from_utf8_unchecked;
 
-        let new_offset: usize = self.current_ptr + size;
+        let new_offset = self.checked_offset(size, "string")?;
         let bytes = &self.buf[self.current_ptr..new_offset];
         self.current_ptr = new_offset;
         // SAFETY:
@@ -356,10 +423,17 @@ impl<'de> Decoder<'de> {
         use simdutf8::basic::from_utf8;
         #[cfg(not(feature = "simdutf8"))]
         use std::str::from_utf8;
+        use std::str::from_utf8_unchecked;
 
-        let new_offset: usize = self.current_ptr + size;
+        let new_offset = self.checked_offset(size, "string")?;
         let bytes = &self.buf[self.current_ptr..new_offset];
         self.current_ptr = new_offset;
+        if bytes.is_ascii() {
+            // ASCII is valid UTF-8, so this avoids the full validator fast path.
+            // SAFETY: `is_ascii()` guarantees UTF-8 validity.
+            let v = unsafe { from_utf8_unchecked(bytes) };
+            return Ok(v);
+        }
         match from_utf8(bytes) {
             Ok(v) => Ok(v),
             Err(_) => Err(self.invalid_db_error("invalid UTF-8 in string")),
@@ -389,10 +463,10 @@ impl<'de> Decoder<'de> {
 
     /// Consumes a header of the expected type, following one pointer.
     fn consume_typed_header(&mut self, expected_type: u8, label: &str) -> DecodeResult<usize> {
-        let (size, type_num) = self.size_and_type();
+        let (size, type_num) = self.size_and_type()?;
         if type_num == TYPE_POINTER {
             self.current_ptr = self.decode_pointer(size);
-            let (size, type_num) = self.size_and_type();
+            let (size, type_num) = self.size_and_type()?;
             if type_num == TYPE_POINTER {
                 return Err(self.invalid_db_error("pointer points to another pointer"));
             }
@@ -410,13 +484,13 @@ impl<'de> Decoder<'de> {
 
     /// Gets size and type, following any pointers.
     fn size_and_type_following_pointers(&mut self) -> DecodeResult<(usize, u8)> {
-        let (size, type_num) = self.size_and_type();
+        let (size, type_num) = self.size_and_type()?;
         if type_num != TYPE_POINTER {
             return Ok((size, type_num));
         }
 
         self.current_ptr = self.decode_pointer(size);
-        let (size, type_num) = self.size_and_type();
+        let (size, type_num) = self.size_and_type()?;
         if type_num == TYPE_POINTER {
             return Err(self.invalid_db_error("pointer points to another pointer"));
         }
@@ -441,13 +515,13 @@ impl<'de> Decoder<'de> {
     /// Reads a string's bytes directly, following pointers if needed.
     /// Does NOT validate UTF-8.
     pub(crate) fn read_str_as_bytes(&mut self) -> DecodeResult<&'de [u8]> {
-        let (size, type_num) = self.size_and_type();
+        let (size, type_num) = self.size_and_type()?;
         match type_num {
             TYPE_POINTER => {
                 let new_ptr = self.decode_pointer(size);
                 let saved_ptr = self.current_ptr;
                 self.current_ptr = new_ptr;
-                let (size, type_num) = self.size_and_type();
+                let (size, type_num) = self.size_and_type()?;
                 let result = if type_num == TYPE_POINTER {
                     Err(self.invalid_db_error("pointer points to another pointer"))
                 } else if type_num == TYPE_STRING {
@@ -463,15 +537,55 @@ impl<'de> Decoder<'de> {
         }
     }
 
+    /// Fast-path identifier decoding:
+    /// - Returns `Ok(Some(bytes))` and consumes the identifier when it is a string.
+    /// - Returns `Ok(None)` and restores `current_ptr` when the next value is not a string.
+    /// - Returns `Err` for malformed pointer chains or invalid string lengths.
+    fn try_read_identifier_bytes(&mut self) -> DecodeResult<Option<&'de [u8]>> {
+        let saved_ptr = self.current_ptr;
+        let (size, type_num) = self.size_and_type()?;
+        match type_num {
+            TYPE_STRING => self.read_string_bytes(size).map(Some),
+            TYPE_POINTER => {
+                let new_ptr = self.decode_pointer(size);
+                let after_pointer = self.current_ptr;
+                self.current_ptr = new_ptr;
+                let (inner_size, inner_type) = self.size_and_type()?;
+                let result = if inner_type == TYPE_POINTER {
+                    Err(self.invalid_db_error("pointer points to another pointer"))
+                } else if inner_type == TYPE_STRING {
+                    self.read_string_bytes(inner_size).map(Some)
+                } else {
+                    Ok(None)
+                };
+                // decode_pointer(size) temporarily dereferences by moving current_ptr
+                // to new_ptr; after size_and_type/read_string_bytes on the pointed
+                // value, restoring current_ptr = after_pointer resumes parsing right
+                // after the original pointer bytes. When result is Ok(None), also
+                // reset current_ptr = saved_ptr so the non-string identifier can be
+                // parsed normally by the caller without consuming the pointer token.
+                self.current_ptr = after_pointer;
+                if matches!(result, Ok(None)) {
+                    self.current_ptr = saved_ptr;
+                }
+                result
+            }
+            _ => {
+                self.current_ptr = saved_ptr;
+                Ok(None)
+            }
+        }
+    }
+
     /// Skips the current value, following pointers.
     pub(crate) fn skip_value(&mut self) -> DecodeResult<()> {
-        let (size, type_num) = self.size_and_type();
+        let (size, type_num) = self.size_and_type()?;
         self.skip_value_inner(size, type_num, true)
     }
 
     /// Skips the current value without following pointers (for verification).
     pub(crate) fn skip_value_for_verification(&mut self) -> DecodeResult<()> {
-        let (size, type_num) = self.size_and_type();
+        let (size, type_num) = self.size_and_type()?;
         self.skip_value_inner(size, type_num, false)
     }
 
@@ -542,7 +656,7 @@ impl<'de> Decoder<'de> {
     }
 
     fn skip_value_inner_with_follow(&mut self, follow_pointers: bool) -> DecodeResult<()> {
-        let (size, type_num) = self.size_and_type();
+        let (size, type_num) = self.size_and_type()?;
         self.skip_value_inner(size, type_num, follow_pointers)
     }
 }
@@ -598,12 +712,9 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
     where
         V: Visitor<'de>,
     {
-        let (_, type_num) = self.peek_type()?;
-        if type_num == TYPE_STRING {
-            let bytes = self.read_str_as_bytes()?;
-            visitor.visit_borrowed_bytes(bytes)
-        } else {
-            self.decode_any(visitor)
+        match self.try_read_identifier_bytes()? {
+            Some(bytes) => visitor.visit_borrowed_bytes(bytes),
+            None => self.decode_any(visitor),
         }
     }
 

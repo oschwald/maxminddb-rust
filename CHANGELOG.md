@@ -1,5 +1,16 @@
 # Change Log
 
+## 0.27.2 - 2026-02-14
+
+- Performance improvement: Faster lookups and record decoding in common paths,
+  including control-byte header parsing and integer decoding.
+- Performance improvement: Faster string decoding for ASCII-only values by
+  using a dedicated ASCII fast path.
+- Performance improvement: Reduced release-build overhead by compiling out
+  debug/trace logging calls.
+- Fixed: Truncated or corrupt data in control-byte headers now returns a
+  decoding error instead of panicking.
+
 ## 0.27.1 - 2025-12-18
 
 - Performance improvement: Skipped UTF-8 validation for map keys during
