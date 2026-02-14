@@ -1,27 +1,30 @@
 #[macro_use]
 extern crate criterion;
-extern crate fake;
 extern crate maxminddb;
 extern crate rayon;
 
 use criterion::Criterion;
-use fake::faker::internet::raw::IPv4;
-use fake::locales::EN;
-use fake::Fake;
 use maxminddb::geoip2;
 use rayon::prelude::*;
 
-use std::net::IpAddr;
-use std::str::FromStr;
+use std::net::{IpAddr, Ipv4Addr};
 
-// Generate `count` IPv4 addresses
+// Generate `count` IPv4 addresses from a deterministic LCG stream.
 #[must_use]
 pub fn generate_ipv4(count: u64) -> Vec<IpAddr> {
-    let mut ips = Vec::new();
-    for _i in 0..count {
-        let val: String = IPv4(EN).fake();
-        let ip: IpAddr = FromStr::from_str(&val).unwrap();
-        ips.push(ip);
+    let mut ips = Vec::with_capacity(count as usize);
+    let mut state = 0x4D59_5DF4_D0F3_3173_u64;
+    for _ in 0..count {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        let ip = Ipv4Addr::new(
+            (state >> 24) as u8,
+            (state >> 32) as u8,
+            (state >> 40) as u8,
+            (state >> 48) as u8,
+        );
+        ips.push(IpAddr::V4(ip));
     }
     ips
 }
@@ -81,7 +84,7 @@ pub fn criterion_par_benchmark(c: &mut Criterion) {
 criterion_group! {
     name = benches;
     config = Criterion::default()
-        .sample_size(10);
+        .sample_size(20);
 
     targets = criterion_benchmark, criterion_par_benchmark
 }
