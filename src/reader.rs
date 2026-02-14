@@ -116,8 +116,6 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// let reader = maxminddb::Reader::from_source(buf).unwrap();
     /// ```
     pub fn from_source(buf: S) -> Result<Reader<S>, MaxMindDbError> {
-        let data_section_separator_size = 16;
-
         let metadata_start = find_metadata_start(buf.as_ref())?;
         let mut type_decoder = decoder::Decoder::new(&buf.as_ref()[metadata_start..], 0);
         let metadata = Metadata::deserialize(&mut type_decoder)?;
@@ -126,7 +124,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
 
         let mut reader = Reader {
             buf,
-            pointer_base: search_tree_size + data_section_separator_size,
+            pointer_base: search_tree_size + DATA_SECTION_SEPARATOR_SIZE,
             metadata,
             ipv4_start: 0,
             ipv4_start_bit_depth: 0,
@@ -486,7 +484,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// Resolves a pointer from the search tree to an offset in the data section.
     #[inline]
     pub(crate) fn resolve_data_pointer(&self, pointer: usize) -> Result<usize, MaxMindDbError> {
-        let resolved = pointer - (self.metadata.node_count as usize) - 16;
+        let resolved = pointer - (self.metadata.node_count as usize) - DATA_SECTION_SEPARATOR_SIZE;
 
         // Check bounds using pointer_base which marks the start of the data section
         if resolved >= (self.buf.as_ref().len() - self.pointer_base) {
