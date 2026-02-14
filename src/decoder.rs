@@ -396,10 +396,17 @@ impl<'de> Decoder<'de> {
         use simdutf8::basic::from_utf8;
         #[cfg(not(feature = "simdutf8"))]
         use std::str::from_utf8;
+        use std::str::from_utf8_unchecked;
 
         let new_offset: usize = self.current_ptr + size;
         let bytes = &self.buf[self.current_ptr..new_offset];
         self.current_ptr = new_offset;
+        if bytes.is_ascii() {
+            // ASCII is valid UTF-8, so this avoids the full validator fast path.
+            // SAFETY: `is_ascii()` guarantees UTF-8 validity.
+            let v = unsafe { from_utf8_unchecked(bytes) };
+            return Ok(v);
+        }
         match from_utf8(bytes) {
             Ok(v) => Ok(v),
             Err(_) => Err(self.invalid_db_error("invalid UTF-8 in string")),
