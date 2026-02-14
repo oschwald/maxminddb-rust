@@ -150,17 +150,20 @@ impl<'de> Decoder<'de> {
             return size;
         }
 
-        let bytes_to_read = size.saturating_sub(28);
-
-        let new_offset = self.current_ptr + bytes_to_read;
-        let size_bytes = &self.buf[self.current_ptr..new_offset];
-        self.current_ptr = new_offset;
-
         match size {
             s if s < 29 => s,
-            29 => 29_usize + size_bytes[0] as usize,
-            30 => 285_usize + to_usize(0, size_bytes),
-            _ => 65_821_usize + to_usize(0, size_bytes),
+            29 => 29_usize + self.eat_byte() as usize,
+            30 => {
+                let b0 = self.eat_byte() as usize;
+                let b1 = self.eat_byte() as usize;
+                285_usize + (b0 << 8) + b1
+            }
+            _ => {
+                let b0 = self.eat_byte() as usize;
+                let b1 = self.eat_byte() as usize;
+                let b2 = self.eat_byte() as usize;
+                65_821_usize + (b0 << 16) + (b1 << 8) + b2
+            }
         }
     }
 
