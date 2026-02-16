@@ -1,5 +1,11 @@
 # Change Log
 
+## 0.27.3 - 2026-02-16
+
+- Removed the `release_max_level_info` feature from the `log` dependency, as
+  libraries should not set a global release log-level cap. Pull request by
+  monosans. GitHub #110.
+
 ## 0.27.2 - 2026-02-14
 
 - Performance improvement: Faster lookups and record decoding in common paths,
