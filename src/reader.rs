@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::net::IpAddr;
 use std::path::Path;
+use std::ptr;
 
 use ipnetwork::IpNetwork;
 use serde::Deserialize;
@@ -23,6 +24,7 @@ use crate::within::{IpInt, Within, WithinNode, WithinOptions};
 
 /// Size of the data section separator (16 zero bytes).
 const DATA_SECTION_SEPARATOR_SIZE: usize = 16;
+const METADATA_START_MARKER: &[u8] = b"\xab\xcd\xefMaxMind.com";
 
 /// A reader for the MaxMind DB format. The lifetime `'data` is tied to the
 /// lifetime of the underlying buffer holding the contents of the database file.
@@ -119,14 +121,11 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let metadata_start = find_metadata_start(buf.as_ref())?;
         let mut type_decoder = decoder::Decoder::new(&buf.as_ref()[metadata_start..], 0);
         let metadata = Metadata::deserialize(&mut type_decoder)?;
-        if !matches!(metadata.record_size, 24 | 28 | 32) {
-            return Err(MaxMindDbError::invalid_database(format!(
-                "record_size - Expected: 24, 28, or 32 Actual: {}",
-                metadata.record_size
-            )));
-        }
-
-        let search_tree_size = (metadata.node_count as usize) * (metadata.record_size as usize) / 4;
+        let bytes_per_node = bytes_per_node(metadata.record_size)?;
+        let search_tree_size = (metadata.node_count as usize)
+            .checked_mul(bytes_per_node)
+            .ok_or_else(|| MaxMindDbError::invalid_database("the MaxMind DB file's search tree size overflowed"))?;
+        validate_search_tree_layout(buf.as_ref().len(), metadata_start, search_tree_size)?;
 
         let mut reader = Reader {
             buf,
@@ -354,15 +353,14 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         // Traverse down the tree to the level that matches the cidr mark
         let mut depth = 0_usize;
         for i in 0..prefix_len {
-            let bit = ip_int.get_bit(i);
-            node = self.read_node(node, bit as usize);
-            depth = i + 1; // We've now traversed i+1 bits (bits 0 through i)
-
             if node >= node_count {
                 // We've hit a data node or dead end before we exhausted our prefix.
                 // This means the requested CIDR is contained in a single record.
                 break;
             }
+            let bit = ip_int.get_bit(i);
+            node = unsafe { self.read_node_unchecked(node, bit as usize) };
+            depth = i + 1; // We've now traversed i+1 bits (bits 0 through i)
         }
 
         // Always push the node - it could be:
@@ -398,7 +396,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
                         break;
                     }
                     let bit = ((ip >> (31 - i)) & 1) as usize;
-                    node = self.read_node(node, bit);
+                    node = unsafe { self.read_node_unchecked(node, bit) };
                 }
                 (node, prefix_len)
             }
@@ -411,7 +409,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
                         break;
                     }
                     let bit = ((ip >> (127 - i)) & 1) as usize;
-                    node = self.read_node(node, bit);
+                    node = unsafe { self.read_node_unchecked(node, bit) };
                 }
                 (node, prefix_len)
             }
@@ -453,7 +451,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
                 depth = i as usize;
                 break;
             }
-            node = self.read_node(node, 0);
+            node = unsafe { self.read_node_unchecked(node, 0) };
             depth = (i + 1) as usize;
         }
         (node, depth)
@@ -461,34 +459,58 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
 
     #[inline(always)]
     pub(crate) fn read_node(&self, node_number: usize, index: usize) -> usize {
-        let buf = self.buf.as_ref();
-        let base_offset = node_number * (self.metadata.record_size as usize) / 4;
+        assert!(index < 2, "read_node index must be 0 or 1");
+        assert!(
+            node_number < self.metadata.node_count as usize,
+            "read_node node_number must reference an internal search tree node"
+        );
 
+        // SAFETY: The assertions above enforce the preconditions.
+        unsafe { self.read_node_unchecked(node_number, index) }
+    }
+
+    /// Reads a search tree child pointer without validating `node_number`.
+    ///
+    /// # Safety
+    ///
+    /// Callers must ensure `node_number < self.metadata.node_count as usize`
+    /// and `index < 2`.
+    #[inline(always)]
+    unsafe fn read_node_unchecked(&self, node_number: usize, index: usize) -> usize {
+        debug_assert!(index < 2);
+        debug_assert!(node_number < self.metadata.node_count as usize);
+
+        let buf = self.buf.as_ref().as_ptr();
+
+        // SAFETY:
+        // - `validate_search_tree_layout` guarantees the full search tree plus the
+        //   16-byte separator exist before metadata begins.
+        // - `node_number < node_count` ensures `base_offset` points within the tree.
+        // - `index < 2` ensures only the left or right child is read.
+        // - The 24-bit format may over-read by one byte on the last field, which is
+        //   safe because the separator immediately follows the search tree.
         match self.metadata.record_size {
             24 => {
+                let base_offset = node_number * 6;
                 let offset = base_offset + index * 3;
-                (buf[offset] as usize) << 16
-                    | (buf[offset + 1] as usize) << 8
-                    | buf[offset + 2] as usize
+                (u32::from_be(ptr::read_unaligned(buf.add(offset) as *const u32)) >> 8) as usize
             }
             28 => {
-                let middle = if index != 0 {
-                    buf[base_offset + 3] & 0x0F
+                let base_offset = node_number * 7;
+                if index == 0 {
+                    let word = u32::from_be(ptr::read_unaligned(buf.add(base_offset) as *const u32));
+                    (((word & 0x0000_00F0) as usize) << 20) | ((word >> 8) as usize)
                 } else {
-                    (buf[base_offset + 3] & 0xF0) >> 4
-                };
-                let offset = base_offset + index * 4;
-                (middle as usize) << 24
-                    | (buf[offset] as usize) << 16
-                    | (buf[offset + 1] as usize) << 8
-                    | buf[offset + 2] as usize
+                    let word = u32::from_be(
+                        ptr::read_unaligned(buf.add(base_offset + 3) as *const u32),
+                    );
+                    ((((word >> 24) & 0x0F) as usize) << 24) | ((word & 0x00FF_FFFF) as usize)
+                }
             }
             32 => {
+                let base_offset = node_number * 8;
                 let offset = base_offset + index * 4;
-                (buf[offset] as usize) << 24
-                    | (buf[offset + 1] as usize) << 16
-                    | (buf[offset + 2] as usize) << 8
-                    | buf[offset + 3] as usize
+                u32::from_be(ptr::read_unaligned(buf.add(offset) as *const u32)) as usize
             }
             _ => unreachable!("record_size is validated in Reader::from_source"),
         }
@@ -618,8 +640,9 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     }
 
     fn verify_data_section_separator(&self) -> Result<(), MaxMindDbError> {
-        let separator_start =
-            self.metadata.node_count as usize * self.metadata.record_size as usize / 4;
+        let separator_start = self.metadata.node_count as usize
+            * bytes_per_node(self.metadata.record_size)
+                .expect("record_size is validated in Reader::from_source");
         let separator_end = separator_start + DATA_SECTION_SEPARATOR_SIZE;
 
         if separator_end > self.buf.as_ref().len() {
@@ -672,12 +695,73 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     }
 }
 
-fn find_metadata_start(buf: &[u8]) -> Result<usize, MaxMindDbError> {
-    const METADATA_START_MARKER: &[u8] = b"\xab\xcd\xefMaxMind.com";
+fn bytes_per_node(record_size: u16) -> Result<usize, MaxMindDbError> {
+    match record_size {
+        24 => Ok(6),
+        28 => Ok(7),
+        32 => Ok(8),
+        actual => Err(MaxMindDbError::invalid_database(format!(
+            "record_size - Expected: 24, 28, or 32 Actual: {actual}"
+        ))),
+    }
+}
 
+fn validate_search_tree_layout(
+    buf_len: usize,
+    metadata_start: usize,
+    search_tree_size: usize,
+) -> Result<(), MaxMindDbError> {
+    let metadata_marker_start = metadata_start
+        .checked_sub(METADATA_START_MARKER.len())
+        .ok_or_else(|| MaxMindDbError::invalid_database("could not find MaxMind DB metadata in file"))?;
+    let required_prefix = search_tree_size
+        .checked_add(DATA_SECTION_SEPARATOR_SIZE)
+        .ok_or_else(|| MaxMindDbError::invalid_database("the MaxMind DB file's search tree size overflowed"))?;
+
+    if required_prefix > metadata_marker_start || required_prefix > buf_len {
+        return Err(MaxMindDbError::invalid_database(
+            "the MaxMind DB file's search tree is truncated or overlaps metadata",
+        ));
+    }
+
+    Ok(())
+}
+
+fn find_metadata_start(buf: &[u8]) -> Result<usize, MaxMindDbError> {
     memchr::memmem::rfind(buf, METADATA_START_MARKER)
         .map(|x| x + METADATA_START_MARKER.len())
         .ok_or_else(|| {
             MaxMindDbError::invalid_database("could not find MaxMind DB metadata in file")
         })
+}
+
+#[cfg(test)]
+mod reader_layout_tests {
+    use super::{bytes_per_node, validate_search_tree_layout, METADATA_START_MARKER};
+    use crate::MaxMindDbError;
+
+    #[test]
+    fn test_bytes_per_node_validation() {
+        assert_eq!(bytes_per_node(24).unwrap(), 6);
+        assert_eq!(bytes_per_node(28).unwrap(), 7);
+        assert_eq!(bytes_per_node(32).unwrap(), 8);
+        assert!(matches!(
+            bytes_per_node(20),
+            Err(MaxMindDbError::InvalidDatabase { .. })
+        ));
+    }
+
+    #[test]
+    fn test_validate_search_tree_layout() {
+        let metadata_start = 128 + METADATA_START_MARKER.len();
+        let required_prefix = 100 + super::DATA_SECTION_SEPARATOR_SIZE;
+
+        validate_search_tree_layout(metadata_start + 32, metadata_start, 100).unwrap();
+
+        let overlap = validate_search_tree_layout(metadata_start, metadata_start, 120);
+        assert!(matches!(overlap, Err(MaxMindDbError::InvalidDatabase { .. })));
+
+        let truncated = validate_search_tree_layout(required_prefix - 1, metadata_start, 100);
+        assert!(matches!(truncated, Err(MaxMindDbError::InvalidDatabase { .. })));
+    }
 }
