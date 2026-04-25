@@ -57,6 +57,12 @@ pub struct LookupResult<'a, S: AsRef<[u8]>> {
 }
 
 impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
+    #[inline]
+    fn decoder(&self, offset: usize) -> super::decoder::Decoder<'a> {
+        let buf = &self.reader.buf.as_ref()[self.reader.pointer_base..];
+        super::decoder::Decoder::new(buf, offset)
+    }
+
     /// Creates a new LookupResult for a found IP.
     pub(crate) fn new_found(
         reader: &'a Reader<S>,
@@ -175,8 +181,7 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
             return Ok(None);
         };
 
-        let buf = &self.reader.buf.as_ref()[self.reader.pointer_base..];
-        let mut decoder = super::decoder::Decoder::new(buf, offset);
+        let mut decoder = self.decoder(offset);
         T::deserialize(&mut decoder).map(Some)
     }
 
@@ -228,8 +233,7 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
             return Ok(None);
         };
 
-        let buf = &self.reader.buf.as_ref()[self.reader.pointer_base..];
-        let mut decoder = super::decoder::Decoder::new(buf, offset);
+        let mut decoder = self.decoder(offset);
 
         // Navigate through the path, tracking position for error context
         for (i, element) in path.iter().enumerate() {
@@ -390,11 +394,7 @@ impl From<i32> for PathElement<'_> {
     /// - Non-negative values become `Index(n)`
     /// - Negative values become `IndexFromEnd(-n - 1)`, so `-1` is the last element
     fn from(n: i32) -> Self {
-        if n >= 0 {
-            PathElement::Index(n as usize)
-        } else {
-            PathElement::IndexFromEnd((-n - 1) as usize)
-        }
+        signed_index_to_path_element(n as isize)
     }
 }
 
@@ -409,12 +409,23 @@ impl From<isize> for PathElement<'_> {
     ///
     /// - Non-negative values become `Index(n)`
     /// - Negative values become `IndexFromEnd(-n - 1)`, so `-1` is the last element
+    /// - `isize::MIN` saturates to `IndexFromEnd(usize::MAX)` because its
+    ///   absolute value is unrepresentable as `isize`
     fn from(n: isize) -> Self {
-        if n >= 0 {
-            PathElement::Index(n as usize)
-        } else {
-            PathElement::IndexFromEnd((-n - 1) as usize)
-        }
+        signed_index_to_path_element(n)
+    }
+}
+
+fn signed_index_to_path_element<'a>(n: isize) -> PathElement<'a> {
+    if n >= 0 {
+        PathElement::Index(n as usize)
+    } else {
+        let index = n
+            .checked_neg()
+            .and_then(|n| n.checked_sub(1))
+            .map(|n| n as usize)
+            .unwrap_or(usize::MAX);
+        PathElement::IndexFromEnd(index)
     }
 }
 
@@ -579,6 +590,9 @@ mod tests {
 
         let elem: PathElement = PathElement::from(-1isize);
         assert_eq!(elem, PathElement::IndexFromEnd(0));
+
+        let elem: PathElement = PathElement::from(isize::MIN);
+        assert_eq!(elem, PathElement::IndexFromEnd(usize::MAX));
     }
 
     #[test]

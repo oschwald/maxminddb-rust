@@ -7,6 +7,9 @@ use serde_json::json;
 use crate::geoip2;
 use crate::{MaxMindDbError, Reader, Within, WithinOptions};
 
+const TEST_DATABASE_CONFIGS: &[(usize, usize)] =
+    &[(24, 4), (28, 4), (32, 4), (24, 6), (28, 6), (32, 6)];
+const TEST_RECORD_SIZES: &[usize] = &[24, 28, 32];
 fn init_logger() {
     let _ = env_logger::try_init();
 }
@@ -455,6 +458,30 @@ fn check_metadata<S: AsRef<[u8]>>(reader: &Reader<S>, ip_version: usize, record_
     assert_eq!(metadata.record_size, record_size as u16)
 }
 
+#[test]
+fn test_lookup_uses_cached_record_size_after_metadata_mutation() {
+    init_logger();
+
+    let mut reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
+    reader.metadata.record_size = 0;
+
+    let lookup = reader.lookup("1.1.1.1".parse().unwrap()).unwrap();
+    assert!(lookup.has_data());
+    assert_eq!(lookup.network().unwrap().to_string(), "1.1.1.1/32");
+}
+
+#[test]
+fn test_resolve_data_pointer_rejects_small_pointer() {
+    init_logger();
+
+    let reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
+    let err = reader
+        .resolve_data_pointer(reader.metadata.node_count as usize)
+        .unwrap_err();
+
+    assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+}
+
 fn check_ip<S: AsRef<[u8]>>(reader: &Reader<S>, ip_version: usize) {
     let subnets = match ip_version {
         6 => [
@@ -560,32 +587,29 @@ fn test_json_serialize() {
 fn test_networks() {
     init_logger();
 
-    // Test with different record sizes and IP versions
-    for record_size in &[24_u32, 28, 32] {
-        for ip_version in &[4_u32, 6] {
-            let reader = open_test_data_reader(&format!(
-                "MaxMind-DB-test-ipv{ip_version}-{record_size}.mmdb"
-            ));
+    for (record_size, ip_version) in TEST_DATABASE_CONFIGS {
+        let reader = open_test_data_reader(&format!(
+            "MaxMind-DB-test-ipv{ip_version}-{record_size}.mmdb"
+        ));
 
-            for result in reader.networks(Default::default()).unwrap() {
-                let lookup = result.unwrap();
-                assert!(
-                    lookup.has_data(),
-                    "networks() should only yield found records by default"
-                );
+        for result in reader.networks(Default::default()).unwrap() {
+            let lookup = result.unwrap();
+            assert!(
+                lookup.has_data(),
+                "networks() should only yield found records by default"
+            );
 
-                #[derive(Deserialize)]
-                struct IpRecord {
-                    ip: String,
-                }
-                let record: IpRecord = lookup.decode().unwrap().unwrap();
-                let network = lookup.network().unwrap();
-                assert_eq!(
-                    record.ip,
-                    network.ip().to_string(),
-                    "record IP should match network IP"
-                );
+            #[derive(Deserialize)]
+            struct IpRecord {
+                ip: String,
             }
+            let record: IpRecord = lookup.decode().unwrap().unwrap();
+            let network = lookup.network().unwrap();
+            assert_eq!(
+                record.ip,
+                network.ip().to_string(),
+                "record IP should match network IP"
+            );
         }
     }
 }
@@ -946,7 +970,7 @@ fn test_networks_within_scenarios() {
         },
     ];
 
-    for record_size in &[24_u32, 28, 32] {
+    for record_size in TEST_RECORD_SIZES {
         for test in &test_cases {
             let reader = open_test_data_reader(&format!(
                 "MaxMind-DB-test-{}-{}.mmdb",

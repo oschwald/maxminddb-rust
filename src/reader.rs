@@ -41,7 +41,12 @@ pub struct Reader<S: AsRef<[u8]>> {
     pub(crate) buf: S,
     /// Database metadata.
     pub metadata: Metadata,
+    record_size: u16,
+    /// Cached `Metadata::node_count` for `Reader` search-tree traversal.
+    /// Use this instead of `metadata.node_count`, which is publicly mutable.
     node_count: usize,
+    /// Cached bytes per node derived from `Metadata::record_size` for `Reader`.
+    /// Use this instead of `metadata.record_size` in lookup hot paths.
     node_byte_size: usize,
     pub(crate) ipv4_start: usize,
     /// Bit depth at which ipv4_start was found (0-96). Used to calculate
@@ -121,19 +126,16 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let metadata_start = find_metadata_start(buf.as_ref())?;
         let mut type_decoder = decoder::Decoder::new(&buf.as_ref()[metadata_start..], 0);
         let metadata = Metadata::deserialize(&mut type_decoder)?;
-        if !matches!(metadata.record_size, 24 | 28 | 32) {
-            return Err(MaxMindDbError::invalid_database(format!(
-                "record_size - Expected: 24, 28, or 32 Actual: {}",
-                metadata.record_size
-            )));
-        }
+        validate_record_size(metadata.record_size)?;
 
         let search_tree_size = (metadata.node_count as usize) * (metadata.record_size as usize) / 4;
+        let record_size = metadata.record_size;
         let node_count = metadata.node_count as usize;
-        let node_byte_size = metadata.record_size as usize / 4;
+        let node_byte_size = record_size as usize / 4;
 
         let mut reader = Reader {
             buf,
+            record_size,
             node_count,
             node_byte_size,
             pointer_base: search_tree_size + DATA_SECTION_SEPARATOR_SIZE,
@@ -385,6 +387,11 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         Ok(within)
     }
 
+    // Pointer 0 means "not found" because normalize_lookup_result collapses both
+    // the placeholder empty node (`node == node_count`) and an unfinished internal
+    // terminal (`node < node_count`, i.e. bits exhausted while still on a tree
+    // node) into 0, so neither path reaches resolve_data_pointer with a non-data
+    // value.
     #[inline(always)]
     fn lookup_result(
         &'de self,
@@ -410,7 +417,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let buf = self.buf.as_ref();
         let node_count = self.node_count;
 
-        match self.metadata.record_size {
+        match self.record_size {
             24 => find_address_in_tree_v4::<RecordSize24>(buf, self.ipv4_start, node_count, ip),
             28 => find_address_in_tree_v4::<RecordSize28>(buf, self.ipv4_start, node_count, ip),
             32 => find_address_in_tree_v4::<RecordSize32>(buf, self.ipv4_start, node_count, ip),
@@ -423,7 +430,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let buf = self.buf.as_ref();
         let node_count = self.node_count;
 
-        match self.metadata.record_size {
+        match self.record_size {
             24 => find_address_in_tree_v6::<RecordSize24>(buf, node_count, ip),
             28 => find_address_in_tree_v6::<RecordSize28>(buf, node_count, ip),
             32 => find_address_in_tree_v6::<RecordSize32>(buf, node_count, ip),
@@ -467,7 +474,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let buf = self.buf.as_ref();
         let base_offset = node_number * self.node_byte_size;
 
-        match self.metadata.record_size {
+        match self.record_size {
             24 => {
                 let offset = base_offset + index * 3;
                 (buf[offset] as usize) << 16
@@ -500,10 +507,27 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// Resolves a pointer from the search tree to an offset in the data section.
     #[inline]
     pub(crate) fn resolve_data_pointer(&self, pointer: usize) -> Result<usize, MaxMindDbError> {
-        let resolved = pointer - self.node_count - DATA_SECTION_SEPARATOR_SIZE;
+        let resolved = pointer
+            .checked_sub(self.node_count)
+            .and_then(|p| p.checked_sub(DATA_SECTION_SEPARATOR_SIZE))
+            .ok_or_else(|| {
+                MaxMindDbError::invalid_database(
+                    "the MaxMind DB file's data pointer resolves to an invalid location",
+                )
+            })?;
+        let data_section_len = self
+            .buf
+            .as_ref()
+            .len()
+            .checked_sub(self.pointer_base)
+            .ok_or_else(|| {
+                MaxMindDbError::invalid_database(
+                    "the MaxMind DB file's data pointer resolves to an invalid location",
+                )
+            })?;
 
         // Check bounds using pointer_base which marks the start of the data section
-        if resolved >= (self.buf.as_ref().len() - self.pointer_base) {
+        if resolved >= data_section_len {
             return Err(MaxMindDbError::invalid_database(
                 "the MaxMind DB file's data pointer resolves to an invalid location",
             ));
@@ -574,12 +598,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
                 m.ip_version
             )));
         }
-        if m.record_size != 24 && m.record_size != 28 && m.record_size != 32 {
-            return Err(MaxMindDbError::invalid_database(format!(
-                "record_size - Expected: 24, 28, or 32 Actual: {}",
-                m.record_size
-            )));
-        }
+        validate_record_size(m.record_size)?;
         if m.node_count == 0 {
             return Err(MaxMindDbError::invalid_database(
                 "node_count - Expected: positive integer Actual: 0",
@@ -674,6 +693,17 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     }
 }
 
+fn validate_record_size(record_size: u16) -> Result<(), MaxMindDbError> {
+    if matches!(record_size, 24 | 28 | 32) {
+        Ok(())
+    } else {
+        Err(MaxMindDbError::invalid_database(format!(
+            "record_size - Expected: 24, 28, or 32 Actual: {}",
+            record_size
+        )))
+    }
+}
+
 trait SearchTreeRecord {
     fn read_node(buf: &[u8], node_number: usize, index: usize) -> usize;
 }
@@ -763,6 +793,12 @@ fn find_address_in_tree_v6<R: SearchTreeRecord>(
     normalize_lookup_result(node, node_count, prefix_len)
 }
 
+// Map both "not found" outcomes onto pointer 0:
+//   - `node == node_count`: the placeholder empty terminal in the search tree.
+//   - `node < node_count`: bits exhausted while still on an internal node
+//     (a partially-specified address that did not reach a record).
+// Anything strictly greater than `node_count` is a data-section pointer that
+// the caller must resolve via `resolve_data_pointer`.
 #[inline(always)]
 fn normalize_lookup_result(node: usize, node_count: usize, prefix_len: usize) -> (usize, usize) {
     if node <= node_count {
