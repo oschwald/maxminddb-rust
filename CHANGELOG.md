@@ -8,6 +8,8 @@
 - Performance improvement: Direct deserialization of scalars, sequences,
   maps, and structs through dedicated fast paths instead of routing
   through `deserialize_any`.
+- Performance improvement: IPv4 and IPv6 lookups dispatch to dedicated
+  paths, avoiding per-call address-kind checks on the hot path.
 
 ## 0.27.3 - 2026-02-16
 

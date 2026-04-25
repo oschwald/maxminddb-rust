@@ -202,37 +202,31 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// # }
     /// ```
     pub fn lookup(&'de self, address: IpAddr) -> Result<LookupResult<'de, S>, MaxMindDbError> {
-        // Check for IPv6 address in IPv4-only database
-        if matches!(address, IpAddr::V6(_)) && self.metadata.ip_version == 4 {
-            return Err(MaxMindDbError::invalid_input(
-                "cannot look up IPv6 address in IPv4-only database",
-            ));
-        }
+        match address {
+            IpAddr::V4(v4) => {
+                let (pointer, prefix_len) = self.find_address_in_tree_v4(v4.into());
 
-        let ip_int = IpInt::new(address);
-        let (pointer, prefix_len) = self.find_address_in_tree(&ip_int);
+                // For IPv4 addresses in IPv6 databases, adjust prefix_len to reflect
+                // the actual bit depth in the tree. The ipv4_start_bit_depth tells us
+                // how deep in the IPv6 tree we were when we found the IPv4 subtree.
+                let prefix_len = if self.metadata.ip_version == 6 {
+                    self.ipv4_start_bit_depth + prefix_len
+                } else {
+                    prefix_len
+                };
 
-        // For IPv4 addresses in IPv6 databases, adjust prefix_len to reflect
-        // the actual bit depth in the tree. The ipv4_start_bit_depth tells us
-        // how deep in the IPv6 tree we were when we found the IPv4 subtree.
-        let prefix_len = if matches!(address, IpAddr::V4(_)) && self.metadata.ip_version == 6 {
-            self.ipv4_start_bit_depth + prefix_len
-        } else {
-            prefix_len
-        };
+                self.lookup_result(pointer, prefix_len as u8, address)
+            }
+            IpAddr::V6(v6) => {
+                if self.metadata.ip_version == 4 {
+                    return Err(MaxMindDbError::invalid_input(
+                        "cannot look up IPv6 address in IPv4-only database",
+                    ));
+                }
 
-        if pointer == 0 {
-            // IP not found in database
-            Ok(LookupResult::new_not_found(self, prefix_len as u8, address))
-        } else {
-            // Resolve the pointer to a data offset
-            let data_offset = self.resolve_data_pointer(pointer)?;
-            Ok(LookupResult::new_found(
-                self,
-                data_offset,
-                prefix_len as u8,
-                address,
-            ))
+                let (pointer, prefix_len) = self.find_address_in_tree_v6(v6.into());
+                self.lookup_result(pointer, prefix_len as u8, address)
+            }
         }
     }
 
@@ -391,23 +385,48 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         Ok(within)
     }
 
-    fn find_address_in_tree(&self, ip_int: &IpInt) -> (usize, usize) {
+    #[inline(always)]
+    fn lookup_result(
+        &'de self,
+        pointer: usize,
+        prefix_len: u8,
+        address: IpAddr,
+    ) -> Result<LookupResult<'de, S>, MaxMindDbError> {
+        if pointer == 0 {
+            Ok(LookupResult::new_not_found(self, prefix_len, address))
+        } else {
+            let data_offset = self.resolve_data_pointer(pointer)?;
+            Ok(LookupResult::new_found(
+                self,
+                data_offset,
+                prefix_len,
+                address,
+            ))
+        }
+    }
+
+    #[inline(always)]
+    fn find_address_in_tree_v4(&self, ip: u32) -> (usize, usize) {
         let buf = self.buf.as_ref();
         let node_count = self.node_count;
 
-        match (self.metadata.record_size, *ip_int) {
-            (24, IpInt::V4(ip)) => {
-                find_address_in_tree_v4::<RecordSize24>(buf, self.ipv4_start, node_count, ip)
-            }
-            (24, IpInt::V6(ip)) => find_address_in_tree_v6::<RecordSize24>(buf, node_count, ip),
-            (28, IpInt::V4(ip)) => {
-                find_address_in_tree_v4::<RecordSize28>(buf, self.ipv4_start, node_count, ip)
-            }
-            (28, IpInt::V6(ip)) => find_address_in_tree_v6::<RecordSize28>(buf, node_count, ip),
-            (32, IpInt::V4(ip)) => {
-                find_address_in_tree_v4::<RecordSize32>(buf, self.ipv4_start, node_count, ip)
-            }
-            (32, IpInt::V6(ip)) => find_address_in_tree_v6::<RecordSize32>(buf, node_count, ip),
+        match self.metadata.record_size {
+            24 => find_address_in_tree_v4::<RecordSize24>(buf, self.ipv4_start, node_count, ip),
+            28 => find_address_in_tree_v4::<RecordSize28>(buf, self.ipv4_start, node_count, ip),
+            32 => find_address_in_tree_v4::<RecordSize32>(buf, self.ipv4_start, node_count, ip),
+            _ => unreachable!("record_size is validated in Reader::from_source"),
+        }
+    }
+
+    #[inline(always)]
+    fn find_address_in_tree_v6(&self, ip: u128) -> (usize, usize) {
+        let buf = self.buf.as_ref();
+        let node_count = self.node_count;
+
+        match self.metadata.record_size {
+            24 => find_address_in_tree_v6::<RecordSize24>(buf, node_count, ip),
+            28 => find_address_in_tree_v6::<RecordSize28>(buf, node_count, ip),
+            32 => find_address_in_tree_v6::<RecordSize32>(buf, node_count, ip),
             _ => unreachable!("record_size is validated in Reader::from_source"),
         }
     }
