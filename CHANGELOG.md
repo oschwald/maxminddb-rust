@@ -1,5 +1,11 @@
 # Change Log
 
+## Unreleased
+
+- Performance improvement: Faster search-tree traversal by dispatching
+  on the database's record size to monomorphized node readers, replacing
+  per-step branching on the record size.
+
 ## 0.27.3 - 2026-02-16
 
 - Removed the `release_max_level_info` feature from the `log` dependency, as
