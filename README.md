@@ -28,14 +28,14 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-maxminddb = "0.27"
+maxminddb = "0.28"
 ```
 
 Enable optional features as needed:
 
 ```toml
 [dependencies]
-maxminddb = { version = "0.27", features = ["mmap"] }
+maxminddb = { version = "0.28", features = ["mmap"] }
 ```
 
 ## Example
@@ -113,7 +113,7 @@ Enable in `Cargo.toml`:
 
 ```toml
 [dependencies]
-maxminddb = { version = "0.27", features = ["mmap"] }
+maxminddb = { version = "0.28", features = ["mmap"] }
 ```
 
 Note: `simdutf8` and `unsafe-str-decode` are mutually exclusive.
