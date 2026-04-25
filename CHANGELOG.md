@@ -10,6 +10,9 @@
   through `deserialize_any`.
 - Performance improvement: IPv4 and IPv6 lookups dispatch to dedicated
   paths, avoiding per-call address-kind checks on the hot path.
+- Behavior change: Deserializing a database array into a tuple or
+  tuple struct now returns a decoding error when the lengths do not
+  match. Previously the mismatch was silently ignored.
 
 ## 0.27.3 - 2026-02-16
 

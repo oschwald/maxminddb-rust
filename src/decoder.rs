@@ -65,6 +65,20 @@ macro_rules! decode_int_like {
     };
 }
 
+macro_rules! deserialize_direct_scalar {
+    ($name:ident, $expected_type:expr, $label:literal, $visit:ident, $decode:ident) => {
+        fn $name<V>(self, visitor: V) -> DecodeResult<V::Value>
+        where
+            V: Visitor<'de>,
+        {
+            let (size, type_num) = self.size_and_type()?;
+            self.decode_direct(size, type_num, $expected_type, $label, |de, size| {
+                visitor.$visit(de.$decode(size)?)
+            })
+        }
+    };
+}
+
 enum Value<'a, 'de> {
     Any { prev_ptr: usize },
     Bytes(&'de [u8]),
@@ -229,6 +243,25 @@ impl<'de> Decoder<'de> {
                 res
             }
         }
+    }
+
+    fn deserialize_fixed_size_array<V>(&mut self, len: usize, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        let (size, type_num) = self.size_and_type()?;
+        self.decode_direct(size, type_num, TYPE_ARRAY, "array", |de, size| {
+            if size != len {
+                return Err(de.decode_error(&format!(
+                    "expected tuple of length {len}, got array of length {size}"
+                )));
+            }
+
+            de.enter_nested()?;
+            let res = visitor.visit_seq(ArrayAccess { de, count: size });
+            de.exit_nested();
+            res
+        })
     }
 
     #[inline(always)]
@@ -726,95 +759,65 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
         visitor.visit_some(self)
     }
 
-    fn deserialize_bool<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        let (size, type_num) = self.size_and_type()?;
-        self.decode_direct(size, type_num, TYPE_BOOL, "bool", |de, size| {
-            visitor.visit_bool(de.decode_bool(size)?)
-        })
-    }
+    deserialize_direct_scalar!(deserialize_bool, TYPE_BOOL, "bool", visit_bool, decode_bool);
 
-    fn deserialize_u16<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        let (size, type_num) = self.size_and_type()?;
-        self.decode_direct(size, type_num, TYPE_UINT16, "u16", |de, size| {
-            visitor.visit_u16(de.decode_uint16(size)?)
-        })
-    }
+    deserialize_direct_scalar!(
+        deserialize_u16,
+        TYPE_UINT16,
+        "u16",
+        visit_u16,
+        decode_uint16
+    );
 
-    fn deserialize_u32<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        let (size, type_num) = self.size_and_type()?;
-        self.decode_direct(size, type_num, TYPE_UINT32, "u32", |de, size| {
-            visitor.visit_u32(de.decode_uint32(size)?)
-        })
-    }
+    deserialize_direct_scalar!(
+        deserialize_u32,
+        TYPE_UINT32,
+        "u32",
+        visit_u32,
+        decode_uint32
+    );
 
-    fn deserialize_u64<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        let (size, type_num) = self.size_and_type()?;
-        self.decode_direct(size, type_num, TYPE_UINT64, "u64", |de, size| {
-            visitor.visit_u64(de.decode_uint64(size)?)
-        })
-    }
+    deserialize_direct_scalar!(
+        deserialize_u64,
+        TYPE_UINT64,
+        "u64",
+        visit_u64,
+        decode_uint64
+    );
 
-    fn deserialize_u128<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        let (size, type_num) = self.size_and_type()?;
-        self.decode_direct(size, type_num, TYPE_UINT128, "u128", |de, size| {
-            visitor.visit_u128(de.decode_uint128(size)?)
-        })
-    }
+    deserialize_direct_scalar!(
+        deserialize_u128,
+        TYPE_UINT128,
+        "u128",
+        visit_u128,
+        decode_uint128
+    );
 
-    fn deserialize_i32<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        let (size, type_num) = self.size_and_type()?;
-        self.decode_direct(size, type_num, TYPE_INT32, "i32", |de, size| {
-            visitor.visit_i32(de.decode_int(size)?)
-        })
-    }
+    deserialize_direct_scalar!(deserialize_i32, TYPE_INT32, "i32", visit_i32, decode_int);
 
-    fn deserialize_f32<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        let (size, type_num) = self.size_and_type()?;
-        self.decode_direct(size, type_num, TYPE_FLOAT, "float", |de, size| {
-            visitor.visit_f32(de.decode_float(size)?)
-        })
-    }
+    deserialize_direct_scalar!(
+        deserialize_f32,
+        TYPE_FLOAT,
+        "float",
+        visit_f32,
+        decode_float
+    );
 
-    fn deserialize_f64<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        let (size, type_num) = self.size_and_type()?;
-        self.decode_direct(size, type_num, TYPE_DOUBLE, "double", |de, size| {
-            visitor.visit_f64(de.decode_double(size)?)
-        })
-    }
+    deserialize_direct_scalar!(
+        deserialize_f64,
+        TYPE_DOUBLE,
+        "double",
+        visit_f64,
+        decode_double
+    );
 
-    fn deserialize_str<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        let (size, type_num) = self.size_and_type()?;
-        self.decode_direct(size, type_num, TYPE_STRING, "string", |de, size| {
-            visitor.visit_borrowed_str(de.decode_string(size)?)
-        })
-    }
+    deserialize_direct_scalar!(
+        deserialize_str,
+        TYPE_STRING,
+        "string",
+        visit_borrowed_str,
+        decode_string
+    );
 
     fn deserialize_string<V>(self, visitor: V) -> DecodeResult<V::Value>
     where
@@ -823,15 +826,13 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
         self.deserialize_str(visitor)
     }
 
-    fn deserialize_bytes<V>(self, visitor: V) -> DecodeResult<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        let (size, type_num) = self.size_and_type()?;
-        self.decode_direct(size, type_num, TYPE_BYTES, "bytes", |de, size| {
-            visitor.visit_borrowed_bytes(de.decode_bytes(size)?)
-        })
-    }
+    deserialize_direct_scalar!(
+        deserialize_bytes,
+        TYPE_BYTES,
+        "bytes",
+        visit_borrowed_bytes,
+        decode_bytes
+    );
 
     fn deserialize_byte_buf<V>(self, visitor: V) -> DecodeResult<V::Value>
     where
@@ -853,23 +854,23 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
         })
     }
 
-    fn deserialize_tuple<V>(self, _len: usize, visitor: V) -> DecodeResult<V::Value>
+    fn deserialize_tuple<V>(self, len: usize, visitor: V) -> DecodeResult<V::Value>
     where
         V: Visitor<'de>,
     {
-        self.deserialize_seq(visitor)
+        self.deserialize_fixed_size_array(len, visitor)
     }
 
     fn deserialize_tuple_struct<V>(
         self,
         _name: &'static str,
-        _len: usize,
+        len: usize,
         visitor: V,
     ) -> DecodeResult<V::Value>
     where
         V: Visitor<'de>,
     {
-        self.deserialize_seq(visitor)
+        self.deserialize_fixed_size_array(len, visitor)
     }
 
     fn deserialize_map<V>(self, visitor: V) -> DecodeResult<V::Value>
@@ -1043,11 +1044,11 @@ impl<'de> de::VariantAccess<'de> for EnumAccessor<'_, 'de> {
         seed.deserialize(&mut *self.de)
     }
 
-    fn tuple_variant<V>(self, _len: usize, visitor: V) -> DecodeResult<V::Value>
+    fn tuple_variant<V>(self, len: usize, visitor: V) -> DecodeResult<V::Value>
     where
         V: Visitor<'de>,
     {
-        de::Deserializer::deserialize_seq(&mut *self.de, visitor)
+        self.de.deserialize_fixed_size_array(len, visitor)
     }
 
     fn struct_variant<V>(
@@ -1059,5 +1060,74 @@ impl<'de> de::VariantAccess<'de> for EnumAccessor<'_, 'de> {
         V: Visitor<'de>,
     {
         de::Deserializer::deserialize_map(&mut *self.de, visitor)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::Reader;
+
+    #[test]
+    fn test_decoder_accepts_tuple_with_matching_length() {
+        #[allow(dead_code)]
+        #[derive(Debug, serde::Deserialize)]
+        struct TupleRecord {
+            array: (u32, u32, u32),
+        }
+
+        #[allow(dead_code)]
+        #[derive(Debug, serde::Deserialize)]
+        struct TupleStructRecord {
+            array: TupleStruct,
+        }
+
+        #[allow(dead_code)]
+        #[derive(Debug, serde::Deserialize)]
+        struct TupleStruct(u32, u32, u32);
+
+        let reader =
+            Reader::open_readfile("test-data/test-data/MaxMind-DB-test-decoder.mmdb").unwrap();
+        let lookup = reader.lookup("1.1.1.0".parse().unwrap()).unwrap();
+
+        let tuple = lookup.decode::<TupleRecord>().unwrap().unwrap();
+        assert_eq!(tuple.array, (1, 2, 3));
+
+        let tuple_struct = lookup.decode::<TupleStructRecord>().unwrap().unwrap();
+        assert_eq!(tuple_struct.array.0, 1);
+        assert_eq!(tuple_struct.array.1, 2);
+        assert_eq!(tuple_struct.array.2, 3);
+    }
+
+    #[test]
+    fn test_decoder_rejects_tuple_length_mismatch() {
+        #[allow(dead_code)]
+        #[derive(Debug, serde::Deserialize)]
+        struct TupleRecord {
+            array: (u32, u32),
+        }
+
+        #[allow(dead_code)]
+        #[derive(Debug, serde::Deserialize)]
+        struct TupleStructRecord {
+            array: TupleStruct,
+        }
+
+        #[allow(dead_code)]
+        #[derive(Debug, serde::Deserialize)]
+        struct TupleStruct(u32, u32);
+
+        let reader =
+            Reader::open_readfile("test-data/test-data/MaxMind-DB-test-decoder.mmdb").unwrap();
+        let lookup = reader.lookup("1.1.1.0".parse().unwrap()).unwrap();
+
+        let tuple_err = lookup.decode::<TupleRecord>().unwrap_err();
+        assert!(tuple_err
+            .to_string()
+            .contains("expected tuple of length 2, got array of length 3"));
+
+        let tuple_struct_err = lookup.decode::<TupleStructRecord>().unwrap_err();
+        assert!(tuple_struct_err
+            .to_string()
+            .contains("expected tuple of length 2, got array of length 3"));
     }
 }
