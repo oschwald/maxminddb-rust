@@ -137,6 +137,14 @@ impl IpInt {
         }
     }
 
+    #[inline(always)]
+    pub(crate) fn set_bit(&mut self, index: usize) {
+        match self {
+            IpInt::V4(ip) => *ip |= 1 << (31 - index),
+            IpInt::V6(ip) => *ip |= 1 << (127 - index),
+        }
+    }
+
     pub(crate) fn bit_count(&self) -> usize {
         match self {
             IpInt::V4(_) => 32,
@@ -214,11 +222,7 @@ impl<'de, S: AsRef<[u8]>> Iterator for Within<'de, S> {
                     let mut right_ip_int = current.ip_int;
 
                     if current.prefix_len < bit_count {
-                        let bit = current.prefix_len;
-                        match &mut right_ip_int {
-                            IpInt::V4(ip) => *ip |= 1 << (31 - bit),
-                            IpInt::V6(ip) => *ip |= 1 << (127 - bit),
-                        };
+                        right_ip_int.set_bit(current.prefix_len);
                     }
 
                     self.push_child(current.node, 1, right_ip_int, current.prefix_len + 1);

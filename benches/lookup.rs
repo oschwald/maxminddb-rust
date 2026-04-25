@@ -10,7 +10,7 @@ use rayon::prelude::*;
 use std::net::IpAddr;
 
 mod common;
-use common::generate_ipv4;
+use common::{generate_ipv4, open_reader};
 
 // Single-threaded
 pub fn bench_maxminddb<T>(ips: &[IpAddr], reader: &maxminddb::Reader<T>)
@@ -42,22 +42,14 @@ const DB_FILE: &str = "GeoLite2-City.mmdb";
 
 pub fn criterion_benchmark(c: &mut Criterion) {
     let ips = generate_ipv4(100);
-    #[cfg(not(feature = "mmap"))]
-    let reader = maxminddb::Reader::open_readfile(DB_FILE).unwrap();
-    #[cfg(feature = "mmap")]
-    // SAFETY: The benchmark database file will not be modified during the benchmark.
-    let reader = unsafe { maxminddb::Reader::open_mmap(DB_FILE) }.unwrap();
+    let reader = open_reader(DB_FILE);
 
     c.bench_function("maxminddb", |b| b.iter(|| bench_maxminddb(&ips, &reader)));
 }
 
 pub fn criterion_par_benchmark(c: &mut Criterion) {
     let ips = generate_ipv4(100);
-    #[cfg(not(feature = "mmap"))]
-    let reader = maxminddb::Reader::open_readfile(DB_FILE).unwrap();
-    #[cfg(feature = "mmap")]
-    // SAFETY: The benchmark database file will not be modified during the benchmark.
-    let reader = unsafe { maxminddb::Reader::open_mmap(DB_FILE) }.unwrap();
+    let reader = open_reader(DB_FILE);
 
     c.bench_function("maxminddb_par", |b| {
         b.iter(|| bench_par_maxminddb(&ips, &reader))

@@ -7,6 +7,9 @@ use serde_json::json;
 use crate::geoip2;
 use crate::{MaxMindDbError, Reader, Within, WithinOptions};
 
+const TEST_DATABASE_CONFIGS: &[(usize, usize)] =
+    &[(24, 4), (28, 4), (32, 4), (24, 6), (28, 6), (32, 6)];
+const TEST_RECORD_SIZES: &[usize] = &[24, 28, 32];
 fn init_logger() {
     let _ = env_logger::try_init();
 }
@@ -14,6 +17,17 @@ fn init_logger() {
 fn open_test_data_reader(database: &str) -> Reader<Vec<u8>> {
     Reader::open_readfile(format!("test-data/test-data/{database}"))
         .unwrap_or_else(|e| panic!("failed to open test database '{database}': {e}"))
+}
+
+fn collect_networks<S: AsRef<[u8]>>(iter: Within<'_, S>) -> Vec<String> {
+    iter.map(|result| {
+        result
+            .unwrap_or_else(|e| panic!("unexpected iterator error: {e}"))
+            .network()
+            .unwrap_or_else(|e| panic!("failed to build network from lookup result: {e}"))
+            .to_string()
+    })
+    .collect()
 }
 
 #[allow(clippy::float_cmp)]
@@ -149,17 +163,13 @@ fn test_non_database() {
 fn test_reader_readfile() {
     init_logger();
 
-    let sizes = [24_usize, 28, 32];
-    for record_size in &sizes {
-        let versions = [4_usize, 6];
-        for ip_version in &versions {
-            let reader = open_test_data_reader(&format!(
-                "MaxMind-DB-test-ipv{ip_version}-{record_size}.mmdb"
-            ));
+    for (record_size, ip_version) in TEST_DATABASE_CONFIGS {
+        let reader = open_test_data_reader(&format!(
+            "MaxMind-DB-test-ipv{ip_version}-{record_size}.mmdb"
+        ));
 
-            check_metadata(&reader, *ip_version, *record_size);
-            check_ip(&reader, *ip_version);
-        }
+        check_metadata(&reader, *ip_version, *record_size);
+        check_ip(&reader, *ip_version);
     }
 }
 
@@ -168,20 +178,14 @@ fn test_reader_readfile() {
 fn test_reader_mmap() {
     init_logger();
 
-    let sizes = [24usize, 28, 32];
-    for record_size in sizes.iter() {
-        let versions = [4usize, 6];
-        for ip_version in versions.iter() {
-            let filename = format!(
-                "test-data/test-data/MaxMind-DB-test-ipv{}-{}.mmdb",
-                ip_version, record_size
-            );
-            // SAFETY: The test database file will not be modified during the test.
-            let reader = unsafe { Reader::open_mmap(filename) }.unwrap();
+    for (record_size, ip_version) in TEST_DATABASE_CONFIGS {
+        let filename =
+            format!("test-data/test-data/MaxMind-DB-test-ipv{ip_version}-{record_size}.mmdb");
+        // SAFETY: The test database file will not be modified during the test.
+        let reader = unsafe { Reader::open_mmap(filename) }.unwrap();
 
-            check_metadata(&reader, *ip_version, *record_size);
-            check_ip(&reader, *ip_version);
-        }
+        check_metadata(&reader, *ip_version, *record_size);
+        check_ip(&reader, *ip_version);
     }
 }
 
@@ -455,6 +459,30 @@ fn check_metadata<S: AsRef<[u8]>>(reader: &Reader<S>, ip_version: usize, record_
     assert_eq!(metadata.record_size, record_size as u16)
 }
 
+#[test]
+fn test_lookup_uses_cached_record_size_after_metadata_mutation() {
+    init_logger();
+
+    let mut reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
+    reader.metadata.record_size = 0;
+
+    let lookup = reader.lookup("1.1.1.1".parse().unwrap()).unwrap();
+    assert!(lookup.has_data());
+    assert_eq!(lookup.network().unwrap().to_string(), "1.1.1.1/32");
+}
+
+#[test]
+fn test_resolve_data_pointer_rejects_small_pointer() {
+    init_logger();
+
+    let reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
+    let err = reader
+        .resolve_data_pointer(reader.metadata.node_count as usize)
+        .unwrap_err();
+
+    assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+}
+
 fn check_ip<S: AsRef<[u8]>>(reader: &Reader<S>, ip_version: usize) {
     let subnets = match ip_version {
         6 => [
@@ -560,32 +588,29 @@ fn test_json_serialize() {
 fn test_networks() {
     init_logger();
 
-    // Test with different record sizes and IP versions
-    for record_size in &[24_u32, 28, 32] {
-        for ip_version in &[4_u32, 6] {
-            let reader = open_test_data_reader(&format!(
-                "MaxMind-DB-test-ipv{ip_version}-{record_size}.mmdb"
-            ));
+    for (record_size, ip_version) in TEST_DATABASE_CONFIGS {
+        let reader = open_test_data_reader(&format!(
+            "MaxMind-DB-test-ipv{ip_version}-{record_size}.mmdb"
+        ));
 
-            for result in reader.networks(Default::default()).unwrap() {
-                let lookup = result.unwrap();
-                assert!(
-                    lookup.has_data(),
-                    "networks() should only yield found records by default"
-                );
+        for result in reader.networks(Default::default()).unwrap() {
+            let lookup = result.unwrap();
+            assert!(
+                lookup.has_data(),
+                "networks() should only yield found records by default"
+            );
 
-                #[derive(Deserialize)]
-                struct IpRecord {
-                    ip: String,
-                }
-                let record: IpRecord = lookup.decode().unwrap().unwrap();
-                let network = lookup.network().unwrap();
-                assert_eq!(
-                    record.ip,
-                    network.ip().to_string(),
-                    "record IP should match network IP"
-                );
+            #[derive(Deserialize)]
+            struct IpRecord {
+                ip: String,
             }
+            let record: IpRecord = lookup.decode().unwrap().unwrap();
+            let network = lookup.network().unwrap();
+            assert_eq!(
+                record.ip,
+                network.ip().to_string(),
+                "record IP should match network IP"
+            );
         }
     }
 }
@@ -614,11 +639,7 @@ fn test_default_skips_aliases() {
         "::2:0:58/127",
     ];
 
-    let mut networks: Vec<String> = Vec::new();
-    for result in reader.within(ip_net_all, Default::default()).unwrap() {
-        let lookup = result.unwrap();
-        networks.push(lookup.network().unwrap().to_string());
-    }
+    let networks = collect_networks(reader.within(ip_net_all, Default::default()).unwrap());
 
     assert_eq!(networks, expected_without_aliases);
 }
@@ -666,11 +687,7 @@ fn test_include_aliased_networks() {
         "2002:101:120::/48",
     ];
 
-    let mut networks: Vec<String> = Vec::new();
-    for result in reader.within(ip_net_all, opts).unwrap() {
-        let lookup = result.unwrap();
-        networks.push(lookup.network().unwrap().to_string());
-    }
+    let networks = collect_networks(reader.within(ip_net_all, opts).unwrap());
 
     assert_eq!(networks, expected_with_aliases);
 }
@@ -946,7 +963,7 @@ fn test_networks_within_scenarios() {
         },
     ];
 
-    for record_size in &[24_u32, 28, 32] {
+    for record_size in TEST_RECORD_SIZES {
         for test in &test_cases {
             let reader = open_test_data_reader(&format!(
                 "MaxMind-DB-test-{}-{}.mmdb",
@@ -954,12 +971,7 @@ fn test_networks_within_scenarios() {
             ));
 
             let cidr: IpNetwork = test.network.parse().unwrap();
-            let mut networks: Vec<String> = Vec::new();
-
-            for result in reader.within(cidr, Default::default()).unwrap() {
-                let lookup = result.unwrap();
-                networks.push(lookup.network().unwrap().to_string());
-            }
+            let networks = collect_networks(reader.within(cidr, Default::default()).unwrap());
 
             let expected: Vec<String> = test.expected.iter().map(|s| s.to_string()).collect();
             assert_eq!(
@@ -981,11 +993,7 @@ fn test_geoip_networks_within() {
     let cidr: IpNetwork = "81.2.69.128/26".parse().unwrap();
     let expected = vec!["81.2.69.142/31", "81.2.69.144/28", "81.2.69.160/27"];
 
-    let mut networks: Vec<String> = Vec::new();
-    for result in reader.within(cidr, Default::default()).unwrap() {
-        let lookup = result.unwrap();
-        networks.push(lookup.network().unwrap().to_string());
-    }
+    let networks = collect_networks(reader.within(cidr, Default::default()).unwrap());
 
     assert_eq!(networks, expected);
 }

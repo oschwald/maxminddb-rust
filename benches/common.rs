@@ -19,3 +19,12 @@ pub fn generate_ipv4(count: u64) -> Vec<IpAddr> {
     }
     ips
 }
+
+pub fn open_reader(db_file: &str) -> maxminddb::Reader<impl AsRef<[u8]>> {
+    #[cfg(not(feature = "mmap"))]
+    return maxminddb::Reader::open_readfile(db_file).unwrap();
+
+    #[cfg(feature = "mmap")]
+    // SAFETY: The benchmark database file will not be modified during the benchmark.
+    return unsafe { maxminddb::Reader::open_mmap(db_file) }.unwrap();
+}

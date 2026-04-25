@@ -59,17 +59,14 @@
 //! Use `decode_path` to extract specific fields without deserializing the entire record:
 //!
 //! ```rust
-//! use maxminddb::{Reader, PathElement};
+//! use maxminddb::{path, Reader};
 //! use std::net::IpAddr;
 //!
 //! let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
 //! let ip: IpAddr = "89.160.20.128".parse().unwrap();
 //!
 //! let result = reader.lookup(ip).unwrap();
-//! let country_code: Option<String> = result.decode_path(&[
-//!     PathElement::Key("country"),
-//!     PathElement::Key("iso_code"),
-//! ]).unwrap();
+//! let country_code: Option<String> = result.decode_path(&path!["country", "iso_code"]).unwrap();
 //!
 //! println!("Country: {:?}", country_code);
 //! ```
@@ -263,6 +260,23 @@ mod tests {
     }
 
     #[test]
+    fn test_lookup_offset_is_stable_for_shared_record() {
+        let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+
+        let first = reader.lookup("89.160.20.128".parse().unwrap()).unwrap();
+        let second = reader.lookup("89.160.20.129".parse().unwrap()).unwrap();
+
+        assert!(first.has_data());
+        assert!(second.has_data());
+        assert_eq!(first.network().unwrap(), second.network().unwrap());
+        assert_eq!(
+            first.offset(),
+            second.offset(),
+            "IPs in the same record should share a cacheable offset"
+        );
+    }
+
+    #[test]
     fn test_decode_path() {
         let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
         let ip: IpAddr = "89.160.20.128".parse().unwrap();
@@ -280,6 +294,23 @@ mod tests {
             .decode_path(&[PathElement::Key("nonexistent")])
             .unwrap();
         assert!(missing.is_none());
+    }
+
+    #[test]
+    fn test_decode_path_on_not_found_lookup() {
+        let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+        let ip: IpAddr = "2c0f:ff00::1".parse().unwrap();
+
+        let result = reader.lookup(ip).unwrap();
+
+        assert!(!result.has_data());
+        assert!(result.offset().is_none());
+        assert!(result.decode::<geoip2::City>().unwrap().is_none());
+
+        let country_code: Option<String> = result
+            .decode_path(&[PathElement::Key("country"), PathElement::Key("iso_code")])
+            .unwrap();
+        assert!(country_code.is_none());
     }
 
     #[test]

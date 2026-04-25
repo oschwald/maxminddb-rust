@@ -41,6 +41,13 @@ pub struct Reader<S: AsRef<[u8]>> {
     pub(crate) buf: S,
     /// Database metadata.
     pub metadata: Metadata,
+    record_size: u16,
+    /// Cached `Metadata::node_count` for `Reader` search-tree traversal.
+    /// Use this instead of `metadata.node_count`, which is publicly mutable.
+    node_count: usize,
+    /// Cached bytes per node derived from `Metadata::record_size` for `Reader`.
+    /// Use this instead of `metadata.record_size` in lookup hot paths.
+    node_byte_size: usize,
     pub(crate) ipv4_start: usize,
     /// Bit depth at which ipv4_start was found (0-96). Used to calculate
     /// correct prefix lengths for IPv4 lookups in IPv6 databases.
@@ -119,17 +126,18 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let metadata_start = find_metadata_start(buf.as_ref())?;
         let mut type_decoder = decoder::Decoder::new(&buf.as_ref()[metadata_start..], 0);
         let metadata = Metadata::deserialize(&mut type_decoder)?;
-        if !matches!(metadata.record_size, 24 | 28 | 32) {
-            return Err(MaxMindDbError::invalid_database(format!(
-                "record_size - Expected: 24, 28, or 32 Actual: {}",
-                metadata.record_size
-            )));
-        }
+        validate_record_size(metadata.record_size)?;
 
         let search_tree_size = (metadata.node_count as usize) * (metadata.record_size as usize) / 4;
+        let record_size = metadata.record_size;
+        let node_count = metadata.node_count as usize;
+        let node_byte_size = record_size as usize / 4;
 
         let mut reader = Reader {
             buf,
+            record_size,
+            node_count,
+            node_byte_size,
             pointer_base: search_tree_size + DATA_SECTION_SEPARATOR_SIZE,
             metadata,
             ipv4_start: 0,
@@ -178,7 +186,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     ///
     /// Selective field access:
     /// ```
-    /// # use maxminddb::{Reader, PathElement};
+    /// # use maxminddb::{path, Reader};
     /// # use std::net::IpAddr;
     /// # fn main() -> Result<(), maxminddb::MaxMindDbError> {
     /// let reader = Reader::open_readfile(
@@ -186,47 +194,38 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// let ip: IpAddr = "89.160.20.128".parse().unwrap();
     ///
     /// let result = reader.lookup(ip)?;
-    /// let country_code: Option<String> = result.decode_path(&[
-    ///     PathElement::Key("country"),
-    ///     PathElement::Key("iso_code"),
-    /// ])?;
+    /// let country_code: Option<String> = result.decode_path(&path!["country", "iso_code"])?;
     ///
     /// println!("Country: {:?}", country_code);
     /// # Ok(())
     /// # }
     /// ```
     pub fn lookup(&'de self, address: IpAddr) -> Result<LookupResult<'de, S>, MaxMindDbError> {
-        // Check for IPv6 address in IPv4-only database
-        if matches!(address, IpAddr::V6(_)) && self.metadata.ip_version == 4 {
-            return Err(MaxMindDbError::invalid_input(
-                "cannot look up IPv6 address in IPv4-only database",
-            ));
-        }
+        match address {
+            IpAddr::V4(v4) => {
+                let (pointer, prefix_len) = self.find_address_in_tree_v4(v4.into());
 
-        let ip_int = IpInt::new(address);
-        let (pointer, prefix_len) = self.find_address_in_tree(&ip_int);
+                // For IPv4 addresses in IPv6 databases, adjust prefix_len to reflect
+                // the actual bit depth in the tree. The ipv4_start_bit_depth tells us
+                // how deep in the IPv6 tree we were when we found the IPv4 subtree.
+                let prefix_len = if self.metadata.ip_version == 6 {
+                    self.ipv4_start_bit_depth + prefix_len
+                } else {
+                    prefix_len
+                };
 
-        // For IPv4 addresses in IPv6 databases, adjust prefix_len to reflect
-        // the actual bit depth in the tree. The ipv4_start_bit_depth tells us
-        // how deep in the IPv6 tree we were when we found the IPv4 subtree.
-        let prefix_len = if matches!(address, IpAddr::V4(_)) && self.metadata.ip_version == 6 {
-            self.ipv4_start_bit_depth + prefix_len
-        } else {
-            prefix_len
-        };
+                self.lookup_result(pointer, prefix_len as u8, address)
+            }
+            IpAddr::V6(v6) => {
+                if self.metadata.ip_version == 4 {
+                    return Err(MaxMindDbError::invalid_input(
+                        "cannot look up IPv6 address in IPv4-only database",
+                    ));
+                }
 
-        if pointer == 0 {
-            // IP not found in database
-            Ok(LookupResult::new_not_found(self, prefix_len as u8, address))
-        } else {
-            // Resolve the pointer to a data offset
-            let data_offset = self.resolve_data_pointer(pointer)?;
-            Ok(LookupResult::new_found(
-                self,
-                data_offset,
-                prefix_len as u8,
-                address,
-            ))
+                let (pointer, prefix_len) = self.find_address_in_tree_v6(v6.into());
+                self.lookup_result(pointer, prefix_len as u8, address)
+            }
         }
     }
 
@@ -347,7 +346,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let bit_count = ip_int.bit_count();
 
         let mut node = self.start_node(bit_count);
-        let node_count = self.metadata.node_count as usize;
+        let node_count = self.node_count;
 
         let mut stack: Vec<WithinNode> = Vec::with_capacity(bit_count - prefix_len);
 
@@ -385,46 +384,54 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         Ok(within)
     }
 
-    fn find_address_in_tree(&self, ip_int: &IpInt) -> (usize, usize) {
-        let node_count = self.metadata.node_count as usize;
-
-        let (node, prefix_len) = match *ip_int {
-            IpInt::V4(ip) => {
-                let mut node = self.ipv4_start;
-                let mut prefix_len = 32;
-                for i in 0..32 {
-                    if node >= node_count {
-                        prefix_len = i;
-                        break;
-                    }
-                    let bit = ((ip >> (31 - i)) & 1) as usize;
-                    node = self.read_node(node, bit);
-                }
-                (node, prefix_len)
-            }
-            IpInt::V6(ip) => {
-                let mut node = 0;
-                let mut prefix_len = 128;
-                for i in 0..128 {
-                    if node >= node_count {
-                        prefix_len = i;
-                        break;
-                    }
-                    let bit = ((ip >> (127 - i)) & 1) as usize;
-                    node = self.read_node(node, bit);
-                }
-                (node, prefix_len)
-            }
-        };
-
-        // If node <= node_count, we either hit the placeholder "empty" node
-        // or exhausted all bits but remained on an internal tree node. Treat
-        // both as "not found" to avoid passing a non-data node to
-        // resolve_data_pointer.
-        if node <= node_count {
-            (0, prefix_len)
+    // Pointer 0 means "not found" because normalize_lookup_result collapses both
+    // the placeholder empty node (`node == node_count`) and an unfinished internal
+    // terminal (`node < node_count`, i.e. bits exhausted while still on a tree
+    // node) into 0, so neither path reaches resolve_data_pointer with a non-data
+    // value.
+    #[inline(always)]
+    fn lookup_result(
+        &'de self,
+        pointer: usize,
+        prefix_len: u8,
+        address: IpAddr,
+    ) -> Result<LookupResult<'de, S>, MaxMindDbError> {
+        if pointer == 0 {
+            Ok(LookupResult::new_not_found(self, prefix_len, address))
         } else {
-            (node, prefix_len)
+            let data_offset = self.resolve_data_pointer(pointer)?;
+            Ok(LookupResult::new_found(
+                self,
+                data_offset,
+                prefix_len,
+                address,
+            ))
+        }
+    }
+
+    #[inline(always)]
+    fn find_address_in_tree_v4(&self, ip: u32) -> (usize, usize) {
+        let buf = self.buf.as_ref();
+        let node_count = self.node_count;
+
+        match self.record_size {
+            24 => find_address_in_tree_v4::<RecordSize24>(buf, self.ipv4_start, node_count, ip),
+            28 => find_address_in_tree_v4::<RecordSize28>(buf, self.ipv4_start, node_count, ip),
+            32 => find_address_in_tree_v4::<RecordSize32>(buf, self.ipv4_start, node_count, ip),
+            _ => unreachable!("record_size is validated in Reader::from_source"),
+        }
+    }
+
+    #[inline(always)]
+    fn find_address_in_tree_v6(&self, ip: u128) -> (usize, usize) {
+        let buf = self.buf.as_ref();
+        let node_count = self.node_count;
+
+        match self.record_size {
+            24 => find_address_in_tree_v6::<RecordSize24>(buf, node_count, ip),
+            28 => find_address_in_tree_v6::<RecordSize28>(buf, node_count, ip),
+            32 => find_address_in_tree_v6::<RecordSize32>(buf, node_count, ip),
+            _ => unreachable!("record_size is validated in Reader::from_source"),
         }
     }
 
@@ -449,7 +456,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let mut node: usize = 0;
         let mut depth: usize = 0;
         for i in 0_u8..96 {
-            if node >= self.metadata.node_count as usize {
+            if node >= self.node_count {
                 depth = i as usize;
                 break;
             }
@@ -462,9 +469,9 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     #[inline(always)]
     pub(crate) fn read_node(&self, node_number: usize, index: usize) -> usize {
         let buf = self.buf.as_ref();
-        let base_offset = node_number * (self.metadata.record_size as usize) / 4;
+        let base_offset = node_number * self.node_byte_size;
 
-        match self.metadata.record_size {
+        match self.record_size {
             24 => {
                 let offset = base_offset + index * 3;
                 (buf[offset] as usize) << 16
@@ -497,10 +504,27 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// Resolves a pointer from the search tree to an offset in the data section.
     #[inline]
     pub(crate) fn resolve_data_pointer(&self, pointer: usize) -> Result<usize, MaxMindDbError> {
-        let resolved = pointer - (self.metadata.node_count as usize) - DATA_SECTION_SEPARATOR_SIZE;
+        let resolved = pointer
+            .checked_sub(self.node_count)
+            .and_then(|p| p.checked_sub(DATA_SECTION_SEPARATOR_SIZE))
+            .ok_or_else(|| {
+                MaxMindDbError::invalid_database(
+                    "the MaxMind DB file's data pointer resolves to an invalid location",
+                )
+            })?;
+        let data_section_len = self
+            .buf
+            .as_ref()
+            .len()
+            .checked_sub(self.pointer_base)
+            .ok_or_else(|| {
+                MaxMindDbError::invalid_database(
+                    "the MaxMind DB file's data pointer resolves to an invalid location",
+                )
+            })?;
 
         // Check bounds using pointer_base which marks the start of the data section
-        if resolved >= (self.buf.as_ref().len() - self.pointer_base) {
+        if resolved >= data_section_len {
             return Err(MaxMindDbError::invalid_database(
                 "the MaxMind DB file's data pointer resolves to an invalid location",
             ));
@@ -571,12 +595,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
                 m.ip_version
             )));
         }
-        if m.record_size != 24 && m.record_size != 28 && m.record_size != 32 {
-            return Err(MaxMindDbError::invalid_database(format!(
-                "record_size - Expected: 24, 28, or 32 Actual: {}",
-                m.record_size
-            )));
-        }
+        validate_record_size(m.record_size)?;
         if m.node_count == 0 {
             return Err(MaxMindDbError::invalid_database(
                 "node_count - Expected: positive integer Actual: 0",
@@ -598,7 +617,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         // Maximum number of networks we can expect in a valid database.
         // A database with N nodes can have at most 2N data entries (each leaf node
         // can have data). We add some margin for safety.
-        let max_iterations = (self.metadata.node_count as usize).saturating_mul(3);
+        let max_iterations = self.node_count.saturating_mul(3);
         let mut iteration_count = 0usize;
 
         for result in self.networks(opts)? {
@@ -618,8 +637,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     }
 
     fn verify_data_section_separator(&self) -> Result<(), MaxMindDbError> {
-        let separator_start =
-            self.metadata.node_count as usize * self.metadata.record_size as usize / 4;
+        let separator_start = self.node_count * self.node_byte_size;
         let separator_end = separator_start + DATA_SECTION_SEPARATOR_SIZE;
 
         if separator_end > self.buf.as_ref().len() {
@@ -669,6 +687,121 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         }
 
         Ok(())
+    }
+}
+
+fn validate_record_size(record_size: u16) -> Result<(), MaxMindDbError> {
+    if matches!(record_size, 24 | 28 | 32) {
+        Ok(())
+    } else {
+        Err(MaxMindDbError::invalid_database(format!(
+            "record_size - Expected: 24, 28, or 32 Actual: {}",
+            record_size
+        )))
+    }
+}
+
+trait SearchTreeRecord {
+    fn read_node(buf: &[u8], node_number: usize, index: usize) -> usize;
+}
+
+struct RecordSize24;
+
+impl SearchTreeRecord for RecordSize24 {
+    #[inline(always)]
+    fn read_node(buf: &[u8], node_number: usize, index: usize) -> usize {
+        let offset = node_number * 6 + index * 3;
+        (buf[offset] as usize) << 16 | (buf[offset + 1] as usize) << 8 | buf[offset + 2] as usize
+    }
+}
+
+struct RecordSize28;
+
+impl SearchTreeRecord for RecordSize28 {
+    #[inline(always)]
+    fn read_node(buf: &[u8], node_number: usize, index: usize) -> usize {
+        let base_offset = node_number * 7;
+        let middle = if index == 0 {
+            (buf[base_offset + 3] & 0xF0) >> 4
+        } else {
+            buf[base_offset + 3] & 0x0F
+        };
+        let offset = base_offset + index * 4;
+        (middle as usize) << 24
+            | (buf[offset] as usize) << 16
+            | (buf[offset + 1] as usize) << 8
+            | buf[offset + 2] as usize
+    }
+}
+
+struct RecordSize32;
+
+impl SearchTreeRecord for RecordSize32 {
+    #[inline(always)]
+    fn read_node(buf: &[u8], node_number: usize, index: usize) -> usize {
+        let offset = node_number * 8 + index * 4;
+        (buf[offset] as usize) << 24
+            | (buf[offset + 1] as usize) << 16
+            | (buf[offset + 2] as usize) << 8
+            | buf[offset + 3] as usize
+    }
+}
+
+#[inline(always)]
+fn find_address_in_tree_v4<R: SearchTreeRecord>(
+    buf: &[u8],
+    start_node: usize,
+    node_count: usize,
+    ip: u32,
+) -> (usize, usize) {
+    let mut node = start_node;
+    let mut prefix_len = 32;
+
+    for i in 0..32 {
+        if node >= node_count {
+            prefix_len = i;
+            break;
+        }
+        let bit = ((ip >> (31 - i)) & 1) as usize;
+        node = R::read_node(buf, node, bit);
+    }
+
+    normalize_lookup_result(node, node_count, prefix_len)
+}
+
+#[inline(always)]
+fn find_address_in_tree_v6<R: SearchTreeRecord>(
+    buf: &[u8],
+    node_count: usize,
+    ip: u128,
+) -> (usize, usize) {
+    let mut node = 0;
+    let mut prefix_len = 128;
+
+    for i in 0..128 {
+        if node >= node_count {
+            prefix_len = i;
+            break;
+        }
+        let bit = ((ip >> (127 - i)) & 1) as usize;
+        node = R::read_node(buf, node, bit);
+    }
+
+    normalize_lookup_result(node, node_count, prefix_len)
+}
+
+// Map both "not found" outcomes onto pointer 0:
+//   - `node == node_count`: the placeholder empty terminal in the search tree.
+//   - `node < node_count`: bits exhausted while still on an internal node
+//     (a partially-specified address that did not reach a record).
+// Anything strictly greater than `node_count` is a data-section pointer that
+// the caller must resolve via `resolve_data_pointer`.
+#[inline(always)]
+fn normalize_lookup_result(node: usize, node_count: usize, prefix_len: usize) -> (usize, usize) {
+    if node <= node_count {
+        (0, prefix_len)
+    } else {
+        (node, prefix_len)
     }
 }
 

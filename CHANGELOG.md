@@ -1,5 +1,21 @@
 # Change Log
 
+## Unreleased
+
+- Performance improvement: Faster search-tree traversal by dispatching
+  on the database's record size to monomorphized node readers, replacing
+  per-step branching on the record size.
+- Performance improvement: Direct deserialization of scalars, sequences,
+  maps, and structs through dedicated fast paths instead of routing
+  through `deserialize_any`.
+- Performance improvement: IPv4 and IPv6 lookups dispatch to dedicated
+  paths, avoiding per-call address-kind checks on the hot path.
+- Behavior change: Deserializing a database array into a tuple or
+  tuple struct now returns a decoding error when the lengths do not
+  match. Previously the mismatch was silently ignored.
+- Fixed: A corrupt data pointer that would underflow during resolution
+  now returns an `InvalidDatabase` error instead of panicking.
+
 ## 0.27.3 - 2026-02-16
 
 - Removed the `release_max_level_info` feature from the `log` dependency, as
