@@ -5,6 +5,9 @@
 - Performance improvement: Faster search-tree traversal by dispatching
   on the database's record size to monomorphized node readers, replacing
   per-step branching on the record size.
+- Performance improvement: Direct deserialization of scalars, sequences,
+  maps, and structs through dedicated fast paths instead of routing
+  through `deserialize_any`.
 
 ## 0.27.3 - 2026-02-16
 

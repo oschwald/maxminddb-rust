@@ -131,6 +131,11 @@ impl<'de> Decoder<'de> {
         MaxMindDbError::decoding_at(msg, self.current_ptr)
     }
 
+    #[inline(always)]
+    fn type_mismatch(&self, label: &str, type_num: u8) -> MaxMindDbError {
+        self.decode_error(&format!("expected {label}, got type {type_num}"))
+    }
+
     #[inline]
     pub(crate) fn offset(&self) -> usize {
         self.current_ptr
@@ -499,6 +504,43 @@ impl<'de> Decoder<'de> {
     }
 
     #[inline(always)]
+    fn decode_direct<T, F>(
+        &mut self,
+        size: usize,
+        type_num: u8,
+        expected_type: u8,
+        label: &str,
+        decode: F,
+    ) -> DecodeResult<T>
+    where
+        F: FnOnce(&mut Self, usize) -> DecodeResult<T>,
+    {
+        match type_num {
+            TYPE_POINTER => {
+                let new_ptr = self.decode_pointer(size);
+                let saved_ptr = self.current_ptr;
+                self.current_ptr = new_ptr;
+                self.enter_nested()?;
+                let result = (|| {
+                    let (size, type_num) = self.size_and_type()?;
+                    if type_num == TYPE_POINTER {
+                        return Err(self.invalid_db_error("pointer points to another pointer"));
+                    }
+                    if type_num != expected_type {
+                        return Err(self.type_mismatch(label, type_num));
+                    }
+                    decode(self, size)
+                })();
+                self.exit_nested();
+                self.current_ptr = saved_ptr;
+                result
+            }
+            t if t == expected_type => decode(self, size),
+            _ => Err(self.type_mismatch(label, type_num)),
+        }
+    }
+
+    #[inline(always)]
     fn read_string_bytes(&mut self, size: usize) -> DecodeResult<&'de [u8]> {
         let new_offset = self
             .current_ptr
@@ -684,6 +726,180 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
         visitor.visit_some(self)
     }
 
+    fn deserialize_bool<V>(self, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        let (size, type_num) = self.size_and_type()?;
+        self.decode_direct(size, type_num, TYPE_BOOL, "bool", |de, size| {
+            visitor.visit_bool(de.decode_bool(size)?)
+        })
+    }
+
+    fn deserialize_u16<V>(self, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        let (size, type_num) = self.size_and_type()?;
+        self.decode_direct(size, type_num, TYPE_UINT16, "u16", |de, size| {
+            visitor.visit_u16(de.decode_uint16(size)?)
+        })
+    }
+
+    fn deserialize_u32<V>(self, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        let (size, type_num) = self.size_and_type()?;
+        self.decode_direct(size, type_num, TYPE_UINT32, "u32", |de, size| {
+            visitor.visit_u32(de.decode_uint32(size)?)
+        })
+    }
+
+    fn deserialize_u64<V>(self, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        let (size, type_num) = self.size_and_type()?;
+        self.decode_direct(size, type_num, TYPE_UINT64, "u64", |de, size| {
+            visitor.visit_u64(de.decode_uint64(size)?)
+        })
+    }
+
+    fn deserialize_u128<V>(self, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        let (size, type_num) = self.size_and_type()?;
+        self.decode_direct(size, type_num, TYPE_UINT128, "u128", |de, size| {
+            visitor.visit_u128(de.decode_uint128(size)?)
+        })
+    }
+
+    fn deserialize_i32<V>(self, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        let (size, type_num) = self.size_and_type()?;
+        self.decode_direct(size, type_num, TYPE_INT32, "i32", |de, size| {
+            visitor.visit_i32(de.decode_int(size)?)
+        })
+    }
+
+    fn deserialize_f32<V>(self, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        let (size, type_num) = self.size_and_type()?;
+        self.decode_direct(size, type_num, TYPE_FLOAT, "float", |de, size| {
+            visitor.visit_f32(de.decode_float(size)?)
+        })
+    }
+
+    fn deserialize_f64<V>(self, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        let (size, type_num) = self.size_and_type()?;
+        self.decode_direct(size, type_num, TYPE_DOUBLE, "double", |de, size| {
+            visitor.visit_f64(de.decode_double(size)?)
+        })
+    }
+
+    fn deserialize_str<V>(self, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        let (size, type_num) = self.size_and_type()?;
+        self.decode_direct(size, type_num, TYPE_STRING, "string", |de, size| {
+            visitor.visit_borrowed_str(de.decode_string(size)?)
+        })
+    }
+
+    fn deserialize_string<V>(self, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        self.deserialize_str(visitor)
+    }
+
+    fn deserialize_bytes<V>(self, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        let (size, type_num) = self.size_and_type()?;
+        self.decode_direct(size, type_num, TYPE_BYTES, "bytes", |de, size| {
+            visitor.visit_borrowed_bytes(de.decode_bytes(size)?)
+        })
+    }
+
+    fn deserialize_byte_buf<V>(self, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        self.deserialize_bytes(visitor)
+    }
+
+    fn deserialize_seq<V>(self, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        let (size, type_num) = self.size_and_type()?;
+        self.decode_direct(size, type_num, TYPE_ARRAY, "array", |de, size| {
+            de.enter_nested()?;
+            let res = visitor.visit_seq(ArrayAccess { de, count: size });
+            de.exit_nested();
+            res
+        })
+    }
+
+    fn deserialize_tuple<V>(self, _len: usize, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        self.deserialize_seq(visitor)
+    }
+
+    fn deserialize_tuple_struct<V>(
+        self,
+        _name: &'static str,
+        _len: usize,
+        visitor: V,
+    ) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        self.deserialize_seq(visitor)
+    }
+
+    fn deserialize_map<V>(self, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        let (size, type_num) = self.size_and_type()?;
+        self.decode_direct(size, type_num, TYPE_MAP, "map", |de, size| {
+            de.enter_nested()?;
+            let res = visitor.visit_map(MapAccessor {
+                de,
+                count: size * 2,
+            });
+            de.exit_nested();
+            res
+        })
+    }
+
+    fn deserialize_struct<V>(
+        self,
+        _name: &'static str,
+        _fields: &'static [&'static str],
+        visitor: V,
+    ) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        self.deserialize_map(visitor)
+    }
+
     fn is_human_readable(&self) -> bool {
         false
     }
@@ -719,9 +935,7 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
     }
 
     forward_to_deserialize_any! {
-        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
-        bytes byte_buf unit unit_struct newtype_struct seq tuple
-        tuple_struct map struct
+        i8 i16 i64 i128 u8 char unit unit_struct newtype_struct
     }
 }
 
