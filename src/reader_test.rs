@@ -19,6 +19,17 @@ fn open_test_data_reader(database: &str) -> Reader<Vec<u8>> {
         .unwrap_or_else(|e| panic!("failed to open test database '{database}': {e}"))
 }
 
+fn collect_networks<S: AsRef<[u8]>>(iter: Within<'_, S>) -> Vec<String> {
+    iter.map(|result| {
+        result
+            .unwrap_or_else(|e| panic!("unexpected iterator error: {e}"))
+            .network()
+            .unwrap_or_else(|e| panic!("failed to build network from lookup result: {e}"))
+            .to_string()
+    })
+    .collect()
+}
+
 #[allow(clippy::float_cmp)]
 #[test]
 fn test_decoder() {
@@ -628,11 +639,7 @@ fn test_default_skips_aliases() {
         "::2:0:58/127",
     ];
 
-    let mut networks: Vec<String> = Vec::new();
-    for result in reader.within(ip_net_all, Default::default()).unwrap() {
-        let lookup = result.unwrap();
-        networks.push(lookup.network().unwrap().to_string());
-    }
+    let networks = collect_networks(reader.within(ip_net_all, Default::default()).unwrap());
 
     assert_eq!(networks, expected_without_aliases);
 }
@@ -680,11 +687,7 @@ fn test_include_aliased_networks() {
         "2002:101:120::/48",
     ];
 
-    let mut networks: Vec<String> = Vec::new();
-    for result in reader.within(ip_net_all, opts).unwrap() {
-        let lookup = result.unwrap();
-        networks.push(lookup.network().unwrap().to_string());
-    }
+    let networks = collect_networks(reader.within(ip_net_all, opts).unwrap());
 
     assert_eq!(networks, expected_with_aliases);
 }
@@ -968,12 +971,7 @@ fn test_networks_within_scenarios() {
             ));
 
             let cidr: IpNetwork = test.network.parse().unwrap();
-            let mut networks: Vec<String> = Vec::new();
-
-            for result in reader.within(cidr, Default::default()).unwrap() {
-                let lookup = result.unwrap();
-                networks.push(lookup.network().unwrap().to_string());
-            }
+            let networks = collect_networks(reader.within(cidr, Default::default()).unwrap());
 
             let expected: Vec<String> = test.expected.iter().map(|s| s.to_string()).collect();
             assert_eq!(
@@ -995,11 +993,7 @@ fn test_geoip_networks_within() {
     let cidr: IpNetwork = "81.2.69.128/26".parse().unwrap();
     let expected = vec!["81.2.69.142/31", "81.2.69.144/28", "81.2.69.160/27"];
 
-    let mut networks: Vec<String> = Vec::new();
-    for result in reader.within(cidr, Default::default()).unwrap() {
-        let lookup = result.unwrap();
-        networks.push(lookup.network().unwrap().to_string());
-    }
+    let networks = collect_networks(reader.within(cidr, Default::default()).unwrap());
 
     assert_eq!(networks, expected);
 }
