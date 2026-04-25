@@ -5,6 +5,7 @@
 use std::net::IpAddr;
 
 use maxminddb::geoip2;
+use maxminddb::path;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse command line arguments
@@ -23,8 +24,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .parse()
         .map_err(|e| format!("Invalid IP address '{}': {}", ip_str, e))?;
 
-    // Look up the IP address
+    // Look up the IP address. network() returns the matched prefix even
+    // when the database has no record for the IP.
     let result = reader.lookup(ip)?;
+    println!("Matched network: {}", result.network()?);
+
+    let country_code: Option<&str> = result.decode_path(&path!["country", "iso_code"])?;
+    if let Some(country_code) = country_code {
+        println!("Country code: {}", country_code);
+    }
 
     // Decode and display city data if present
     if let Some(city) = result.decode::<geoip2::City>()? {
@@ -32,9 +40,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         println!("No city data found for IP {}", ip);
     }
-
-    // The network is always available, even when no data is found
-    let network = result.network()?;
-    println!("Network: {}", network);
     Ok(())
 }
