@@ -1,6 +1,6 @@
 # Change Log
 
-## Unreleased
+## 0.28.0 - 2026-04-25
 
 - Performance improvement: Faster search-tree traversal by dispatching
   on the database's record size to monomorphized node readers, replacing
