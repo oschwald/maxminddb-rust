@@ -152,17 +152,13 @@ fn test_non_database() {
 fn test_reader_readfile() {
     init_logger();
 
-    let sizes = [24_usize, 28, 32];
-    for record_size in &sizes {
-        let versions = [4_usize, 6];
-        for ip_version in &versions {
-            let reader = open_test_data_reader(&format!(
-                "MaxMind-DB-test-ipv{ip_version}-{record_size}.mmdb"
-            ));
+    for (record_size, ip_version) in TEST_DATABASE_CONFIGS {
+        let reader = open_test_data_reader(&format!(
+            "MaxMind-DB-test-ipv{ip_version}-{record_size}.mmdb"
+        ));
 
-            check_metadata(&reader, *ip_version, *record_size);
-            check_ip(&reader, *ip_version);
-        }
+        check_metadata(&reader, *ip_version, *record_size);
+        check_ip(&reader, *ip_version);
     }
 }
 
@@ -171,20 +167,14 @@ fn test_reader_readfile() {
 fn test_reader_mmap() {
     init_logger();
 
-    let sizes = [24usize, 28, 32];
-    for record_size in sizes.iter() {
-        let versions = [4usize, 6];
-        for ip_version in versions.iter() {
-            let filename = format!(
-                "test-data/test-data/MaxMind-DB-test-ipv{}-{}.mmdb",
-                ip_version, record_size
-            );
-            // SAFETY: The test database file will not be modified during the test.
-            let reader = unsafe { Reader::open_mmap(filename) }.unwrap();
+    for (record_size, ip_version) in TEST_DATABASE_CONFIGS {
+        let filename =
+            format!("test-data/test-data/MaxMind-DB-test-ipv{ip_version}-{record_size}.mmdb");
+        // SAFETY: The test database file will not be modified during the test.
+        let reader = unsafe { Reader::open_mmap(filename) }.unwrap();
 
-            check_metadata(&reader, *ip_version, *record_size);
-            check_ip(&reader, *ip_version);
-        }
+        check_metadata(&reader, *ip_version, *record_size);
+        check_ip(&reader, *ip_version);
     }
 }
 

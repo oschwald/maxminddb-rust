@@ -6,7 +6,7 @@ use std::hint::black_box;
 use std::net::IpAddr;
 
 mod common;
-use common::generate_ipv4;
+use common::{generate_ipv4, open_reader};
 
 const DB_FILE: &str = "GeoLite2-City.mmdb";
 
@@ -78,12 +78,7 @@ where
 
 pub fn serde_usage_benchmark(c: &mut Criterion) {
     let ips = generate_ipv4(100);
-
-    #[cfg(not(feature = "mmap"))]
-    let reader = Reader::open_readfile(DB_FILE).unwrap();
-    #[cfg(feature = "mmap")]
-    // SAFETY: The benchmark database file will not be modified during the benchmark.
-    let reader = unsafe { Reader::open_mmap(DB_FILE) }.unwrap();
+    let reader = open_reader(DB_FILE);
 
     let cached_results = cache_lookups(&ips, &reader);
 
