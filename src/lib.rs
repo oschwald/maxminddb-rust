@@ -59,17 +59,14 @@
 //! Use `decode_path` to extract specific fields without deserializing the entire record:
 //!
 //! ```rust
-//! use maxminddb::{Reader, PathElement};
+//! use maxminddb::{path, Reader};
 //! use std::net::IpAddr;
 //!
 //! let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
 //! let ip: IpAddr = "89.160.20.128".parse().unwrap();
 //!
 //! let result = reader.lookup(ip).unwrap();
-//! let country_code: Option<String> = result.decode_path(&[
-//!     PathElement::Key("country"),
-//!     PathElement::Key("iso_code"),
-//! ]).unwrap();
+//! let country_code: Option<String> = result.decode_path(&path!["country", "iso_code"]).unwrap();
 //!
 //! println!("Country: {:?}", country_code);
 //! ```

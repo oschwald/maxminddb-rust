@@ -186,7 +186,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     ///
     /// Selective field access:
     /// ```
-    /// # use maxminddb::{Reader, PathElement};
+    /// # use maxminddb::{path, Reader};
     /// # use std::net::IpAddr;
     /// # fn main() -> Result<(), maxminddb::MaxMindDbError> {
     /// let reader = Reader::open_readfile(
@@ -194,10 +194,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// let ip: IpAddr = "89.160.20.128".parse().unwrap();
     ///
     /// let result = reader.lookup(ip)?;
-    /// let country_code: Option<String> = result.decode_path(&[
-    ///     PathElement::Key("country"),
-    ///     PathElement::Key("iso_code"),
-    /// ])?;
+    /// let country_code: Option<String> = result.decode_path(&path!["country", "iso_code"])?;
     ///
     /// println!("Country: {:?}", country_code);
     /// # Ok(())

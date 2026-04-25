@@ -27,7 +27,7 @@ use crate::reader::Reader;
 /// # Example
 ///
 /// ```
-/// use maxminddb::{Reader, geoip2, PathElement};
+/// use maxminddb::{geoip2, path, Reader};
 /// use std::net::IpAddr;
 ///
 /// let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
@@ -40,10 +40,9 @@ use crate::reader::Reader;
 ///     let city: geoip2::City = result.decode().unwrap().unwrap();
 ///
 ///     // Or selective decode via path
-///     let country_code: Option<String> = result.decode_path(&[
-///         PathElement::Key("country"),
-///         PathElement::Key("iso_code"),
-///     ]).unwrap();
+///     let country_code: Option<String> = result
+///         .decode_path(&path!["country", "iso_code"])
+///         .unwrap();
 ///     println!("Country: {:?}", country_code);
 /// }
 /// ```
@@ -203,7 +202,7 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// # Example
     ///
     /// ```
-    /// use maxminddb::{Reader, PathElement};
+    /// use maxminddb::{path, Reader};
     /// use std::net::IpAddr;
     ///
     /// let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
@@ -212,18 +211,14 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// let result = reader.lookup(ip).unwrap();
     ///
     /// // Navigate to country.iso_code
-    /// let iso_code: Option<String> = result.decode_path(&[
-    ///     PathElement::Key("country"),
-    ///     PathElement::Key("iso_code"),
-    /// ]).unwrap();
+    /// let iso_code: Option<String> = result
+    ///     .decode_path(&path!["country", "iso_code"])
+    ///     .unwrap();
     ///
     /// // Navigate to subdivisions[0].names.en
-    /// let subdiv_name: Option<String> = result.decode_path(&[
-    ///     PathElement::Key("subdivisions"),
-    ///     PathElement::Index(0),
-    ///     PathElement::Key("names"),
-    ///     PathElement::Key("en"),
-    /// ]).unwrap();
+    /// let subdiv_name: Option<String> = result
+    ///     .decode_path(&path!["subdivisions", 0, "names", "en"])
+    ///     .unwrap();
     /// ```
     pub fn decode_path<T>(&self, path: &[PathElement<'_>]) -> Result<Option<T>, MaxMindDbError>
     where
