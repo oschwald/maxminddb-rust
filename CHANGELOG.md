@@ -9,6 +9,8 @@
   of yielding unrelated networks.
 - Fixed: Verification now rejects truncated scalar/string payloads instead
   of skipping past them and reporting the database as valid.
+- Fixed: `LookupResult::network()` now uses the reader's measured IPv4
+  subtree depth instead of assuming it always begins at bit 96.
 
 ## 0.28.0 - 2026-04-25
 

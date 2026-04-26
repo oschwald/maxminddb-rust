@@ -474,6 +474,11 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         }
     }
 
+    #[inline]
+    pub(crate) fn has_ipv4_subtree(&self) -> bool {
+        self.metadata.ip_version == 6 && self.ipv4_start < self.node_count
+    }
+
     /// Find the IPv4 start node and the bit depth at which it was found.
     /// Returns (node, depth) where depth is how far into the tree we traversed.
     fn find_ipv4_start(&self) -> (usize, usize) {

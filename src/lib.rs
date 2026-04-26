@@ -260,6 +260,22 @@ mod tests {
     }
 
     #[test]
+    fn test_lookup_network_uses_measured_ipv4_subtree_depth() {
+        let mut reader =
+            Reader::open_readfile("test-data/test-data/MaxMind-DB-test-ipv6-32.mmdb").unwrap();
+        assert_eq!(reader.metadata.ip_version, 6);
+
+        // Simulate a valid IPv6 database whose IPv4 subtree starts somewhere
+        // other than bit 96. Using a shallow subtree depth keeps the combined
+        // prefix length <= 32, which would be ambiguous without an explicit
+        // Lookup vs Iter source flag.
+        reader.ipv4_start_bit_depth = 16;
+
+        let result = reader.lookup("1.1.1.1".parse().unwrap()).unwrap();
+        assert_eq!(result.network().unwrap().to_string(), "1.0.0.0/8");
+    }
+
+    #[test]
     fn test_lookup_offset_is_stable_for_shared_record() {
         let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
 

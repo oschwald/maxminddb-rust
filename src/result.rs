@@ -53,6 +53,21 @@ pub struct LookupResult<'a, S: AsRef<[u8]>> {
     data_offset: Option<usize>,
     prefix_len: u8,
     ip: IpAddr,
+    source: LookupSource,
+    network_kind: NetworkKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LookupSource {
+    Lookup,
+    Iter,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NetworkKind {
+    V4,
+    V6,
+    V4InV6Subtree,
 }
 
 impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
@@ -68,22 +83,34 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
         data_offset: usize,
         prefix_len: u8,
         ip: IpAddr,
+        source: LookupSource,
+        network_kind: NetworkKind,
     ) -> Self {
         LookupResult {
             reader,
             data_offset: Some(data_offset),
             prefix_len,
             ip,
+            source,
+            network_kind,
         }
     }
 
     /// Creates a new LookupResult for an IP not in the database.
-    pub(crate) fn new_not_found(reader: &'a Reader<S>, prefix_len: u8, ip: IpAddr) -> Self {
+    pub(crate) fn new_not_found(
+        reader: &'a Reader<S>,
+        prefix_len: u8,
+        ip: IpAddr,
+        source: LookupSource,
+        network_kind: NetworkKind,
+    ) -> Self {
         LookupResult {
             reader,
             data_offset: None,
             prefix_len,
             ip,
+            source,
+            network_kind,
         }
     }
 
@@ -102,36 +129,27 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// the IP, regardless of whether data was found.
     ///
     /// The returned network preserves the IP version of the original lookup:
-    /// - IPv4 lookups return IPv4 networks (unless prefix < 96, see below)
+    /// - IPv4 lookups return IPv4 networks (unless the match occurs before the
+    ///   IPv4 subtree begins, see below)
     /// - IPv6 lookups return IPv6 networks (including IPv4-mapped addresses)
     ///
     /// Special case: If an IPv4 address is looked up in an IPv6 database but
-    /// the matching record is at a prefix length < 96 (e.g., a database with
+    /// the matching record is above the IPv4 subtree (e.g., a database with
     /// no IPv4 subtree), an IPv6 network is returned since there's no valid
     /// IPv4 representation.
     pub fn network(&self) -> Result<IpNetwork, MaxMindDbError> {
-        let (ip, prefix) = match self.ip {
-            IpAddr::V4(v4) => {
-                // For IPv4 lookups in IPv6 databases, prefix_len includes the
-                // 96-bit offset. Subtract it to get the IPv4 prefix.
-                // For IPv4 databases, prefix_len is already 0-32.
-                if self.prefix_len >= 96 {
-                    // IPv6 database: subtract 96 to get IPv4 prefix
-                    (IpAddr::V4(v4), self.prefix_len - 96)
-                } else if self.prefix_len > 32 {
-                    // IPv6 database with record at prefix < 96 (e.g., ::/64).
-                    // Return IPv6 network since there's no valid IPv4 representation.
-                    use std::net::Ipv6Addr;
-                    (IpAddr::V6(Ipv6Addr::UNSPECIFIED), self.prefix_len)
-                } else {
-                    // IPv4 database: use prefix directly
-                    (IpAddr::V4(v4), self.prefix_len)
-                }
+        let (ip, prefix) = match (self.source, self.network_kind, self.ip) {
+            (_, NetworkKind::V4, IpAddr::V4(v4)) => (IpAddr::V4(v4), self.prefix_len),
+            (_, NetworkKind::V4InV6Subtree, IpAddr::V4(v4)) => (
+                IpAddr::V4(v4),
+                self.prefix_len - self.reader.ipv4_start_bit_depth as u8,
+            ),
+            (LookupSource::Lookup, NetworkKind::V6, IpAddr::V4(_)) => {
+                use std::net::Ipv6Addr;
+                (IpAddr::V6(Ipv6Addr::UNSPECIFIED), self.prefix_len)
             }
-            IpAddr::V6(v6) => {
-                // For IPv6 lookups, preserve the IPv6 form (including IPv4-mapped)
-                (IpAddr::V6(v6), self.prefix_len)
-            }
+            (_, NetworkKind::V6, IpAddr::V6(v6)) => (IpAddr::V6(v6), self.prefix_len),
+            (_, _, ip) => unreachable!("unexpected lookup result state for network: {ip:?}"),
         };
 
         // Mask the IP to the network address
