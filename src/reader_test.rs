@@ -105,7 +105,23 @@ fn test_decoder() {
 fn test_pointers_in_metadata() {
     init_logger();
 
-    open_test_data_reader("MaxMind-DB-test-metadata-pointers.mmdb");
+    let reader = open_test_data_reader("MaxMind-DB-test-metadata-pointers.mmdb");
+
+    assert_eq!(reader.metadata.database_type, "Lots of pointers in metadata");
+    assert_eq!(
+        reader.metadata.description["en"],
+        "Lots of pointers in metadata"
+    );
+    assert_eq!(
+        reader.metadata.description["es"],
+        "Lots of pointers in metadata"
+    );
+    assert_eq!(
+        reader.metadata.description["zh"],
+        "Lots of pointers in metadata"
+    );
+
+    reader.verify().unwrap();
 }
 
 #[test]
@@ -1035,6 +1051,7 @@ fn test_verify_good_databases() {
         "MaxMind-DB-test-ipv6-24.mmdb",
         "MaxMind-DB-test-ipv6-28.mmdb",
         "MaxMind-DB-test-ipv6-32.mmdb",
+        "MaxMind-DB-test-metadata-pointers.mmdb",
         "MaxMind-DB-test-mixed-24.mmdb",
         "MaxMind-DB-test-mixed-28.mmdb",
         "MaxMind-DB-test-mixed-32.mmdb",
@@ -1072,8 +1089,13 @@ fn test_verify_broken_pointers() {
 
     let result = reader.verify();
     assert!(
-        result.is_err(),
-        "Expected verify() to return error for broken-pointers, but it succeeded"
+        matches!(
+            result,
+            Err(MaxMindDbError::InvalidDatabase { ref message, .. })
+                if message == "the MaxMind DB file's data pointer resolves to an invalid location"
+        ),
+        "Expected specific InvalidDatabase error for broken-pointers, got {:?}",
+        result
     );
 }
 
