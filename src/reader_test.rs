@@ -107,7 +107,10 @@ fn test_pointers_in_metadata() {
 
     let reader = open_test_data_reader("MaxMind-DB-test-metadata-pointers.mmdb");
 
-    assert_eq!(reader.metadata.database_type, "Lots of pointers in metadata");
+    assert_eq!(
+        reader.metadata.database_type,
+        "Lots of pointers in metadata"
+    );
     assert_eq!(
         reader.metadata.description["en"],
         "Lots of pointers in metadata"
@@ -1027,6 +1030,28 @@ fn test_geoip_networks_within() {
     let networks = collect_networks(reader.within(cidr, Default::default()).unwrap());
 
     assert_eq!(networks, expected);
+}
+
+#[test]
+fn test_within_rejects_ipv6_cidr_for_ipv4_database() {
+    init_logger();
+
+    let reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
+
+    for cidr in ["::/0", "::ffff:0.0.0.0/96", "2001::/16"] {
+        let cidr: IpNetwork = cidr.parse().unwrap();
+        let result = reader.within(cidr, Default::default());
+
+        assert!(
+            matches!(
+                result,
+                Err(MaxMindDbError::InvalidInput { ref message })
+                    if message == "cannot iterate IPv6 network in IPv4-only database"
+            ),
+            "Expected InvalidInput for IPv6 CIDR in IPv4 database, got {:?}",
+            result
+        );
+    }
 }
 
 /// Test that verify() succeeds on valid databases (matching Go's TestVerifyOnGoodDatabases)

@@ -5,6 +5,8 @@
 - Fixed: Databases with an impossible declared search tree size are now
   rejected during open/verify instead of causing runaway allocation
   during validation.
+- Fixed: `within()` now rejects IPv6 CIDRs on IPv4-only databases instead
+  of yielding unrelated networks.
 
 ## 0.28.0 - 2026-04-25
 

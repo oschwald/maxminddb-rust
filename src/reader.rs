@@ -349,6 +349,11 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         cidr: IpNetwork,
         options: WithinOptions,
     ) -> Result<Within<'de, S>, MaxMindDbError> {
+        if self.metadata.ip_version == 4 && matches!(cidr, IpNetwork::V6(_)) {
+            return Err(MaxMindDbError::invalid_input(
+                "cannot iterate IPv6 network in IPv4-only database",
+            ));
+        }
         let ip_address = cidr.network();
         let prefix_len = cidr.prefix() as usize;
         let ip_int = IpInt::new(ip_address);
