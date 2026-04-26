@@ -1,5 +1,11 @@
 # Change Log
 
+## 0.28.1
+
+- Fixed: Databases with an impossible declared search tree size are now
+  rejected during open/verify instead of causing runaway allocation
+  during validation.
+
 ## 0.28.0 - 2026-04-25
 
 - Performance improvement: Faster search-tree traversal by dispatching

@@ -158,6 +158,21 @@ fn test_non_database() {
     }
 }
 
+#[test]
+fn test_invalid_node_count_database() {
+    init_logger();
+
+    let r = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test-Invalid-Node-Count.mmdb");
+    match r {
+        Ok(_) => panic!("Received Reader when opening database with invalid node count"),
+        Err(e) => assert!(
+            matches!(&e, MaxMindDbError::InvalidDatabase { message, .. } if message == "the MaxMind DB file's search tree extends beyond the metadata section"),
+            "Expected InvalidDatabase error about search tree layout, but got: {:?}",
+            e
+        ),
+    }
+}
+
 /// Create Reader by explicitly reading the entire file into a buffer.
 #[test]
 fn test_reader_readfile() {
