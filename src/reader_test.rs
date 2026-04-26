@@ -383,7 +383,7 @@ fn test_within_city() {
         assert!(item_result.is_ok());
         n += 1;
     }
-    assert_eq!(n, 243);
+    assert_eq!(n, 250);
 
     // --- Test iteration over a specific smaller network ---
     let specific = IpNetwork::V4("81.2.69.0/24".parse().unwrap());
@@ -451,9 +451,9 @@ fn check_metadata<S: AsRef<[u8]>>(reader: &Reader<S>, ip_version: usize, record_
     assert_eq!(metadata.languages, vec!["en".to_string(), "zh".to_string()]);
 
     if ip_version == 4 {
-        assert_eq!(metadata.node_count, 164)
+        assert_eq!(metadata.node_count, 163)
     } else {
-        assert_eq!(metadata.node_count, 416)
+        assert_eq!(metadata.node_count, 415)
     }
 
     assert_eq!(metadata.record_size, record_size as u16)
@@ -1070,8 +1070,13 @@ fn test_verify_broken_search_tree() {
 
     let result = reader.verify();
     assert!(
-        result.is_err(),
-        "Expected verify() to return error for broken-search-tree, but it succeeded"
+        matches!(
+            result,
+            Err(MaxMindDbError::InvalidDatabase { ref message, .. })
+                if message.contains("search tree appears to have a cycle or invalid structure")
+        ),
+        "Expected specific InvalidDatabase error for broken-search-tree, got {:?}",
+        result
     );
 }
 
