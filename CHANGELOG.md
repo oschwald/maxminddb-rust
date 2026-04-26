@@ -7,6 +7,8 @@
   during validation.
 - Fixed: `within()` now rejects IPv6 CIDRs on IPv4-only databases instead
   of yielding unrelated networks.
+- Fixed: Verification now rejects truncated scalar/string payloads instead
+  of skipping past them and reporting the database as valid.
 
 ## 0.28.0 - 2026-04-25
 

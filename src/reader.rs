@@ -639,7 +639,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     fn verify_database(&self, metadata_start: usize) -> Result<(), MaxMindDbError> {
         let offsets = self.verify_search_tree()?;
         self.verify_data_section_separator()?;
-        self.verify_data_section(offsets)
+        self.verify_data_section(offsets, metadata_start)
     }
 
     fn verify_search_tree(&self) -> Result<HashSet<usize>, MaxMindDbError> {
@@ -692,8 +692,12 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         Ok(())
     }
 
-    fn verify_data_section(&self, offsets: HashSet<usize>) -> Result<(), MaxMindDbError> {
-        let data_section = &self.buf.as_ref()[self.pointer_base..];
+    fn verify_data_section(
+        &self,
+        offsets: HashSet<usize>,
+        metadata_start: usize,
+    ) -> Result<(), MaxMindDbError> {
+        let data_section = &self.buf.as_ref()[self.pointer_base..metadata_start];
 
         // Verify each offset from the search tree points to valid, decodable data
         for &offset in &offsets {

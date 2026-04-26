@@ -683,7 +683,16 @@ impl<'de> Decoder<'de> {
             }
             TYPE_STRING | TYPE_BYTES => {
                 // String or Bytes - skip size bytes
-                self.current_ptr += size;
+                if follow_pointers {
+                    self.current_ptr += size;
+                } else {
+                    let label = if type_num == TYPE_STRING {
+                        "string"
+                    } else {
+                        "bytes"
+                    };
+                    self.current_ptr = self.checked_offset(size, label)?;
+                }
                 Ok(())
             }
             TYPE_DOUBLE => {
@@ -691,7 +700,11 @@ impl<'de> Decoder<'de> {
                 if size != 8 {
                     return Err(self.invalid_db_error(&format!("double of size {size}")));
                 }
-                self.current_ptr += size;
+                if follow_pointers {
+                    self.current_ptr += size;
+                } else {
+                    self.current_ptr = self.checked_offset(size, "double")?;
+                }
                 Ok(())
             }
             TYPE_FLOAT => {
@@ -699,12 +712,28 @@ impl<'de> Decoder<'de> {
                 if size != 4 {
                     return Err(self.invalid_db_error(&format!("float of size {size}")));
                 }
-                self.current_ptr += size;
+                if follow_pointers {
+                    self.current_ptr += size;
+                } else {
+                    self.current_ptr = self.checked_offset(size, "float")?;
+                }
                 Ok(())
             }
             TYPE_UINT16 | TYPE_UINT32 | TYPE_INT32 | TYPE_UINT64 | TYPE_UINT128 => {
                 // Numeric types - skip size bytes
-                self.current_ptr += size;
+                if follow_pointers {
+                    self.current_ptr += size;
+                } else {
+                    let label = match type_num {
+                        TYPE_UINT16 => "u16",
+                        TYPE_UINT32 => "u32",
+                        TYPE_INT32 => "i32",
+                        TYPE_UINT64 => "u64",
+                        TYPE_UINT128 => "u128",
+                        _ => unreachable!(),
+                    };
+                    self.current_ptr = self.checked_offset(size, label)?;
+                }
                 Ok(())
             }
             TYPE_BOOL => {

@@ -1142,6 +1142,39 @@ fn test_verify_broken_search_tree() {
     );
 }
 
+#[test]
+fn test_verify_rejects_truncated_scalar_value() {
+    init_logger();
+
+    let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
+    let reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
+    let lookup = reader.lookup("1.1.1.32".parse().unwrap()).unwrap();
+    let data_offset = lookup.offset().expect("expected data offset");
+    let mut bytes = std::fs::read(source_path).unwrap();
+    let record_start = reader.pointer_base + data_offset;
+    let string_value = b"1.1.1.32";
+    let relative_value_offset = bytes[record_start..]
+        .windows(string_value.len())
+        .position(|window| window == string_value)
+        .expect("expected terminal string payload in fixture record");
+    let string_ctrl_offset = record_start + relative_value_offset - 1;
+    assert_eq!(
+        bytes[string_ctrl_offset], 0x48,
+        "unexpected string control byte in source fixture"
+    );
+
+    // Inflate the terminal string from length 8 to length 28 without adding
+    // bytes, so verification must catch the truncated payload.
+    bytes[string_ctrl_offset] = 0x5c;
+
+    let reader = Reader::from_source(bytes).unwrap();
+    let result = reader.verify();
+    assert!(
+        matches!(result, Err(MaxMindDbError::InvalidDatabase { .. })),
+        "Expected InvalidDatabase error for truncated scalar payload, got {:?}",
+        result
+    );
+}
 /// Test that size hints are properly returned for sequences and maps
 #[test]
 fn test_size_hints() {
