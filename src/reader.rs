@@ -18,7 +18,7 @@ use std::fs::File;
 use crate::decoder;
 use crate::error::MaxMindDbError;
 use crate::metadata::Metadata;
-use crate::result::LookupResult;
+use crate::result::{LookupResult, LookupSource, NetworkKind};
 use crate::within::{IpInt, Within, WithinNode, WithinOptions};
 
 /// Size of the data section separator (16 zero bytes).
@@ -128,17 +128,26 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let metadata = Metadata::deserialize(&mut type_decoder)?;
         validate_record_size(metadata.record_size)?;
 
-        let search_tree_size = (metadata.node_count as usize) * (metadata.record_size as usize) / 4;
+        let search_tree_size =
+            search_tree_size_bytes(metadata.node_count as usize, metadata.record_size as usize)?;
         let record_size = metadata.record_size;
         let node_count = metadata.node_count as usize;
         let node_byte_size = record_size as usize / 4;
+        let pointer_base = search_tree_size
+            .checked_add(DATA_SECTION_SEPARATOR_SIZE)
+            .ok_or_else(|| {
+                MaxMindDbError::invalid_database(
+                    "the MaxMind DB file's search tree extends beyond the file",
+                )
+            })?;
+        validate_search_tree_layout(pointer_base, metadata_start)?;
 
         let mut reader = Reader {
             buf,
             record_size,
             node_count,
             node_byte_size,
-            pointer_base: search_tree_size + DATA_SECTION_SEPARATOR_SIZE,
+            pointer_base,
             metadata,
             ipv4_start: 0,
             ipv4_start_bit_depth: 0,
@@ -340,6 +349,11 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         cidr: IpNetwork,
         options: WithinOptions,
     ) -> Result<Within<'de, S>, MaxMindDbError> {
+        if self.metadata.ip_version == 4 && matches!(cidr, IpNetwork::V6(_)) {
+            return Err(MaxMindDbError::invalid_input(
+                "cannot iterate IPv6 network in IPv4-only database",
+            ));
+        }
         let ip_address = cidr.network();
         let prefix_len = cidr.prefix() as usize;
         let ip_int = IpInt::new(ip_address);
@@ -396,8 +410,22 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         prefix_len: u8,
         address: IpAddr,
     ) -> Result<LookupResult<'de, S>, MaxMindDbError> {
+        let network_kind = match address {
+            IpAddr::V4(_) if self.metadata.ip_version == 6 && self.has_ipv4_subtree() => {
+                NetworkKind::V4InV6Subtree
+            }
+            IpAddr::V4(_) if self.metadata.ip_version == 6 => NetworkKind::V6,
+            IpAddr::V4(_) => NetworkKind::V4,
+            IpAddr::V6(_) => NetworkKind::V6,
+        };
         if pointer == 0 {
-            Ok(LookupResult::new_not_found(self, prefix_len, address))
+            Ok(LookupResult::new_not_found(
+                self,
+                prefix_len,
+                address,
+                LookupSource::Lookup,
+                network_kind,
+            ))
         } else {
             let data_offset = self.resolve_data_pointer(pointer)?;
             Ok(LookupResult::new_found(
@@ -405,6 +433,8 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
                 data_offset,
                 prefix_len,
                 address,
+                LookupSource::Lookup,
+                network_kind,
             ))
         }
     }
@@ -442,6 +472,11 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         } else {
             self.ipv4_start
         }
+    }
+
+    #[inline]
+    pub(crate) fn has_ipv4_subtree(&self) -> bool {
+        self.metadata.ip_version == 6 && self.ipv4_start < self.node_count
     }
 
     /// Find the IPv4 start node and the bit depth at which it was found.
@@ -560,11 +595,12 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// reader.verify().expect("Database should be valid");
     /// ```
     pub fn verify(&self) -> Result<(), MaxMindDbError> {
-        self.verify_metadata()?;
-        self.verify_database()
+        let metadata_start = find_metadata_start(self.buf.as_ref())?;
+        self.verify_metadata(metadata_start)?;
+        self.verify_database(metadata_start)
     }
 
-    fn verify_metadata(&self) -> Result<(), MaxMindDbError> {
+    fn verify_metadata(&self, metadata_start: usize) -> Result<(), MaxMindDbError> {
         let m = &self.metadata;
 
         if m.binary_format_major_version != 2 {
@@ -601,13 +637,14 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
                 "node_count - Expected: positive integer Actual: 0",
             ));
         }
+        validate_search_tree_layout(self.pointer_base, metadata_start)?;
         Ok(())
     }
 
-    fn verify_database(&self) -> Result<(), MaxMindDbError> {
+    fn verify_database(&self, metadata_start: usize) -> Result<(), MaxMindDbError> {
         let offsets = self.verify_search_tree()?;
         self.verify_data_section_separator()?;
-        self.verify_data_section(offsets)
+        self.verify_data_section(offsets, metadata_start)
     }
 
     fn verify_search_tree(&self) -> Result<HashSet<usize>, MaxMindDbError> {
@@ -660,8 +697,12 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         Ok(())
     }
 
-    fn verify_data_section(&self, offsets: HashSet<usize>) -> Result<(), MaxMindDbError> {
-        let data_section = &self.buf.as_ref()[self.pointer_base..];
+    fn verify_data_section(
+        &self,
+        offsets: HashSet<usize>,
+        metadata_start: usize,
+    ) -> Result<(), MaxMindDbError> {
+        let data_section = &self.buf.as_ref()[self.pointer_base..metadata_start];
 
         // Verify each offset from the search tree points to valid, decodable data
         for &offset in &offsets {
@@ -699,6 +740,29 @@ fn validate_record_size(record_size: u16) -> Result<(), MaxMindDbError> {
             record_size
         )))
     }
+}
+
+fn search_tree_size_bytes(node_count: usize, record_size: usize) -> Result<usize, MaxMindDbError> {
+    node_count
+        .checked_mul(record_size)
+        .map(|size| size / 4)
+        .ok_or_else(|| {
+            MaxMindDbError::invalid_database(
+                "search tree size calculation overflowed or is impossibly large",
+            )
+        })
+}
+
+fn validate_search_tree_layout(
+    pointer_base: usize,
+    metadata_start: usize,
+) -> Result<(), MaxMindDbError> {
+    if pointer_base > metadata_start {
+        return Err(MaxMindDbError::invalid_database(
+            "the MaxMind DB file's search tree extends beyond the metadata section",
+        ));
+    }
+    Ok(())
 }
 
 trait SearchTreeRecord {

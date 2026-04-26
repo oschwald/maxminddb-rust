@@ -105,7 +105,26 @@ fn test_decoder() {
 fn test_pointers_in_metadata() {
     init_logger();
 
-    open_test_data_reader("MaxMind-DB-test-metadata-pointers.mmdb");
+    let reader = open_test_data_reader("MaxMind-DB-test-metadata-pointers.mmdb");
+
+    assert_eq!(
+        reader.metadata.database_type,
+        "Lots of pointers in metadata"
+    );
+    assert_eq!(
+        reader.metadata.description["en"],
+        "Lots of pointers in metadata"
+    );
+    assert_eq!(
+        reader.metadata.description["es"],
+        "Lots of pointers in metadata"
+    );
+    assert_eq!(
+        reader.metadata.description["zh"],
+        "Lots of pointers in metadata"
+    );
+
+    reader.verify().unwrap();
 }
 
 #[test]
@@ -153,6 +172,21 @@ fn test_non_database() {
         Err(e) => assert!(
             matches!(&e, MaxMindDbError::InvalidDatabase { message, .. } if message == "could not find MaxMind DB metadata in file"),
             "Expected InvalidDatabase error with specific message, but got: {:?}",
+            e
+        ),
+    }
+}
+
+#[test]
+fn test_invalid_node_count_database() {
+    init_logger();
+
+    let r = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test-Invalid-Node-Count.mmdb");
+    match r {
+        Ok(_) => panic!("Received Reader when opening database with invalid node count"),
+        Err(e) => assert!(
+            matches!(&e, MaxMindDbError::InvalidDatabase { message, .. } if message == "the MaxMind DB file's search tree extends beyond the metadata section"),
+            "Expected InvalidDatabase error about search tree layout, but got: {:?}",
             e
         ),
     }
@@ -383,7 +417,7 @@ fn test_within_city() {
         assert!(item_result.is_ok());
         n += 1;
     }
-    assert_eq!(n, 243);
+    assert_eq!(n, 250);
 
     // --- Test iteration over a specific smaller network ---
     let specific = IpNetwork::V4("81.2.69.0/24".parse().unwrap());
@@ -451,9 +485,9 @@ fn check_metadata<S: AsRef<[u8]>>(reader: &Reader<S>, ip_version: usize, record_
     assert_eq!(metadata.languages, vec!["en".to_string(), "zh".to_string()]);
 
     if ip_version == 4 {
-        assert_eq!(metadata.node_count, 164)
+        assert_eq!(metadata.node_count, 163)
     } else {
-        assert_eq!(metadata.node_count, 416)
+        assert_eq!(metadata.node_count, 415)
     }
 
     assert_eq!(metadata.record_size, record_size as u16)
@@ -998,6 +1032,28 @@ fn test_geoip_networks_within() {
     assert_eq!(networks, expected);
 }
 
+#[test]
+fn test_within_rejects_ipv6_cidr_for_ipv4_database() {
+    init_logger();
+
+    let reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
+
+    for cidr in ["::/0", "::ffff:0.0.0.0/96", "2001::/16"] {
+        let cidr: IpNetwork = cidr.parse().unwrap();
+        let result = reader.within(cidr, Default::default());
+
+        assert!(
+            matches!(
+                result,
+                Err(MaxMindDbError::InvalidInput { ref message })
+                    if message == "cannot iterate IPv6 network in IPv4-only database"
+            ),
+            "Expected InvalidInput for IPv6 CIDR in IPv4 database, got {:?}",
+            result
+        );
+    }
+}
+
 /// Test that verify() succeeds on valid databases (matching Go's TestVerifyOnGoodDatabases)
 #[test]
 fn test_verify_good_databases() {
@@ -1020,6 +1076,7 @@ fn test_verify_good_databases() {
         "MaxMind-DB-test-ipv6-24.mmdb",
         "MaxMind-DB-test-ipv6-28.mmdb",
         "MaxMind-DB-test-ipv6-32.mmdb",
+        "MaxMind-DB-test-metadata-pointers.mmdb",
         "MaxMind-DB-test-mixed-24.mmdb",
         "MaxMind-DB-test-mixed-28.mmdb",
         "MaxMind-DB-test-mixed-32.mmdb",
@@ -1057,8 +1114,13 @@ fn test_verify_broken_pointers() {
 
     let result = reader.verify();
     assert!(
-        result.is_err(),
-        "Expected verify() to return error for broken-pointers, but it succeeded"
+        matches!(
+            result,
+            Err(MaxMindDbError::InvalidDatabase { ref message, .. })
+                if message == "the MaxMind DB file's data pointer resolves to an invalid location"
+        ),
+        "Expected specific InvalidDatabase error for broken-pointers, got {:?}",
+        result
     );
 }
 
@@ -1070,11 +1132,49 @@ fn test_verify_broken_search_tree() {
 
     let result = reader.verify();
     assert!(
-        result.is_err(),
-        "Expected verify() to return error for broken-search-tree, but it succeeded"
+        matches!(
+            result,
+            Err(MaxMindDbError::InvalidDatabase { ref message, .. })
+                if message.contains("search tree appears to have a cycle or invalid structure")
+        ),
+        "Expected specific InvalidDatabase error for broken-search-tree, got {:?}",
+        result
     );
 }
 
+#[test]
+fn test_verify_rejects_truncated_scalar_value() {
+    init_logger();
+
+    let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
+    let reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
+    let lookup = reader.lookup("1.1.1.32".parse().unwrap()).unwrap();
+    let data_offset = lookup.offset().expect("expected data offset");
+    let mut bytes = std::fs::read(source_path).unwrap();
+    let record_start = reader.pointer_base + data_offset;
+    let string_value = b"1.1.1.32";
+    let relative_value_offset = bytes[record_start..]
+        .windows(string_value.len())
+        .position(|window| window == string_value)
+        .expect("expected terminal string payload in fixture record");
+    let string_ctrl_offset = record_start + relative_value_offset - 1;
+    assert_eq!(
+        bytes[string_ctrl_offset], 0x48,
+        "unexpected string control byte in source fixture"
+    );
+
+    // Inflate the terminal string from length 8 to length 28 without adding
+    // bytes, so verification must catch the truncated payload.
+    bytes[string_ctrl_offset] = 0x5c;
+
+    let reader = Reader::from_source(bytes).unwrap();
+    let result = reader.verify();
+    assert!(
+        matches!(result, Err(MaxMindDbError::InvalidDatabase { .. })),
+        "Expected InvalidDatabase error for truncated scalar payload, got {:?}",
+        result
+    );
+}
 /// Test that size hints are properly returned for sequences and maps
 #[test]
 fn test_size_hints() {

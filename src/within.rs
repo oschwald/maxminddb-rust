@@ -6,7 +6,7 @@ use std::net::IpAddr;
 use crate::decoder;
 use crate::error::MaxMindDbError;
 use crate::reader::Reader;
-use crate::result::LookupResult;
+use crate::result::{LookupResult, LookupSource, NetworkKind};
 
 /// Options for network iteration.
 ///
@@ -197,21 +197,48 @@ impl<'de, S: AsRef<[u8]>> Iterator for Within<'de, S> {
                         }
                     }
 
+                    let network_kind = match current.ip_int {
+                        IpInt::V4(_) => NetworkKind::V4,
+                        IpInt::V6(_)
+                            if current.ip_int.is_ipv4_in_ipv6()
+                                && self.reader.has_ipv4_subtree()
+                                && current.prefix_len >= self.reader.ipv4_start_bit_depth =>
+                        {
+                            NetworkKind::V4InV6Subtree
+                        }
+                        IpInt::V6(_) => NetworkKind::V6,
+                    };
+
                     return Some(Ok(LookupResult::new_found(
                         self.reader,
                         data_offset,
                         current.prefix_len as u8,
                         ip_addr,
+                        LookupSource::Iter,
+                        network_kind,
                     )));
                 }
                 Ordering::Equal => {
                     // Dead end (no data) - include if option is set
                     if self.options.include_networks_without_data {
                         let ip_addr = ip_int_to_addr(&current.ip_int);
+                        let network_kind = match current.ip_int {
+                            IpInt::V4(_) => NetworkKind::V4,
+                            IpInt::V6(_)
+                                if current.ip_int.is_ipv4_in_ipv6()
+                                    && self.reader.has_ipv4_subtree()
+                                    && current.prefix_len >= self.reader.ipv4_start_bit_depth =>
+                            {
+                                NetworkKind::V4InV6Subtree
+                            }
+                            IpInt::V6(_) => NetworkKind::V6,
+                        };
                         return Some(Ok(LookupResult::new_not_found(
                             self.reader,
                             current.prefix_len as u8,
                             ip_addr,
+                            LookupSource::Iter,
+                            network_kind,
                         )));
                     }
                     // Otherwise skip (current behavior)

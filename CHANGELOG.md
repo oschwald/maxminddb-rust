@@ -1,5 +1,17 @@
 # Change Log
 
+## 0.28.1
+
+- Fixed: Databases with an impossible declared search tree size are now
+  rejected during open/verify instead of causing runaway allocation
+  during validation.
+- Fixed: `within()` now rejects IPv6 CIDRs on IPv4-only databases instead
+  of yielding unrelated networks.
+- Fixed: Verification now rejects truncated scalar/string payloads instead
+  of skipping past them and reporting the database as valid.
+- Fixed: `LookupResult::network()` now uses the reader's measured IPv4
+  subtree depth instead of assuming it always begins at bit 96.
+
 ## 0.28.0 - 2026-04-25
 
 - Performance improvement: Faster search-tree traversal by dispatching
