@@ -1,11 +1,12 @@
 use std::net::IpAddr;
+use std::sync::Arc;
 
 use ipnetwork::IpNetwork;
 use serde::Deserialize;
 use serde_json::json;
 
 use crate::geoip2;
-use crate::{MaxMindDbError, Reader, Within, WithinOptions};
+use crate::{MaxMindDbError, OwnedWithin, Reader, Within, WithinOptions};
 
 const TEST_DATABASE_CONFIGS: &[(usize, usize)] =
     &[(24, 4), (28, 4), (32, 4), (24, 6), (28, 6), (32, 6)];
@@ -20,6 +21,17 @@ fn open_test_data_reader(database: &str) -> Reader<Vec<u8>> {
 }
 
 fn collect_networks<S: AsRef<[u8]>>(iter: Within<'_, S>) -> Vec<String> {
+    iter.map(|result| {
+        result
+            .unwrap_or_else(|e| panic!("unexpected iterator error: {e}"))
+            .network()
+            .unwrap_or_else(|e| panic!("failed to build network from lookup result: {e}"))
+            .to_string()
+    })
+    .collect()
+}
+
+fn collect_owned_networks<S: AsRef<[u8]>>(iter: OwnedWithin<S>) -> Vec<String> {
     iter.map(|result| {
         result
             .unwrap_or_else(|e| panic!("unexpected iterator error: {e}"))
@@ -647,6 +659,50 @@ fn test_networks() {
             );
         }
     }
+}
+
+/// Test networks_owned() keeps the reader alive and matches networks().
+#[test]
+fn test_networks_owned() {
+    init_logger();
+
+    let reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
+    let expected = collect_networks(reader.networks(Default::default()).unwrap());
+
+    let reader = Arc::new(reader);
+    let networks = collect_owned_networks(
+        Arc::clone(&reader)
+            .networks_owned(Default::default())
+            .unwrap(),
+    );
+
+    assert_eq!(networks, expected);
+}
+
+/// Test owned iterator results can decode after the caller drops its Arc.
+#[test]
+fn test_networks_owned_decode_after_original_arc_drop() {
+    init_logger();
+
+    #[derive(Deserialize)]
+    struct IpRecord {
+        ip: String,
+    }
+
+    let reader = Arc::new(open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb"));
+    let mut iter = Arc::clone(&reader)
+        .networks_owned(Default::default())
+        .unwrap();
+    drop(reader);
+
+    let lookup = iter
+        .next()
+        .expect("expected at least one network")
+        .expect("unexpected iterator error");
+    let network = lookup.network().unwrap();
+    let record: IpRecord = lookup.decode().unwrap().unwrap();
+
+    assert_eq!(record.ip, network.ip().to_string());
 }
 
 /// Test that default options skip aliased networks
