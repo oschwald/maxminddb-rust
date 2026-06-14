@@ -86,8 +86,8 @@ mod within;
 pub use error::MaxMindDbError;
 pub use metadata::Metadata;
 pub use reader::Reader;
-pub use result::{LookupResult, PathElement};
-pub use within::{Within, WithinOptions};
+pub use result::{LookupResult, OwnedLookupResult, PathElement};
+pub use within::{OwnedWithin, Within, WithinOptions};
 
 #[cfg(feature = "mmap")]
 pub use memmap2::Mmap;

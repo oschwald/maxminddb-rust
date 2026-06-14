@@ -6,6 +6,7 @@
 //! selectively via paths.
 
 use std::net::IpAddr;
+use std::sync::Arc;
 
 use ipnetwork::IpNetwork;
 use serde::Deserialize;
@@ -49,6 +50,22 @@ use crate::reader::Reader;
 #[derive(Debug, Clone, Copy)]
 pub struct LookupResult<'a, S: AsRef<[u8]>> {
     reader: &'a Reader<S>,
+    /// Offset into the data section, or None if not found.
+    data_offset: Option<usize>,
+    prefix_len: u8,
+    ip: IpAddr,
+    source: LookupSource,
+    network_kind: NetworkKind,
+}
+
+/// The result of looking up or iterating an IP network with an owned reader.
+///
+/// This is the owned-reader counterpart to [`LookupResult`]. It keeps the
+/// backing [`Reader`] alive with an [`Arc`], which allows owned iterators to
+/// yield lazy lookup handles without borrowing from the iterator itself.
+#[derive(Debug, Clone)]
+pub struct OwnedLookupResult<S: AsRef<[u8]>> {
+    reader: Arc<Reader<S>>,
     /// Offset into the data section, or None if not found.
     data_offset: Option<usize>,
     prefix_len: u8,
@@ -321,6 +338,181 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
         }
 
         // Decode the value at the current position
+        T::deserialize(&mut decoder)
+            .map(Some)
+            .map_err(|e| add_path_context(e, path))
+    }
+}
+
+impl<S: AsRef<[u8]>> OwnedLookupResult<S> {
+    #[inline]
+    fn decoder(&self, offset: usize) -> super::decoder::Decoder<'_> {
+        let buf = &self.reader.buf.as_ref()[self.reader.pointer_base..];
+        super::decoder::Decoder::new(buf, offset)
+    }
+
+    /// Creates a new OwnedLookupResult for a found IP.
+    pub(crate) fn new_found(
+        reader: Arc<Reader<S>>,
+        data_offset: usize,
+        prefix_len: u8,
+        ip: IpAddr,
+        source: LookupSource,
+        network_kind: NetworkKind,
+    ) -> Self {
+        OwnedLookupResult {
+            reader,
+            data_offset: Some(data_offset),
+            prefix_len,
+            ip,
+            source,
+            network_kind,
+        }
+    }
+
+    /// Creates a new OwnedLookupResult for an IP not in the database.
+    pub(crate) fn new_not_found(
+        reader: Arc<Reader<S>>,
+        prefix_len: u8,
+        ip: IpAddr,
+        source: LookupSource,
+        network_kind: NetworkKind,
+    ) -> Self {
+        OwnedLookupResult {
+            reader,
+            data_offset: None,
+            prefix_len,
+            ip,
+            source,
+            network_kind,
+        }
+    }
+
+    /// Returns true if the database contains data for this IP address.
+    #[inline]
+    pub fn has_data(&self) -> bool {
+        self.data_offset.is_some()
+    }
+
+    /// Returns the network containing the looked-up IP address.
+    pub fn network(&self) -> Result<IpNetwork, MaxMindDbError> {
+        let (ip, prefix) = match (self.source, self.network_kind, self.ip) {
+            (_, NetworkKind::V4, IpAddr::V4(v4)) => (IpAddr::V4(v4), self.prefix_len),
+            (_, NetworkKind::V4InV6Subtree, IpAddr::V4(v4)) => (
+                IpAddr::V4(v4),
+                self.prefix_len - self.reader.ipv4_start_bit_depth as u8,
+            ),
+            (LookupSource::Lookup, NetworkKind::V6, IpAddr::V4(_)) => {
+                use std::net::Ipv6Addr;
+                (IpAddr::V6(Ipv6Addr::UNSPECIFIED), self.prefix_len)
+            }
+            (_, NetworkKind::V6, IpAddr::V6(v6)) => (IpAddr::V6(v6), self.prefix_len),
+            (_, _, ip) => unreachable!("unexpected lookup result state for network: {ip:?}"),
+        };
+
+        let network_ip = mask_ip(ip, prefix);
+        IpNetwork::new(network_ip, prefix).map_err(MaxMindDbError::InvalidNetwork)
+    }
+
+    /// Returns the data section offset if found, for use as a cache key.
+    #[inline]
+    pub fn offset(&self) -> Option<usize> {
+        self.data_offset
+    }
+
+    /// Decodes the full record into the specified type.
+    pub fn decode<'a, T>(&'a self) -> Result<Option<T>, MaxMindDbError>
+    where
+        T: Deserialize<'a>,
+    {
+        let Some(offset) = self.data_offset else {
+            return Ok(None);
+        };
+
+        let mut decoder = self.decoder(offset);
+        T::deserialize(&mut decoder).map(Some)
+    }
+
+    /// Decodes a value at a specific path within the record.
+    pub fn decode_path<'a, T>(
+        &'a self,
+        path: &[PathElement<'_>],
+    ) -> Result<Option<T>, MaxMindDbError>
+    where
+        T: Deserialize<'a>,
+    {
+        let Some(offset) = self.data_offset else {
+            return Ok(None);
+        };
+
+        let mut decoder = self.decoder(offset);
+
+        for (i, element) in path.iter().enumerate() {
+            let with_path = |e| add_path_context(e, &path[..=i]);
+
+            match *element {
+                PathElement::Key(key) => {
+                    let (_, type_num) = decoder.peek_type().map_err(with_path)?;
+                    if type_num != TYPE_MAP {
+                        return Err(MaxMindDbError::decoding_at_path(
+                            format!("expected map for Key(\"{key}\"), got type {type_num}"),
+                            decoder.offset(),
+                            render_path(&path[..=i]),
+                        ));
+                    }
+
+                    let size = decoder.consume_map_header().map_err(with_path)?;
+
+                    let mut found = false;
+                    let key_bytes = key.as_bytes();
+                    for _ in 0..size {
+                        let k = decoder.read_str_as_bytes().map_err(with_path)?;
+                        if k == key_bytes {
+                            found = true;
+                            break;
+                        } else {
+                            decoder.skip_value().map_err(with_path)?;
+                        }
+                    }
+
+                    if !found {
+                        return Ok(None);
+                    }
+                }
+                PathElement::Index(idx) | PathElement::IndexFromEnd(idx) => {
+                    let (_, type_num) = decoder.peek_type().map_err(with_path)?;
+                    if type_num != TYPE_ARRAY {
+                        let elem = match *element {
+                            PathElement::Index(i) => format!("Index({i})"),
+                            PathElement::IndexFromEnd(i) => format!("IndexFromEnd({i})"),
+                            PathElement::Key(_) => unreachable!(),
+                        };
+                        return Err(MaxMindDbError::decoding_at_path(
+                            format!("expected array for {elem}, got type {type_num}"),
+                            decoder.offset(),
+                            render_path(&path[..=i]),
+                        ));
+                    }
+
+                    let size = decoder.consume_array_header().map_err(with_path)?;
+
+                    if idx >= size {
+                        return Ok(None);
+                    }
+
+                    let actual_idx = match *element {
+                        PathElement::Index(i) => i,
+                        PathElement::IndexFromEnd(i) => size - 1 - i,
+                        PathElement::Key(_) => unreachable!(),
+                    };
+
+                    for _ in 0..actual_idx {
+                        decoder.skip_value().map_err(with_path)?;
+                    }
+                }
+            }
+        }
+
         T::deserialize(&mut decoder)
             .map(Some)
             .map_err(|e| add_path_context(e, path))

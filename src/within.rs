@@ -2,11 +2,12 @@
 
 use std::cmp::Ordering;
 use std::net::IpAddr;
+use std::sync::Arc;
 
 use crate::decoder;
 use crate::error::MaxMindDbError;
 use crate::reader::Reader;
-use crate::result::{LookupResult, LookupSource, NetworkKind};
+use crate::result::{LookupResult, LookupSource, NetworkKind, OwnedLookupResult};
 
 /// Options for network iteration.
 ///
@@ -110,6 +111,20 @@ pub(crate) struct WithinNode {
 #[derive(Debug)]
 pub struct Within<'de, S: AsRef<[u8]>> {
     pub(crate) reader: &'de Reader<S>,
+    pub(crate) node_count: usize,
+    pub(crate) stack: Vec<WithinNode>,
+    pub(crate) options: WithinOptions,
+}
+
+/// Owned iterator over IP networks within a CIDR range.
+///
+/// Created by [`Reader::within_owned()`](crate::Reader::within_owned) or
+/// [`Reader::networks_owned()`](crate::Reader::networks_owned). This iterator
+/// owns an [`Arc`] to the reader, which makes it suitable for APIs that need to
+/// store and return the iterator without a separate reader borrow.
+#[derive(Debug)]
+pub struct OwnedWithin<S: AsRef<[u8]>> {
+    pub(crate) reader: Arc<Reader<S>>,
     pub(crate) node_count: usize,
     pub(crate) stack: Vec<WithinNode>,
     pub(crate) options: WithinOptions,
@@ -262,7 +277,137 @@ impl<'de, S: AsRef<[u8]>> Iterator for Within<'de, S> {
     }
 }
 
+impl<S: AsRef<[u8]>> Iterator for OwnedWithin<S> {
+    type Item = Result<OwnedLookupResult<S>, MaxMindDbError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(current) = self.stack.pop() {
+            let bit_count = current.ip_int.bit_count();
+
+            // Skip networks that are aliases for the IPv4 network (unless option is set)
+            if !self.options.include_aliased_networks
+                && self.reader.ipv4_start != 0
+                && current.node == self.reader.ipv4_start
+                && bit_count == 128
+                && !current.ip_int.is_ipv4_in_ipv6()
+            {
+                continue;
+            }
+
+            match current.node.cmp(&self.node_count) {
+                Ordering::Greater => {
+                    // This is a data node, emit it and we're done (until the following next call)
+                    let ip_addr = ip_int_to_addr(&current.ip_int);
+
+                    // Resolve the pointer to a data offset
+                    let data_offset = match self.reader.resolve_data_pointer(current.node) {
+                        Ok(offset) => offset,
+                        Err(e) => return Some(Err(e)),
+                    };
+
+                    // Check if we should skip empty values
+                    if self.options.skip_empty_values {
+                        match self.is_empty_value_at(data_offset) {
+                            Ok(true) => continue, // Skip empty value
+                            Ok(false) => {}       // Not empty, proceed
+                            Err(e) => return Some(Err(e)),
+                        }
+                    }
+
+                    let network_kind = match current.ip_int {
+                        IpInt::V4(_) => NetworkKind::V4,
+                        IpInt::V6(_)
+                            if current.ip_int.is_ipv4_in_ipv6()
+                                && self.reader.has_ipv4_subtree()
+                                && current.prefix_len >= self.reader.ipv4_start_bit_depth =>
+                        {
+                            NetworkKind::V4InV6Subtree
+                        }
+                        IpInt::V6(_) => NetworkKind::V6,
+                    };
+
+                    return Some(Ok(OwnedLookupResult::new_found(
+                        Arc::clone(&self.reader),
+                        data_offset,
+                        current.prefix_len as u8,
+                        ip_addr,
+                        LookupSource::Iter,
+                        network_kind,
+                    )));
+                }
+                Ordering::Equal => {
+                    // Dead end (no data) - include if option is set
+                    if self.options.include_networks_without_data {
+                        let ip_addr = ip_int_to_addr(&current.ip_int);
+                        let network_kind = match current.ip_int {
+                            IpInt::V4(_) => NetworkKind::V4,
+                            IpInt::V6(_)
+                                if current.ip_int.is_ipv4_in_ipv6()
+                                    && self.reader.has_ipv4_subtree()
+                                    && current.prefix_len >= self.reader.ipv4_start_bit_depth =>
+                            {
+                                NetworkKind::V4InV6Subtree
+                            }
+                            IpInt::V6(_) => NetworkKind::V6,
+                        };
+                        return Some(Ok(OwnedLookupResult::new_not_found(
+                            Arc::clone(&self.reader),
+                            current.prefix_len as u8,
+                            ip_addr,
+                            LookupSource::Iter,
+                            network_kind,
+                        )));
+                    }
+                    // Otherwise skip (current behavior)
+                }
+                Ordering::Less => {
+                    // In order traversal of our children
+                    // right/1-bit
+                    let mut right_ip_int = current.ip_int;
+
+                    if current.prefix_len < bit_count {
+                        right_ip_int.set_bit(current.prefix_len);
+                    }
+
+                    self.push_child(current.node, 1, right_ip_int, current.prefix_len + 1);
+                    // left/0-bit
+                    self.push_child(current.node, 0, current.ip_int, current.prefix_len + 1);
+                }
+            }
+        }
+        None
+    }
+}
+
 impl<'de, S: AsRef<[u8]>> Within<'de, S> {
+    fn push_child(
+        &mut self,
+        parent_node: usize,
+        direction: usize,
+        ip_int: IpInt,
+        prefix_len: usize,
+    ) {
+        let node = self.reader.read_node(parent_node, direction);
+        self.stack.push(WithinNode {
+            node,
+            ip_int,
+            prefix_len,
+        });
+    }
+
+    /// Check if the value at the given data offset is an empty map or array.
+    fn is_empty_value_at(&self, data_offset: usize) -> Result<bool, MaxMindDbError> {
+        let buf = &self.reader.buf.as_ref()[self.reader.pointer_base..];
+        let mut dec = decoder::Decoder::new(buf, data_offset);
+        let (size, type_num) = dec.peek_type()?;
+        match type_num {
+            decoder::TYPE_MAP | decoder::TYPE_ARRAY => Ok(size == 0),
+            _ => Ok(false), // Non-container types are never "empty"
+        }
+    }
+}
+
+impl<S: AsRef<[u8]>> OwnedWithin<S> {
     fn push_child(
         &mut self,
         parent_node: usize,

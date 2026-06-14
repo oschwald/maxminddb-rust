@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::net::IpAddr;
 use std::path::Path;
+use std::sync::Arc;
 
 use ipnetwork::IpNetwork;
 use serde::Deserialize;
@@ -19,7 +20,7 @@ use crate::decoder;
 use crate::error::MaxMindDbError;
 use crate::metadata::Metadata;
 use crate::result::{LookupResult, LookupSource, NetworkKind};
-use crate::within::{IpInt, Within, WithinNode, WithinOptions};
+use crate::within::{IpInt, OwnedWithin, Within, WithinNode, WithinOptions};
 
 /// Size of the data section separator (16 zero bytes).
 const DATA_SECTION_SEPARATOR_SIZE: usize = 16;
@@ -273,6 +274,23 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         self.within(cidr, options)
     }
 
+    /// Iterate over all networks in the database with an owned reader.
+    ///
+    /// This is the owned-reader counterpart to [`networks()`](Self::networks).
+    /// It consumes an [`Arc<Reader<_>>`](Arc), and the returned iterator keeps
+    /// the reader alive internally.
+    pub fn networks_owned(
+        self: Arc<Self>,
+        options: WithinOptions,
+    ) -> Result<OwnedWithin<S>, MaxMindDbError> {
+        let cidr = if self.metadata.ip_version == 6 {
+            IpNetwork::V6("::/0".parse().unwrap())
+        } else {
+            IpNetwork::V4("0.0.0.0/0".parse().unwrap())
+        };
+        self.within_owned(cidr, options)
+    }
+
     /// Iterate over IP networks within a CIDR range.
     ///
     /// Returns an iterator that yields [`LookupResult`] for each network in the
@@ -396,6 +414,63 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         };
 
         Ok(within)
+    }
+
+    /// Iterate over IP networks within a CIDR range with an owned reader.
+    ///
+    /// This is the owned-reader counterpart to [`within()`](Self::within).
+    /// It consumes an [`Arc<Reader<_>>`](Arc), and the returned iterator keeps
+    /// the reader alive internally.
+    pub fn within_owned(
+        self: Arc<Self>,
+        cidr: IpNetwork,
+        options: WithinOptions,
+    ) -> Result<OwnedWithin<S>, MaxMindDbError> {
+        if self.metadata.ip_version == 4 && matches!(cidr, IpNetwork::V6(_)) {
+            return Err(MaxMindDbError::invalid_input(
+                "cannot iterate IPv6 network in IPv4-only database",
+            ));
+        }
+        let ip_address = cidr.network();
+        let prefix_len = cidr.prefix() as usize;
+        let ip_int = IpInt::new(ip_address);
+        let bit_count = ip_int.bit_count();
+
+        let mut node = self.start_node(bit_count);
+        let node_count = self.node_count;
+
+        let mut stack: Vec<WithinNode> = Vec::with_capacity(bit_count - prefix_len);
+
+        // Traverse down the tree to the level that matches the cidr mark
+        let mut depth = 0_usize;
+        for i in 0..prefix_len {
+            let bit = ip_int.get_bit(i);
+            node = self.read_node(node, bit as usize);
+            depth = i + 1; // We've now traversed i+1 bits (bits 0 through i)
+
+            if node >= node_count {
+                // We've hit a data node or dead end before we exhausted our prefix.
+                // This means the requested CIDR is contained in a single record.
+                break;
+            }
+        }
+
+        // Always push the node - it could be:
+        // - A data node (> node_count): will be yielded as a single record
+        // - The empty node (== node_count): will be skipped unless include_networks_without_data
+        // - An internal node (< node_count): will be traversed to find all contained records
+        stack.push(WithinNode {
+            node,
+            ip_int,
+            prefix_len: depth,
+        });
+
+        Ok(OwnedWithin {
+            reader: self,
+            node_count,
+            stack,
+            options,
+        })
     }
 
     // Pointer 0 means "not found" because normalize_lookup_result collapses both
