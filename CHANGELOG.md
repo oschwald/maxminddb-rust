@@ -1,6 +1,6 @@
 # Change Log
 
-## 0.29.0 - TBD
+## 0.29.0 - 2026-06-28
 
 - Breaking: `Metadata::build_time()` now returns
   `Result<SystemTime, MaxMindDbError>` instead of panicking on
