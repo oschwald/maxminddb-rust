@@ -1125,6 +1125,39 @@ fn test_verify_broken_pointers() {
 }
 
 #[test]
+fn test_rejects_data_pointer_to_metadata_marker() {
+    init_logger();
+
+    let source_path = "test-data/bad-data/libmaxminddb/libmaxminddb-uint64-max-epoch.mmdb";
+    let reader = Reader::open_readfile(source_path).unwrap();
+    assert_eq!(reader.metadata.node_count, 1);
+    assert_eq!(reader.metadata.record_size, 24);
+
+    let pointer = reader.metadata.node_count as usize + 16 + reader.data_section_len;
+    assert!(pointer <= 0x00ff_ffff);
+
+    let mut bytes = std::fs::read(source_path).unwrap();
+    for record in bytes[..6].chunks_exact_mut(3) {
+        record[0] = ((pointer >> 16) & 0xff) as u8;
+        record[1] = ((pointer >> 8) & 0xff) as u8;
+        record[2] = (pointer & 0xff) as u8;
+    }
+
+    let reader = Reader::from_source(bytes).unwrap();
+    let err = reader.lookup("1.1.1.1".parse().unwrap()).unwrap_err();
+    assert!(
+        matches!(err, MaxMindDbError::InvalidDatabase { .. }),
+        "Expected InvalidDatabase error for marker pointer, got {err:?}"
+    );
+
+    let result = reader.verify();
+    assert!(
+        matches!(result, Err(MaxMindDbError::InvalidDatabase { .. })),
+        "Expected InvalidDatabase error for marker pointer during verify, got {result:?}"
+    );
+}
+
+#[test]
 fn test_verify_broken_search_tree() {
     init_logger();
 
@@ -1175,6 +1208,60 @@ fn test_verify_rejects_truncated_scalar_value() {
         result
     );
 }
+
+#[test]
+fn test_decode_rejects_truncated_ignored_scalar_value() {
+    init_logger();
+
+    let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
+    let reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
+    let lookup = reader.lookup("1.1.1.32".parse().unwrap()).unwrap();
+    let data_offset = lookup.offset().expect("expected data offset");
+    let mut bytes = std::fs::read(source_path).unwrap();
+    let record_start = reader.pointer_base + data_offset;
+    let string_value = b"1.1.1.32";
+    let relative_value_offset = bytes[record_start..]
+        .windows(string_value.len())
+        .position(|window| window == string_value)
+        .expect("expected terminal string payload in fixture record");
+    let string_ctrl_offset = record_start + relative_value_offset - 1;
+    assert_eq!(
+        bytes[string_ctrl_offset], 0x48,
+        "unexpected string control byte in source fixture"
+    );
+
+    // Inflate the terminal string from length 8 to length 28 without adding
+    // bytes. Decoding into a struct with no fields forces serde to skip the
+    // corrupt value as unknown data.
+    bytes[string_ctrl_offset] = 0x5c;
+
+    #[derive(Deserialize, Debug)]
+    struct Empty {}
+
+    let reader = Reader::from_source(bytes).unwrap();
+    let lookup = reader.lookup("1.1.1.32".parse().unwrap()).unwrap();
+    let err = lookup.decode::<Empty>().unwrap_err();
+
+    assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+}
+
+#[test]
+fn test_decode_rejects_deep_nesting_in_ignored_values() {
+    init_logger();
+
+    let reader =
+        Reader::open_readfile("test-data/bad-data/libmaxminddb/libmaxminddb-deep-nesting.mmdb")
+            .unwrap();
+    let lookup = reader.lookup("1.1.1.1".parse().unwrap()).unwrap();
+    let err = lookup.decode::<geoip2::City>().unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("exceeded maximum data structure depth"),
+        "unexpected error: {err}"
+    );
+}
+
 /// Test that size hints are properly returned for sequences and maps
 #[test]
 fn test_size_hints() {

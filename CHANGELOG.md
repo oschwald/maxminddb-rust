@@ -2,6 +2,9 @@
 
 ## 0.28.2 - TBD
 
+- Fixed: Skipping ignored or unknown fields now enforces data-section
+  bounds and the maximum nesting depth instead of accepting truncated
+  values or overflowing the stack on deeply nested corrupt data.
 - Internal: Added focused benchmarks for network iteration and serde
   unknown-field skipping to guard performance-sensitive fixes.
 

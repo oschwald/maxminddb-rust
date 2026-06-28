@@ -281,7 +281,8 @@ impl<'de, S: AsRef<[u8]>> Within<'de, S> {
     /// Check if the value at the given data offset is an empty map or array.
     fn is_empty_value_at(&self, data_offset: usize) -> Result<bool, MaxMindDbError> {
         let buf = &self.reader.buf.as_ref()[self.reader.pointer_base..];
-        let mut dec = decoder::Decoder::new(buf, data_offset);
+        let mut dec =
+            decoder::Decoder::new_with_limit(buf, data_offset, self.reader.data_section_len);
         let (size, type_num) = dec.peek_type()?;
         match type_num {
             decoder::TYPE_MAP | decoder::TYPE_ARRAY => Ok(size == 0),
