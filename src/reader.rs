@@ -41,10 +41,10 @@ const METADATA_START_MARKER: &[u8] = b"\xab\xcd\xefMaxMind.com";
 pub struct Reader<S: AsRef<[u8]>> {
     pub(crate) buf: S,
     /// Database metadata.
-    pub metadata: Metadata,
+    metadata: Metadata,
     record_size: u16,
     /// Cached `Metadata::node_count` for `Reader` search-tree traversal.
-    /// Use this instead of `metadata.node_count`, which is publicly mutable.
+    /// Use this instead of `metadata.node_count` for traversal invariants.
     node_count: usize,
     /// Cached bytes per node derived from `Metadata::record_size` for `Reader`.
     /// Use this instead of `metadata.record_size` in lookup hot paths.
@@ -134,7 +134,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let data_section_end = metadata_marker_start(metadata_start)?;
         let mut type_decoder = decoder::Decoder::new(&buf.as_ref()[metadata_start..], 0);
         let metadata = Metadata::deserialize(&mut type_decoder)?;
-        validate_record_size(metadata.record_size)?;
+        validate_metadata_for_reader(&metadata)?;
 
         let search_tree_size =
             search_tree_size_bytes(metadata.node_count as usize, metadata.record_size as usize)?;
@@ -168,6 +168,15 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         reader.ipv4_start_bit_depth = ipv4_start_bit_depth;
 
         Ok(reader)
+    }
+
+    /// Returns database metadata.
+    ///
+    /// Metadata is validated when the reader is created and exposed by
+    /// reference so it cannot be mutated independently of cached reader state.
+    #[inline]
+    pub fn metadata(&self) -> &Metadata {
+        &self.metadata
     }
 
     /// Lookup an IP address in the database.
@@ -638,18 +647,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     fn verify_metadata(&self, data_section_end: usize) -> Result<(), MaxMindDbError> {
         let m = &self.metadata;
 
-        if m.binary_format_major_version != 2 {
-            return Err(MaxMindDbError::invalid_database(format!(
-                "binary_format_major_version - Expected: 2 Actual: {}",
-                m.binary_format_major_version
-            )));
-        }
-        if m.binary_format_minor_version != 0 {
-            return Err(MaxMindDbError::invalid_database(format!(
-                "binary_format_minor_version - Expected: 0 Actual: {}",
-                m.binary_format_minor_version
-            )));
-        }
+        validate_metadata_for_reader(m)?;
         if m.database_type.is_empty() {
             return Err(MaxMindDbError::invalid_database(
                 "database_type - Expected: non-empty string Actual: \"\"",
@@ -658,18 +656,6 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         if m.description.is_empty() {
             return Err(MaxMindDbError::invalid_database(
                 "description - Expected: non-empty map Actual: {}",
-            ));
-        }
-        if m.ip_version != 4 && m.ip_version != 6 {
-            return Err(MaxMindDbError::invalid_database(format!(
-                "ip_version - Expected: 4 or 6 Actual: {}",
-                m.ip_version
-            )));
-        }
-        validate_record_size(m.record_size)?;
-        if m.node_count == 0 {
-            return Err(MaxMindDbError::invalid_database(
-                "node_count - Expected: positive integer Actual: 0",
             ));
         }
         validate_search_tree_layout(self.pointer_base, data_section_end)?;
@@ -775,6 +761,29 @@ fn validate_record_size(record_size: u16) -> Result<(), MaxMindDbError> {
             record_size
         )))
     }
+}
+
+pub(crate) fn validate_metadata_for_reader(metadata: &Metadata) -> Result<(), MaxMindDbError> {
+    if metadata.binary_format_major_version != 2 {
+        return Err(MaxMindDbError::invalid_database(format!(
+            "binary_format_major_version - Expected: 2 Actual: {}",
+            metadata.binary_format_major_version
+        )));
+    }
+    // Minor format versions are intended to be forward-compatible.
+    if metadata.ip_version != 4 && metadata.ip_version != 6 {
+        return Err(MaxMindDbError::invalid_database(format!(
+            "ip_version - Expected: 4 or 6 Actual: {}",
+            metadata.ip_version
+        )));
+    }
+    if metadata.node_count == 0 {
+        return Err(MaxMindDbError::invalid_database(
+            "node_count - Expected: positive integer Actual: 0",
+        ));
+    }
+    metadata.build_time()?;
+    validate_record_size(metadata.record_size)
 }
 
 fn search_tree_size_bytes(node_count: usize, record_size: usize) -> Result<usize, MaxMindDbError> {

@@ -1,6 +1,6 @@
 [package]
 name = "maxminddb"
-version = "0.28.1"
+version = "0.29.0"
 authors = [ "Gregory J. Oschwald <oschwald@gmail.com>" ]
 description = "Library for reading MaxMind DB format used by GeoIP2 and GeoLite2"
 readme = "README.md"
@@ -50,4 +50,8 @@ harness = false
 
 [[bench]]
 name = "within"
+harness = false
+
+[[bench]]
+name = "metadata"
 harness = false

@@ -1,7 +1,16 @@
 # Change Log
 
-## 0.28.2 - TBD
+## 0.29.0 - TBD
 
+- Breaking: `Metadata::build_time()` now returns
+  `Result<SystemTime, MaxMindDbError>` instead of panicking on
+  unrepresentable timestamps, and databases whose `build_epoch` cannot be
+  represented as `SystemTime` are rejected as invalid during open and verify.
+- Breaking: `Reader::metadata` is now private. Use `Reader::metadata()` to
+  access validated metadata by shared reference.
+- Breaking: Opening a database now rejects unsupported major format versions,
+  unsupported IP versions, and zero-node search trees. Minor format versions
+  are still accepted for forward compatibility.
 - Fixed: `within()` and `networks()` now handle IPv6 databases without an
   IPv4 subtree without reading terminal data nodes as tree nodes or
   panicking while formatting low IPv6 networks.
@@ -9,7 +18,8 @@
   bounds and the maximum nesting depth instead of accepting truncated
   values or overflowing the stack on deeply nested corrupt data.
 - Internal: Added focused benchmarks for network iteration and serde
-  unknown-field skipping to guard performance-sensitive fixes.
+  unknown-field skipping, plus metadata build-time conversion, to guard
+  performance-sensitive fixes.
 
 ## 0.28.1 - 2026-04-26
 

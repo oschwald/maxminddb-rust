@@ -1,8 +1,11 @@
 //! Database metadata types.
 
 use std::collections::BTreeMap;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
+
+use crate::error::MaxMindDbError;
 
 /// Metadata about the MaxMind DB file.
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
@@ -31,6 +34,8 @@ impl Metadata {
     /// Returns the database build time as a `SystemTime`.
     ///
     /// This converts the `build_epoch` Unix timestamp to a `SystemTime`.
+    /// If `build_epoch` is too large to represent on this platform, this
+    /// returns an [`InvalidDatabase`](MaxMindDbError::InvalidDatabase) error.
     ///
     /// # Example
     ///
@@ -38,11 +43,18 @@ impl Metadata {
     /// use maxminddb::Reader;
     ///
     /// let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
-    /// let build_time = reader.metadata.build_time();
+    /// let build_time = reader.metadata().build_time().unwrap();
     /// println!("Database built: {:?}", build_time);
     /// ```
-    #[must_use]
-    pub fn build_time(&self) -> std::time::SystemTime {
-        std::time::UNIX_EPOCH + std::time::Duration::from_secs(self.build_epoch)
+    #[inline]
+    pub fn build_time(&self) -> Result<SystemTime, MaxMindDbError> {
+        UNIX_EPOCH
+            .checked_add(Duration::from_secs(self.build_epoch))
+            .ok_or_else(|| {
+                MaxMindDbError::invalid_database(format!(
+                    "build_epoch - Unix timestamp is too large to represent as SystemTime: {}",
+                    self.build_epoch
+                ))
+            })
     }
 }

@@ -246,7 +246,7 @@ impl<'de, S: AsRef<[u8]>> Within<'de, S> {
     #[inline(always)]
     fn network_kind(&self, node: &WithinNode) -> NetworkKind {
         match node.ip_int {
-            IpInt::V4(_) if self.reader.metadata.ip_version == 6 && !self.has_ipv4_subtree => {
+            IpInt::V4(_) if self.reader.metadata().ip_version == 6 && !self.has_ipv4_subtree => {
                 NetworkKind::V6
             }
             IpInt::V4(_) => NetworkKind::V4,

@@ -263,7 +263,7 @@ mod tests {
     fn test_lookup_network_uses_measured_ipv4_subtree_depth() {
         let mut reader =
             Reader::open_readfile("test-data/test-data/MaxMind-DB-test-ipv6-32.mmdb").unwrap();
-        assert_eq!(reader.metadata.ip_version, 6);
+        assert_eq!(reader.metadata().ip_version, 6);
 
         // Simulate a valid IPv6 database whose IPv4 subtree starts somewhere
         // other than bit 96. Using a shallow subtree depth keeps the combined
