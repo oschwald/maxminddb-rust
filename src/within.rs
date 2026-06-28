@@ -1,7 +1,7 @@
 //! Network iteration types.
 
 use std::cmp::Ordering;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv6Addr};
 
 use crate::decoder;
 use crate::error::MaxMindDbError;
@@ -111,6 +111,7 @@ pub(crate) struct WithinNode {
 pub struct Within<'de, S: AsRef<[u8]>> {
     pub(crate) reader: &'de Reader<S>,
     pub(crate) node_count: usize,
+    pub(crate) has_ipv4_subtree: bool,
     pub(crate) stack: Vec<WithinNode>,
     pub(crate) options: WithinOptions,
 }
@@ -180,8 +181,6 @@ impl<'de, S: AsRef<[u8]>> Iterator for Within<'de, S> {
             match current.node.cmp(&self.node_count) {
                 Ordering::Greater => {
                     // This is a data node, emit it and we're done (until the following next call)
-                    let ip_addr = ip_int_to_addr(&current.ip_int);
-
                     // Resolve the pointer to a data offset
                     let data_offset = match self.reader.resolve_data_pointer(current.node) {
                         Ok(offset) => offset,
@@ -197,17 +196,8 @@ impl<'de, S: AsRef<[u8]>> Iterator for Within<'de, S> {
                         }
                     }
 
-                    let network_kind = match current.ip_int {
-                        IpInt::V4(_) => NetworkKind::V4,
-                        IpInt::V6(_)
-                            if current.ip_int.is_ipv4_in_ipv6()
-                                && self.reader.has_ipv4_subtree()
-                                && current.prefix_len >= self.reader.ipv4_start_bit_depth =>
-                        {
-                            NetworkKind::V4InV6Subtree
-                        }
-                        IpInt::V6(_) => NetworkKind::V6,
-                    };
+                    let network_kind = self.network_kind(&current);
+                    let ip_addr = network_ip_addr(network_kind, current.ip_int);
 
                     return Some(Ok(LookupResult::new_found(
                         self.reader,
@@ -221,18 +211,8 @@ impl<'de, S: AsRef<[u8]>> Iterator for Within<'de, S> {
                 Ordering::Equal => {
                     // Dead end (no data) - include if option is set
                     if self.options.include_networks_without_data {
-                        let ip_addr = ip_int_to_addr(&current.ip_int);
-                        let network_kind = match current.ip_int {
-                            IpInt::V4(_) => NetworkKind::V4,
-                            IpInt::V6(_)
-                                if current.ip_int.is_ipv4_in_ipv6()
-                                    && self.reader.has_ipv4_subtree()
-                                    && current.prefix_len >= self.reader.ipv4_start_bit_depth =>
-                            {
-                                NetworkKind::V4InV6Subtree
-                            }
-                            IpInt::V6(_) => NetworkKind::V6,
-                        };
+                        let network_kind = self.network_kind(&current);
+                        let ip_addr = network_ip_addr(network_kind, current.ip_int);
                         return Some(Ok(LookupResult::new_not_found(
                             self.reader,
                             current.prefix_len as u8,
@@ -263,6 +243,24 @@ impl<'de, S: AsRef<[u8]>> Iterator for Within<'de, S> {
 }
 
 impl<'de, S: AsRef<[u8]>> Within<'de, S> {
+    #[inline(always)]
+    fn network_kind(&self, node: &WithinNode) -> NetworkKind {
+        match node.ip_int {
+            IpInt::V4(_) if self.reader.metadata.ip_version == 6 && !self.has_ipv4_subtree => {
+                NetworkKind::V6
+            }
+            IpInt::V4(_) => NetworkKind::V4,
+            IpInt::V6(_)
+                if node.ip_int.is_ipv4_in_ipv6()
+                    && self.has_ipv4_subtree
+                    && node.prefix_len >= self.reader.ipv4_start_bit_depth =>
+            {
+                NetworkKind::V4InV6Subtree
+            }
+            IpInt::V6(_) => NetworkKind::V6,
+        }
+    }
+
     fn push_child(
         &mut self,
         parent_node: usize,
@@ -291,17 +289,58 @@ impl<'de, S: AsRef<[u8]>> Within<'de, S> {
     }
 }
 
+#[inline(always)]
+fn network_ip_addr(network_kind: NetworkKind, ip_int: IpInt) -> IpAddr {
+    let ip_addr = ip_int_to_addr(&ip_int);
+    match (network_kind, ip_int, ip_addr) {
+        // Low IPv6 tree keys are normally formatted as IPv4 addresses for IPv4
+        // subtree records. When the record is really IPv6, preserve the low
+        // IPv6 bits instead of collapsing the network to ::.
+        (NetworkKind::V6, IpInt::V6(ip), IpAddr::V4(_)) => IpAddr::V6(ip.into()),
+        // Defensive fallback for IPv4 CIDR iteration in IPv6 databases without
+        // an IPv4 subtree. Reader::within() should seed those as IpInt::V6(0).
+        (NetworkKind::V6, IpInt::V4(_), IpAddr::V4(_)) => IpAddr::V6(Ipv6Addr::UNSPECIFIED),
+        (_, _, ip_addr) => ip_addr,
+    }
+}
+
 /// Convert IpInt to IpAddr
+#[inline(always)]
 pub(crate) fn ip_int_to_addr(ip_int: &IpInt) -> IpAddr {
     match ip_int {
         IpInt::V4(ip) => IpAddr::V4((*ip).into()),
         IpInt::V6(ip) => {
-            // Check if this is an IPv4-mapped IPv6 address
+            // Check if this is an IPv4-mapped IPv6 address.
             if *ip <= 0xFFFFFFFF {
                 IpAddr::V4((*ip as u32).into())
             } else {
                 IpAddr::V6((*ip).into())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    use crate::result::NetworkKind;
+
+    use super::{network_ip_addr, IpInt};
+
+    #[test]
+    fn network_ip_addr_preserves_low_ipv6_bits() {
+        assert_eq!(
+            network_ip_addr(NetworkKind::V6, IpInt::V6(1)),
+            IpAddr::V6(Ipv6Addr::from(1_u128))
+        );
+    }
+
+    #[test]
+    fn network_ip_addr_formats_ipv4_subtree_records_as_ipv4() {
+        assert_eq!(
+            network_ip_addr(NetworkKind::V4InV6Subtree, IpInt::V6(1)),
+            IpAddr::V4(Ipv4Addr::from(1_u32))
+        );
     }
 }

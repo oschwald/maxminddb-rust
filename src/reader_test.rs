@@ -1054,6 +1054,20 @@ fn test_within_rejects_ipv6_cidr_for_ipv4_database() {
     }
 }
 
+#[test]
+fn test_within_no_ipv4_search_tree() {
+    init_logger();
+
+    let reader = open_test_data_reader("MaxMind-DB-no-ipv4-search-tree.mmdb");
+
+    for cidr in ["::/0", "::/64", "0.0.0.0/0", "200.0.2.1/32"] {
+        let cidr: IpNetwork = cidr.parse().unwrap();
+        let networks = collect_networks(reader.within(cidr, Default::default()).unwrap());
+
+        assert_eq!(networks, vec!["::/64"], "unexpected networks for {cidr}");
+    }
+}
+
 /// Test that verify() succeeds on valid databases (matching Go's TestVerifyOnGoodDatabases)
 #[test]
 fn test_verify_good_databases() {

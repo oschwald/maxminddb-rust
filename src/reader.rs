@@ -372,12 +372,45 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
 
         let mut node = self.start_node(bit_count);
         let node_count = self.node_count;
+        let has_ipv4_subtree = self.has_ipv4_subtree();
 
         let mut stack: Vec<WithinNode> = Vec::with_capacity(bit_count - prefix_len);
+
+        // `bit_count == 32` means the caller requested an IPv4 CIDR. In an
+        // IPv6 database with no IPv4 subtree, `start_node(32)` can already be a
+        // terminal IPv6 record reached by walking the all-zero prefix. Do not
+        // read that terminal value as a tree node; yield the containing IPv6
+        // network instead, matching lookup behavior.
+        if bit_count == 32
+            && self.metadata.ip_version == 6
+            && !has_ipv4_subtree
+            && node >= node_count
+        {
+            stack.push(WithinNode {
+                node,
+                ip_int: IpInt::V6(0),
+                prefix_len: self.ipv4_start_bit_depth,
+            });
+
+            return Ok(Within {
+                reader: self,
+                node_count,
+                has_ipv4_subtree,
+                stack,
+                options,
+            });
+        }
 
         // Traverse down the tree to the level that matches the cidr mark
         let mut depth = 0_usize;
         for i in 0..prefix_len {
+            // `read_node` is only valid for internal search-tree nodes.
+            if node >= node_count {
+                // We've hit a data node or dead end before we exhausted our prefix.
+                // This means the requested CIDR is contained in a single record.
+                break;
+            }
+
             let bit = ip_int.get_bit(i);
             node = self.read_node(node, bit as usize);
             depth = i + 1; // We've now traversed i+1 bits (bits 0 through i)
@@ -402,6 +435,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let within = Within {
             reader: self,
             node_count,
+            has_ipv4_subtree,
             stack,
             options,
         };

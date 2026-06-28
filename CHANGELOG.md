@@ -2,6 +2,9 @@
 
 ## 0.28.2 - TBD
 
+- Fixed: `within()` and `networks()` now handle IPv6 databases without an
+  IPv4 subtree without reading terminal data nodes as tree nodes or
+  panicking while formatting low IPv6 networks.
 - Fixed: Skipping ignored or unknown fields now enforces data-section
   bounds and the maximum nesting depth instead of accepting truncated
   values or overflowing the stack on deeply nested corrupt data.
