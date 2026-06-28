@@ -10,6 +10,9 @@ use common::{generate_ipv4, open_reader};
 
 const DB_FILE: &str = "GeoLite2-City.mmdb";
 
+#[derive(serde::Deserialize)]
+struct EmptyRecord {}
+
 fn cache_lookups<'a, T>(ips: &[IpAddr], reader: &'a Reader<T>) -> Vec<LookupResult<'a, T>>
 where
     T: AsRef<[u8]>,
@@ -47,6 +50,16 @@ where
     for result in results {
         let country: Option<geoip2::Country<'_>> = result.decode().unwrap();
         black_box(country);
+    }
+}
+
+fn bench_decode_empty_record<T>(results: &[LookupResult<'_, T>])
+where
+    T: AsRef<[u8]>,
+{
+    for result in results {
+        let empty: Option<EmptyRecord> = result.decode().unwrap();
+        black_box(empty);
     }
 }
 
@@ -90,6 +103,9 @@ pub fn serde_usage_benchmark(c: &mut Criterion) {
     });
     c.bench_function("serde_usage/decode_country_only", |b| {
         b.iter(|| bench_decode_country_only(&cached_results))
+    });
+    c.bench_function("serde_usage/decode_empty_record", |b| {
+        b.iter(|| bench_decode_empty_record(&cached_results))
     });
     c.bench_function("serde_usage/decode_path_country_iso", |b| {
         b.iter(|| bench_decode_path_country_iso(&cached_results))

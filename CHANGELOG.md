@@ -1,5 +1,10 @@
 # Change Log
 
+## 0.28.2 - TBD
+
+- Internal: Added focused benchmarks for network iteration and serde
+  unknown-field skipping to guard performance-sensitive fixes.
+
 ## 0.28.1 - 2026-04-26
 
 - Fixed: Databases with an impossible declared search tree size are now
