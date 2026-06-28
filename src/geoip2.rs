@@ -351,7 +351,8 @@ pub struct Asn<'a> {
 
 /// Country/City database model structs.
 ///
-/// These structs are used by both [`super::Country`] and [`super::City`] records.
+/// These structs are used by both [`crate::geoip2::Country`] and
+/// [`crate::geoip2::City`] records.
 pub mod country {
     use super::Names;
     use serde::{Deserialize, Serialize};
@@ -432,7 +433,8 @@ pub mod country {
 
 /// City database model structs.
 ///
-/// City-specific structs. Country-level structs are re-exported from [`super::country`].
+/// City-specific structs. Country-level structs are re-exported from
+/// [`crate::geoip2::country`].
 pub mod city {
     use super::Names;
     use serde::{Deserialize, Serialize};
@@ -513,7 +515,7 @@ pub mod city {
 /// Enterprise database model structs.
 ///
 /// Enterprise-specific structs with confidence scores. Some structs are
-/// re-exported from [`super::country`].
+/// re-exported from [`crate::geoip2::country`].
 pub mod enterprise {
     use super::Names;
     use serde::{Deserialize, Serialize};

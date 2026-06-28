@@ -186,7 +186,6 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// - Get the network containing the IP with [`network()`](LookupResult::network)
     /// - Decode the full record with [`decode()`](LookupResult::decode)
     /// - Decode a specific path with [`decode_path()`](LookupResult::decode_path)
-    /// - Get a low-level decoder with [`decoder()`](LookupResult::decoder)
     ///
     /// # Examples
     ///

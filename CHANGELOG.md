@@ -20,6 +20,7 @@
 - Internal: Added focused benchmarks for network iteration and serde
   unknown-field skipping, plus metadata build-time conversion, to guard
   performance-sensitive fixes.
+- Documentation: Fixed intra-doc links so docs build with warnings denied.
 
 ## 0.28.1 - 2026-04-26
 
