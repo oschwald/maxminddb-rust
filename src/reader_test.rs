@@ -1,10 +1,12 @@
 use std::net::IpAddr;
+use std::time::{Duration, UNIX_EPOCH};
 
 use ipnetwork::IpNetwork;
 use serde::Deserialize;
 use serde_json::json;
 
 use crate::geoip2;
+use crate::reader::validate_metadata_for_reader;
 use crate::{MaxMindDbError, Reader, Within, WithinOptions};
 
 const TEST_DATABASE_CONFIGS: &[(usize, usize)] =
@@ -108,19 +110,19 @@ fn test_pointers_in_metadata() {
     let reader = open_test_data_reader("MaxMind-DB-test-metadata-pointers.mmdb");
 
     assert_eq!(
-        reader.metadata.database_type,
+        reader.metadata().database_type,
         "Lots of pointers in metadata"
     );
     assert_eq!(
-        reader.metadata.description["en"],
+        reader.metadata().description["en"],
         "Lots of pointers in metadata"
     );
     assert_eq!(
-        reader.metadata.description["es"],
+        reader.metadata().description["es"],
         "Lots of pointers in metadata"
     );
     assert_eq!(
-        reader.metadata.description["zh"],
+        reader.metadata().description["zh"],
         "Lots of pointers in metadata"
     );
 
@@ -465,7 +467,7 @@ fn test_within_city() {
 }
 
 fn check_metadata<S: AsRef<[u8]>>(reader: &Reader<S>, ip_version: usize, record_size: usize) {
-    let metadata = &reader.metadata;
+    let metadata = reader.metadata();
 
     assert_eq!(metadata.binary_format_major_version, 2_u16);
     assert_eq!(metadata.binary_format_minor_version, 0_u16);
@@ -494,15 +496,78 @@ fn check_metadata<S: AsRef<[u8]>>(reader: &Reader<S>, ip_version: usize, record_
 }
 
 #[test]
-fn test_lookup_uses_cached_record_size_after_metadata_mutation() {
+fn test_metadata_build_time_conversion() {
     init_logger();
 
-    let mut reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
-    reader.metadata.record_size = 0;
+    let reader = open_test_data_reader("GeoIP2-City-Test.mmdb");
 
-    let lookup = reader.lookup("1.1.1.1".parse().unwrap()).unwrap();
-    assert!(lookup.has_data());
-    assert_eq!(lookup.network().unwrap().to_string(), "1.1.1.1/32");
+    assert_eq!(
+        reader.metadata().build_time().unwrap(),
+        UNIX_EPOCH + Duration::from_secs(reader.metadata().build_epoch)
+    );
+}
+
+#[test]
+fn test_metadata_build_time_rejects_uint64_max_epoch() {
+    init_logger();
+
+    let err =
+        Reader::open_readfile("test-data/bad-data/libmaxminddb/libmaxminddb-uint64-max-epoch.mmdb")
+            .unwrap_err();
+
+    assert!(
+        matches!(
+            err,
+            MaxMindDbError::InvalidDatabase { ref message, .. }
+                if message
+                    == "build_epoch - Unix timestamp is too large to represent as SystemTime: 18446744073709551615"
+        ),
+        "Expected InvalidDatabase error for unrepresentable build_epoch, got {err:?}"
+    );
+}
+
+#[test]
+fn test_reader_metadata_accessor_returns_validated_metadata() {
+    init_logger();
+
+    let reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
+
+    assert_eq!(reader.metadata().record_size, 24);
+    assert_eq!(reader.metadata().ip_version, 4);
+    assert_eq!(reader.metadata().database_type, "Test");
+}
+
+#[test]
+fn test_metadata_validation_rejects_hard_invariants() {
+    init_logger();
+
+    let reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
+    let metadata = reader.metadata();
+
+    let mut invalid = metadata.clone();
+    invalid.binary_format_major_version = 3;
+    assert!(matches!(
+        validate_metadata_for_reader(&invalid),
+        Err(MaxMindDbError::InvalidDatabase { .. })
+    ));
+
+    let mut future_minor = metadata.clone();
+    future_minor.binary_format_minor_version = u16::MAX;
+    validate_metadata_for_reader(&future_minor).unwrap();
+
+    let mut invalid = metadata.clone();
+    invalid.ip_version = 5;
+    assert!(matches!(
+        validate_metadata_for_reader(&invalid),
+        Err(MaxMindDbError::InvalidDatabase { .. })
+    ));
+
+    let mut invalid = metadata.clone();
+    invalid.node_count = 0;
+    assert!(matches!(
+        validate_metadata_for_reader(&invalid),
+        Err(MaxMindDbError::InvalidDatabase { .. })
+    ));
 }
 
 #[test]
@@ -511,7 +576,7 @@ fn test_resolve_data_pointer_rejects_small_pointer() {
 
     let reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
     let err = reader
-        .resolve_data_pointer(reader.metadata.node_count as usize)
+        .resolve_data_pointer(reader.metadata().node_count as usize)
         .unwrap_err();
 
     assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
@@ -1054,6 +1119,20 @@ fn test_within_rejects_ipv6_cidr_for_ipv4_database() {
     }
 }
 
+#[test]
+fn test_within_no_ipv4_search_tree() {
+    init_logger();
+
+    let reader = open_test_data_reader("MaxMind-DB-no-ipv4-search-tree.mmdb");
+
+    for cidr in ["::/0", "::/64", "0.0.0.0/0", "200.0.2.1/32"] {
+        let cidr: IpNetwork = cidr.parse().unwrap();
+        let networks = collect_networks(reader.within(cidr, Default::default()).unwrap());
+
+        assert_eq!(networks, vec!["::/64"], "unexpected networks for {cidr}");
+    }
+}
+
 /// Test that verify() succeeds on valid databases (matching Go's TestVerifyOnGoodDatabases)
 #[test]
 fn test_verify_good_databases() {
@@ -1125,6 +1204,38 @@ fn test_verify_broken_pointers() {
 }
 
 #[test]
+fn test_rejects_data_pointer_to_metadata_marker() {
+    init_logger();
+
+    let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
+    let reader = Reader::open_readfile(source_path).unwrap();
+    assert_eq!(reader.metadata().record_size, 24);
+
+    let pointer = reader.metadata().node_count as usize + 16 + reader.data_section_len;
+    assert!(pointer <= 0x00ff_ffff);
+
+    let mut bytes = std::fs::read(source_path).unwrap();
+    for record in bytes[..6].chunks_exact_mut(3) {
+        record[0] = ((pointer >> 16) & 0xff) as u8;
+        record[1] = ((pointer >> 8) & 0xff) as u8;
+        record[2] = (pointer & 0xff) as u8;
+    }
+
+    let reader = Reader::from_source(bytes).unwrap();
+    let err = reader.lookup("1.1.1.1".parse().unwrap()).unwrap_err();
+    assert!(
+        matches!(err, MaxMindDbError::InvalidDatabase { .. }),
+        "Expected InvalidDatabase error for marker pointer, got {err:?}"
+    );
+
+    let result = reader.verify();
+    assert!(
+        matches!(result, Err(MaxMindDbError::InvalidDatabase { .. })),
+        "Expected InvalidDatabase error for marker pointer during verify, got {result:?}"
+    );
+}
+
+#[test]
 fn test_verify_broken_search_tree() {
     init_logger();
 
@@ -1175,6 +1286,60 @@ fn test_verify_rejects_truncated_scalar_value() {
         result
     );
 }
+
+#[test]
+fn test_decode_rejects_truncated_ignored_scalar_value() {
+    init_logger();
+
+    let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
+    let reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
+    let lookup = reader.lookup("1.1.1.32".parse().unwrap()).unwrap();
+    let data_offset = lookup.offset().expect("expected data offset");
+    let mut bytes = std::fs::read(source_path).unwrap();
+    let record_start = reader.pointer_base + data_offset;
+    let string_value = b"1.1.1.32";
+    let relative_value_offset = bytes[record_start..]
+        .windows(string_value.len())
+        .position(|window| window == string_value)
+        .expect("expected terminal string payload in fixture record");
+    let string_ctrl_offset = record_start + relative_value_offset - 1;
+    assert_eq!(
+        bytes[string_ctrl_offset], 0x48,
+        "unexpected string control byte in source fixture"
+    );
+
+    // Inflate the terminal string from length 8 to length 28 without adding
+    // bytes. Decoding into a struct with no fields forces serde to skip the
+    // corrupt value as unknown data.
+    bytes[string_ctrl_offset] = 0x5c;
+
+    #[derive(Deserialize, Debug)]
+    struct Empty {}
+
+    let reader = Reader::from_source(bytes).unwrap();
+    let lookup = reader.lookup("1.1.1.32".parse().unwrap()).unwrap();
+    let err = lookup.decode::<Empty>().unwrap_err();
+
+    assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+}
+
+#[test]
+fn test_decode_rejects_deep_nesting_in_ignored_values() {
+    init_logger();
+
+    let reader =
+        Reader::open_readfile("test-data/bad-data/libmaxminddb/libmaxminddb-deep-nesting.mmdb")
+            .unwrap();
+    let lookup = reader.lookup("1.1.1.1".parse().unwrap()).unwrap();
+    let err = lookup.decode::<geoip2::City>().unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("exceeded maximum data structure depth"),
+        "unexpected error: {err}"
+    );
+}
+
 /// Test that size hints are properly returned for sequences and maps
 #[test]
 fn test_size_hints() {

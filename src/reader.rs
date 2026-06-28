@@ -23,6 +23,7 @@ use crate::within::{IpInt, Within, WithinNode, WithinOptions};
 
 /// Size of the data section separator (16 zero bytes).
 const DATA_SECTION_SEPARATOR_SIZE: usize = 16;
+const METADATA_START_MARKER: &[u8] = b"\xab\xcd\xefMaxMind.com";
 
 /// A reader for the MaxMind DB format. The lifetime `'data` is tied to the
 /// lifetime of the underlying buffer holding the contents of the database file.
@@ -40,10 +41,10 @@ const DATA_SECTION_SEPARATOR_SIZE: usize = 16;
 pub struct Reader<S: AsRef<[u8]>> {
     pub(crate) buf: S,
     /// Database metadata.
-    pub metadata: Metadata,
+    metadata: Metadata,
     record_size: u16,
     /// Cached `Metadata::node_count` for `Reader` search-tree traversal.
-    /// Use this instead of `metadata.node_count`, which is publicly mutable.
+    /// Use this instead of `metadata.node_count` for traversal invariants.
     node_count: usize,
     /// Cached bytes per node derived from `Metadata::record_size` for `Reader`.
     /// Use this instead of `metadata.record_size` in lookup hot paths.
@@ -53,6 +54,8 @@ pub struct Reader<S: AsRef<[u8]>> {
     /// correct prefix lengths for IPv4 lookups in IPv6 databases.
     pub(crate) ipv4_start_bit_depth: usize,
     pub(crate) pointer_base: usize,
+    pub(crate) data_section_len: usize,
+    pub(crate) metadata_start: usize,
 }
 
 impl<S: AsRef<[u8]>> std::fmt::Debug for Reader<S> {
@@ -63,6 +66,8 @@ impl<S: AsRef<[u8]>> std::fmt::Debug for Reader<S> {
             .field("ipv4_start", &self.ipv4_start)
             .field("ipv4_start_bit_depth", &self.ipv4_start_bit_depth)
             .field("pointer_base", &self.pointer_base)
+            .field("data_section_len", &self.data_section_len)
+            .field("metadata_start", &self.metadata_start)
             .finish_non_exhaustive()
     }
 }
@@ -124,9 +129,12 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// ```
     pub fn from_source(buf: S) -> Result<Reader<S>, MaxMindDbError> {
         let metadata_start = find_metadata_start(buf.as_ref())?;
+        // find_metadata_start returns the offset after the marker; the marker
+        // bytes are not part of the data section and must stay out of limits.
+        let data_section_end = metadata_marker_start(metadata_start)?;
         let mut type_decoder = decoder::Decoder::new(&buf.as_ref()[metadata_start..], 0);
         let metadata = Metadata::deserialize(&mut type_decoder)?;
-        validate_record_size(metadata.record_size)?;
+        validate_metadata_for_reader(&metadata)?;
 
         let search_tree_size =
             search_tree_size_bytes(metadata.node_count as usize, metadata.record_size as usize)?;
@@ -140,7 +148,8 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
                     "the MaxMind DB file's search tree extends beyond the file",
                 )
             })?;
-        validate_search_tree_layout(pointer_base, metadata_start)?;
+        validate_search_tree_layout(pointer_base, data_section_end)?;
+        let data_section_len = data_section_end - pointer_base;
 
         let mut reader = Reader {
             buf,
@@ -148,6 +157,8 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
             node_count,
             node_byte_size,
             pointer_base,
+            data_section_len,
+            metadata_start,
             metadata,
             ipv4_start: 0,
             ipv4_start_bit_depth: 0,
@@ -159,6 +170,15 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         Ok(reader)
     }
 
+    /// Returns database metadata.
+    ///
+    /// Metadata is validated when the reader is created and exposed by
+    /// reference so it cannot be mutated independently of cached reader state.
+    #[inline]
+    pub fn metadata(&self) -> &Metadata {
+        &self.metadata
+    }
+
     /// Lookup an IP address in the database.
     ///
     /// Returns a [`LookupResult`] that can be used to:
@@ -166,7 +186,6 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// - Get the network containing the IP with [`network()`](LookupResult::network)
     /// - Decode the full record with [`decode()`](LookupResult::decode)
     /// - Decode a specific path with [`decode_path()`](LookupResult::decode_path)
-    /// - Get a low-level decoder with [`decoder()`](LookupResult::decoder)
     ///
     /// # Examples
     ///
@@ -361,12 +380,45 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
 
         let mut node = self.start_node(bit_count);
         let node_count = self.node_count;
+        let has_ipv4_subtree = self.has_ipv4_subtree();
 
         let mut stack: Vec<WithinNode> = Vec::with_capacity(bit_count - prefix_len);
+
+        // `bit_count == 32` means the caller requested an IPv4 CIDR. In an
+        // IPv6 database with no IPv4 subtree, `start_node(32)` can already be a
+        // terminal IPv6 record reached by walking the all-zero prefix. Do not
+        // read that terminal value as a tree node; yield the containing IPv6
+        // network instead, matching lookup behavior.
+        if bit_count == 32
+            && self.metadata.ip_version == 6
+            && !has_ipv4_subtree
+            && node >= node_count
+        {
+            stack.push(WithinNode {
+                node,
+                ip_int: IpInt::V6(0),
+                prefix_len: self.ipv4_start_bit_depth,
+            });
+
+            return Ok(Within {
+                reader: self,
+                node_count,
+                has_ipv4_subtree,
+                stack,
+                options,
+            });
+        }
 
         // Traverse down the tree to the level that matches the cidr mark
         let mut depth = 0_usize;
         for i in 0..prefix_len {
+            // `read_node` is only valid for internal search-tree nodes.
+            if node >= node_count {
+                // We've hit a data node or dead end before we exhausted our prefix.
+                // This means the requested CIDR is contained in a single record.
+                break;
+            }
+
             let bit = ip_int.get_bit(i);
             node = self.read_node(node, bit as usize);
             depth = i + 1; // We've now traversed i+1 bits (bits 0 through i)
@@ -391,6 +443,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let within = Within {
             reader: self,
             node_count,
+            has_ipv4_subtree,
             stack,
             options,
         };
@@ -547,19 +600,8 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
                     "the MaxMind DB file's data pointer resolves to an invalid location",
                 )
             })?;
-        let data_section_len = self
-            .buf
-            .as_ref()
-            .len()
-            .checked_sub(self.pointer_base)
-            .ok_or_else(|| {
-                MaxMindDbError::invalid_database(
-                    "the MaxMind DB file's data pointer resolves to an invalid location",
-                )
-            })?;
-
-        // Check bounds using pointer_base which marks the start of the data section
-        if resolved >= data_section_len {
+        // Reject offsets at or beyond the marker-excluding data section length.
+        if resolved >= self.data_section_len {
             return Err(MaxMindDbError::invalid_database(
                 "the MaxMind DB file's data pointer resolves to an invalid location",
             ));
@@ -596,25 +638,15 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// ```
     pub fn verify(&self) -> Result<(), MaxMindDbError> {
         let metadata_start = find_metadata_start(self.buf.as_ref())?;
-        self.verify_metadata(metadata_start)?;
-        self.verify_database(metadata_start)
+        let data_section_end = metadata_marker_start(metadata_start)?;
+        self.verify_metadata(data_section_end)?;
+        self.verify_database(data_section_end)
     }
 
-    fn verify_metadata(&self, metadata_start: usize) -> Result<(), MaxMindDbError> {
+    fn verify_metadata(&self, data_section_end: usize) -> Result<(), MaxMindDbError> {
         let m = &self.metadata;
 
-        if m.binary_format_major_version != 2 {
-            return Err(MaxMindDbError::invalid_database(format!(
-                "binary_format_major_version - Expected: 2 Actual: {}",
-                m.binary_format_major_version
-            )));
-        }
-        if m.binary_format_minor_version != 0 {
-            return Err(MaxMindDbError::invalid_database(format!(
-                "binary_format_minor_version - Expected: 0 Actual: {}",
-                m.binary_format_minor_version
-            )));
-        }
+        validate_metadata_for_reader(m)?;
         if m.database_type.is_empty() {
             return Err(MaxMindDbError::invalid_database(
                 "database_type - Expected: non-empty string Actual: \"\"",
@@ -625,26 +657,14 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
                 "description - Expected: non-empty map Actual: {}",
             ));
         }
-        if m.ip_version != 4 && m.ip_version != 6 {
-            return Err(MaxMindDbError::invalid_database(format!(
-                "ip_version - Expected: 4 or 6 Actual: {}",
-                m.ip_version
-            )));
-        }
-        validate_record_size(m.record_size)?;
-        if m.node_count == 0 {
-            return Err(MaxMindDbError::invalid_database(
-                "node_count - Expected: positive integer Actual: 0",
-            ));
-        }
-        validate_search_tree_layout(self.pointer_base, metadata_start)?;
+        validate_search_tree_layout(self.pointer_base, data_section_end)?;
         Ok(())
     }
 
-    fn verify_database(&self, metadata_start: usize) -> Result<(), MaxMindDbError> {
+    fn verify_database(&self, data_section_end: usize) -> Result<(), MaxMindDbError> {
         let offsets = self.verify_search_tree()?;
         self.verify_data_section_separator()?;
-        self.verify_data_section(offsets, metadata_start)
+        self.verify_data_section(offsets, data_section_end)
     }
 
     fn verify_search_tree(&self) -> Result<HashSet<usize>, MaxMindDbError> {
@@ -700,9 +720,9 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     fn verify_data_section(
         &self,
         offsets: HashSet<usize>,
-        metadata_start: usize,
+        data_section_end: usize,
     ) -> Result<(), MaxMindDbError> {
-        let data_section = &self.buf.as_ref()[self.pointer_base..metadata_start];
+        let data_section = &self.buf.as_ref()[self.pointer_base..data_section_end];
 
         // Verify each offset from the search tree points to valid, decodable data
         for &offset in &offsets {
@@ -742,6 +762,29 @@ fn validate_record_size(record_size: u16) -> Result<(), MaxMindDbError> {
     }
 }
 
+pub(crate) fn validate_metadata_for_reader(metadata: &Metadata) -> Result<(), MaxMindDbError> {
+    if metadata.binary_format_major_version != 2 {
+        return Err(MaxMindDbError::invalid_database(format!(
+            "binary_format_major_version - Expected: 2 Actual: {}",
+            metadata.binary_format_major_version
+        )));
+    }
+    // Minor format versions are intended to be forward-compatible.
+    if metadata.ip_version != 4 && metadata.ip_version != 6 {
+        return Err(MaxMindDbError::invalid_database(format!(
+            "ip_version - Expected: 4 or 6 Actual: {}",
+            metadata.ip_version
+        )));
+    }
+    if metadata.node_count == 0 {
+        return Err(MaxMindDbError::invalid_database(
+            "node_count - Expected: positive integer Actual: 0",
+        ));
+    }
+    metadata.build_time()?;
+    validate_record_size(metadata.record_size)
+}
+
 fn search_tree_size_bytes(node_count: usize, record_size: usize) -> Result<usize, MaxMindDbError> {
     node_count
         .checked_mul(record_size)
@@ -755,9 +798,9 @@ fn search_tree_size_bytes(node_count: usize, record_size: usize) -> Result<usize
 
 fn validate_search_tree_layout(
     pointer_base: usize,
-    metadata_start: usize,
+    data_section_end: usize,
 ) -> Result<(), MaxMindDbError> {
-    if pointer_base > metadata_start {
+    if pointer_base > data_section_end {
         return Err(MaxMindDbError::invalid_database(
             "the MaxMind DB file's search tree extends beyond the metadata section",
         ));
@@ -870,11 +913,15 @@ fn normalize_lookup_result(node: usize, node_count: usize, prefix_len: usize) ->
 }
 
 fn find_metadata_start(buf: &[u8]) -> Result<usize, MaxMindDbError> {
-    const METADATA_START_MARKER: &[u8] = b"\xab\xcd\xefMaxMind.com";
-
     memchr::memmem::rfind(buf, METADATA_START_MARKER)
         .map(|x| x + METADATA_START_MARKER.len())
         .ok_or_else(|| {
             MaxMindDbError::invalid_database("could not find MaxMind DB metadata in file")
         })
+}
+
+fn metadata_marker_start(metadata_start: usize) -> Result<usize, MaxMindDbError> {
+    metadata_start
+        .checked_sub(METADATA_START_MARKER.len())
+        .ok_or_else(|| MaxMindDbError::invalid_database("invalid metadata marker location"))
 }

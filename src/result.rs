@@ -74,7 +74,7 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     #[inline]
     fn decoder(&self, offset: usize) -> super::decoder::Decoder<'a> {
         let buf = &self.reader.buf.as_ref()[self.reader.pointer_base..];
-        super::decoder::Decoder::new(buf, offset)
+        super::decoder::Decoder::new_with_limit(buf, offset, self.reader.data_section_len)
     }
 
     /// Creates a new LookupResult for a found IP.
@@ -281,6 +281,7 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
                     }
 
                     if !found {
+                        decoder.validate_skip_end().map_err(with_path)?;
                         return Ok(None);
                     }
                 }

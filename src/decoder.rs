@@ -34,6 +34,11 @@ const TYPE_FLOAT: u8 = 15;
 /// This matches the value used in libmaxminddb and the Go reader.
 const MAXIMUM_DATA_STRUCTURE_DEPTH: u16 = 512;
 
+/// Lower limit for values skipped through unknown fields or IgnoredAny.
+/// Skipping is recursive and can be reached by corrupt data that callers did
+/// not explicitly request, so keep the limit below small default thread stacks.
+const MAXIMUM_SKIPPED_DATA_STRUCTURE_DEPTH: u16 = 128;
+
 #[inline(always)]
 fn to_usize(base: u8, bytes: &[u8]) -> usize {
     bytes
@@ -49,11 +54,12 @@ macro_rules! decode_int_like {
                     let new_offset = self
                         .current_ptr
                         .checked_add(size)
-                        .filter(|&offset| offset <= self.buf.len())
+                        .filter(|&offset| offset <= self.limit)
                         .ok_or_else(|| {
                             self.invalid_db_error(&format!("{} of size {}", $label, size))
                         })?;
-                    let value = self.buf[self.current_ptr..new_offset]
+                    let value = self
+                        .slice(self.current_ptr, new_offset)
                         .iter()
                         .fold($zero, |acc, &b| (acc << 8) | <$ty>::from(b));
                     self.current_ptr = new_offset;
@@ -102,14 +108,21 @@ enum Value<'a, 'de> {
 #[derive(Debug)]
 pub(crate) struct Decoder<'de> {
     buf: &'de [u8],
+    limit: usize,
     current_ptr: usize,
     depth: u16,
 }
 
 impl<'de> Decoder<'de> {
     pub(crate) fn new(buf: &'de [u8], start_ptr: usize) -> Decoder<'de> {
+        Decoder::new_with_limit(buf, start_ptr, buf.len())
+    }
+
+    pub(crate) fn new_with_limit(buf: &'de [u8], start_ptr: usize, limit: usize) -> Decoder<'de> {
+        debug_assert!(limit <= buf.len());
         Decoder {
             buf,
+            limit,
             current_ptr: start_ptr,
             depth: 0,
         }
@@ -158,18 +171,40 @@ impl<'de> Decoder<'de> {
     #[inline(always)]
     fn checked_offset(&self, size: usize, label: &str) -> DecodeResult<usize> {
         let new_offset = self.current_ptr.wrapping_add(size);
-        if new_offset < self.current_ptr || new_offset > self.buf.len() {
+        if new_offset < self.current_ptr || new_offset > self.limit {
             return Err(self.invalid_db_error(&format!("{label} of size {size}")));
         }
         Ok(new_offset)
     }
 
     #[inline(always)]
+    fn slice(&self, start: usize, end: usize) -> &'de [u8] {
+        debug_assert!(start <= end);
+        debug_assert!(end <= self.limit);
+        debug_assert!(self.limit <= self.buf.len());
+        // SAFETY: Decoder constructors ensure `limit <= buf.len()`, and all
+        // callers reach this helper only after checking `end <= limit`.
+        unsafe { self.buf.get_unchecked(start..end) }
+    }
+
+    #[inline(always)]
+    fn skip_bytes(&mut self, size: usize, label: &str) -> DecodeResult<()> {
+        if self.current_ptr > self.limit || size > self.limit - self.current_ptr {
+            return Err(self.invalid_db_error(&format!("{label} of size {size}")));
+        }
+        self.current_ptr += size;
+        Ok(())
+    }
+
+    #[inline(always)]
     fn eat_byte(&mut self) -> DecodeResult<u8> {
-        let b = *self
-            .buf
-            .get(self.current_ptr)
-            .ok_or_else(|| self.invalid_db_error("unexpected end of buffer"))?;
+        if self.current_ptr >= self.limit {
+            return Err(self.invalid_db_error("unexpected end of buffer"));
+        }
+        debug_assert!(self.limit <= self.buf.len());
+        // SAFETY: The check above proves `current_ptr < limit`, and decoder
+        // construction guarantees `limit <= buf.len()`.
+        let b = unsafe { *self.buf.get_unchecked(self.current_ptr) };
         self.current_ptr += 1;
         Ok(b)
     }
@@ -314,7 +349,7 @@ impl<'de> Decoder<'de> {
 
     fn decode_bytes(&mut self, size: usize) -> DecodeResult<&'de [u8]> {
         let new_offset = self.checked_offset(size, "bytes")?;
-        let u8_slice = &self.buf[self.current_ptr..new_offset];
+        let u8_slice = self.slice(self.current_ptr, new_offset);
         self.current_ptr = new_offset;
 
         Ok(u8_slice)
@@ -322,7 +357,8 @@ impl<'de> Decoder<'de> {
 
     fn decode_float(&mut self, size: usize) -> DecodeResult<f32> {
         let new_offset = self.checked_offset(size, "float")?;
-        let value: [u8; 4] = self.buf[self.current_ptr..new_offset]
+        let value: [u8; 4] = self
+            .slice(self.current_ptr, new_offset)
             .try_into()
             .map_err(|_| self.invalid_db_error(&format!("float of size {size}")))?;
         self.current_ptr = new_offset;
@@ -332,7 +368,8 @@ impl<'de> Decoder<'de> {
 
     fn decode_double(&mut self, size: usize) -> DecodeResult<f64> {
         let new_offset = self.checked_offset(size, "double")?;
-        let value: [u8; 8] = self.buf[self.current_ptr..new_offset]
+        let value: [u8; 8] = self
+            .slice(self.current_ptr, new_offset)
             .try_into()
             .map_err(|_| self.invalid_db_error(&format!("double of size {size}")))?;
         self.current_ptr = new_offset;
@@ -351,7 +388,7 @@ impl<'de> Decoder<'de> {
         let new_offset = self
             .current_ptr
             .checked_add(size)
-            .filter(|&offset| offset <= self.buf.len())
+            .filter(|&offset| offset <= self.limit)
             .ok_or_else(|| self.invalid_db_error(&format!("{label} of size {}", size)))?;
         let p = self.current_ptr;
         let value = match size {
@@ -387,7 +424,7 @@ impl<'de> Decoder<'de> {
         let new_offset = self
             .current_ptr
             .checked_add(size)
-            .filter(|&offset| offset <= self.buf.len())
+            .filter(|&offset| offset <= self.limit)
             .ok_or_else(|| self.invalid_db_error(&format!("u16 of size {}", size)))?;
         let p = self.current_ptr;
         let value = match size {
@@ -415,17 +452,17 @@ impl<'de> Decoder<'de> {
         let pointer_value_offset = [0, 0, 2048, 526_336, 0];
         let pointer_size = ((size >> 3) & 0x3) + 1;
         let p = self.current_ptr;
-        let len = self.buf.len();
+        let limit = self.limit;
         let new_offset = match p.checked_add(pointer_size) {
-            Some(offset) if offset <= len => offset,
+            Some(offset) if offset <= limit => offset,
             _ => {
                 // Clamp to the end of the buffer so the next decode step fails
                 // with a normal bounds error instead of panicking here.
-                self.current_ptr = len;
-                return len;
+                self.current_ptr = limit;
+                return limit;
             }
         };
-        let pointer_bytes = &self.buf[p..new_offset];
+        let pointer_bytes = self.slice(p, new_offset);
         self.current_ptr = new_offset;
 
         let base = if pointer_size == 4 {
@@ -443,7 +480,7 @@ impl<'de> Decoder<'de> {
         use std::str::from_utf8_unchecked;
 
         let new_offset = self.checked_offset(size, "string")?;
-        let bytes = &self.buf[self.current_ptr..new_offset];
+        let bytes = self.slice(self.current_ptr, new_offset);
         self.current_ptr = new_offset;
         // SAFETY:
         // A corrupt maxminddb will cause undefined behaviour.
@@ -464,7 +501,7 @@ impl<'de> Decoder<'de> {
         use std::str::from_utf8_unchecked;
 
         let new_offset = self.checked_offset(size, "string")?;
-        let bytes = &self.buf[self.current_ptr..new_offset];
+        let bytes = self.slice(self.current_ptr, new_offset);
         self.current_ptr = new_offset;
         if bytes.is_ascii() {
             // ASCII is valid UTF-8, so this avoids the full validator fast path.
@@ -579,10 +616,10 @@ impl<'de> Decoder<'de> {
             .current_ptr
             .checked_add(size)
             .ok_or_else(|| self.invalid_db_error("string length exceeds buffer"))?;
-        if new_offset > self.buf.len() {
+        if new_offset > self.limit {
             return Err(self.invalid_db_error("string length exceeds buffer"));
         }
-        let bytes = &self.buf[self.current_ptr..new_offset];
+        let bytes = self.slice(self.current_ptr, new_offset);
         self.current_ptr = new_offset;
         Ok(bytes)
     }
@@ -655,45 +692,81 @@ impl<'de> Decoder<'de> {
     /// Skips the current value, following pointers.
     pub(crate) fn skip_value(&mut self) -> DecodeResult<()> {
         let (size, type_num) = self.size_and_type()?;
-        self.skip_value_inner(size, type_num, true)
+        self.skip_value_inner(size, type_num, true, 0)
     }
 
     /// Skips the current value without following pointers (for verification).
     pub(crate) fn skip_value_for_verification(&mut self) -> DecodeResult<()> {
         let (size, type_num) = self.size_and_type()?;
-        self.skip_value_inner(size, type_num, false)
+        self.skip_value_inner(size, type_num, false, 0)?;
+        self.validate_skip_end()
     }
 
+    #[inline(always)]
+    pub(crate) fn validate_skip_end(&mut self) -> DecodeResult<()> {
+        if self.current_ptr > self.limit {
+            return Err(self.invalid_db_error("skipped value extends beyond buffer"));
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn check_skip_depth(&self, skip_depth: u16) -> DecodeResult<u16> {
+        if skip_depth == MAXIMUM_SKIPPED_DATA_STRUCTURE_DEPTH {
+            return self.skip_depth_error();
+        }
+        Ok(skip_depth + 1)
+    }
+
+    #[cold]
+    fn skip_depth_error(&self) -> DecodeResult<u16> {
+        Err(self
+            .invalid_db_error("exceeded maximum data structure depth; database is likely corrupt"))
+    }
+
+    #[inline(always)]
     fn skip_value_inner(
         &mut self,
         size: usize,
         type_num: u8,
         follow_pointers: bool,
+        skip_depth: u16,
     ) -> DecodeResult<()> {
+        // When following pointers during normal serde skips, scalar payload
+        // bounds are validated once the whole skipped value is consumed. The
+        // no-follow verification path validates each raw payload immediately.
         match type_num {
             TYPE_POINTER => {
-                let new_ptr = self.decode_pointer(size);
                 if follow_pointers {
+                    let new_ptr = self.decode_pointer(size);
                     let saved_ptr = self.current_ptr;
                     self.current_ptr = new_ptr;
-                    self.skip_value()?;
+                    let result = match self.check_skip_depth(skip_depth) {
+                        Ok(child_depth) => match self.skip_value_with_depth(child_depth) {
+                            Ok(()) => self.validate_skip_end(),
+                            Err(err) => Err(err),
+                        },
+                        Err(err) => Err(err),
+                    };
                     self.current_ptr = saved_ptr;
+                    return result;
                 }
-                Ok(())
+                let pointer_size = ((size >> 3) & 0x3) + 1;
+                self.skip_bytes(pointer_size, "pointer")
             }
             TYPE_STRING | TYPE_BYTES => {
                 // String or Bytes - skip size bytes
+                let label = if type_num == TYPE_STRING {
+                    "string"
+                } else {
+                    "bytes"
+                };
                 if follow_pointers {
                     self.current_ptr += size;
+                    Ok(())
                 } else {
-                    let label = if type_num == TYPE_STRING {
-                        "string"
-                    } else {
-                        "bytes"
-                    };
-                    self.current_ptr = self.checked_offset(size, label)?;
+                    self.skip_bytes(size, label)
                 }
-                Ok(())
             }
             TYPE_DOUBLE => {
                 // Double - must be exactly 8 bytes
@@ -702,10 +775,10 @@ impl<'de> Decoder<'de> {
                 }
                 if follow_pointers {
                     self.current_ptr += size;
+                    Ok(())
                 } else {
-                    self.current_ptr = self.checked_offset(size, "double")?;
+                    self.skip_bytes(size, "double")
                 }
-                Ok(())
             }
             TYPE_FLOAT => {
                 // Float - must be exactly 4 bytes
@@ -714,27 +787,27 @@ impl<'de> Decoder<'de> {
                 }
                 if follow_pointers {
                     self.current_ptr += size;
+                    Ok(())
                 } else {
-                    self.current_ptr = self.checked_offset(size, "float")?;
+                    self.skip_bytes(size, "float")
                 }
-                Ok(())
             }
             TYPE_UINT16 | TYPE_UINT32 | TYPE_INT32 | TYPE_UINT64 | TYPE_UINT128 => {
                 // Numeric types - skip size bytes
+                let label = match type_num {
+                    TYPE_UINT16 => "u16",
+                    TYPE_UINT32 => "u32",
+                    TYPE_INT32 => "i32",
+                    TYPE_UINT64 => "u64",
+                    TYPE_UINT128 => "u128",
+                    _ => unreachable!(),
+                };
                 if follow_pointers {
                     self.current_ptr += size;
+                    Ok(())
                 } else {
-                    let label = match type_num {
-                        TYPE_UINT16 => "u16",
-                        TYPE_UINT32 => "u32",
-                        TYPE_INT32 => "i32",
-                        TYPE_UINT64 => "u64",
-                        TYPE_UINT128 => "u128",
-                        _ => unreachable!(),
-                    };
-                    self.current_ptr = self.checked_offset(size, label)?;
+                    self.skip_bytes(size, label)
                 }
-                Ok(())
             }
             TYPE_BOOL => {
                 // Boolean - size field IS the value, no data bytes to skip
@@ -742,16 +815,20 @@ impl<'de> Decoder<'de> {
             }
             TYPE_MAP => {
                 // Map - skip size key-value pairs
+                let child_depth = self.check_skip_depth(skip_depth)?;
                 for _ in 0..size {
-                    self.skip_value_inner_with_follow(follow_pointers)?; // key
-                    self.skip_value_inner_with_follow(follow_pointers)?; // value
+                    // key
+                    self.skip_value_inner_with_follow(follow_pointers, child_depth)?;
+                    // value
+                    self.skip_value_inner_with_follow(follow_pointers, child_depth)?;
                 }
                 Ok(())
             }
             TYPE_ARRAY => {
                 // Array - skip size elements
+                let child_depth = self.check_skip_depth(skip_depth)?;
                 for _ in 0..size {
-                    self.skip_value_inner_with_follow(follow_pointers)?;
+                    self.skip_value_inner_with_follow(follow_pointers, child_depth)?;
                 }
                 Ok(())
             }
@@ -759,9 +836,20 @@ impl<'de> Decoder<'de> {
         }
     }
 
-    fn skip_value_inner_with_follow(&mut self, follow_pointers: bool) -> DecodeResult<()> {
+    #[inline(always)]
+    fn skip_value_with_depth(&mut self, skip_depth: u16) -> DecodeResult<()> {
         let (size, type_num) = self.size_and_type()?;
-        self.skip_value_inner(size, type_num, follow_pointers)
+        self.skip_value_inner(size, type_num, true, skip_depth)
+    }
+
+    #[inline(always)]
+    fn skip_value_inner_with_follow(
+        &mut self,
+        follow_pointers: bool,
+        skip_depth: u16,
+    ) -> DecodeResult<()> {
+        let (size, type_num) = self.size_and_type()?;
+        self.skip_value_inner(size, type_num, follow_pointers, skip_depth)
     }
 }
 
@@ -939,6 +1027,9 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
         V: Visitor<'de>,
     {
         self.skip_value()?;
+        if self.depth == 0 {
+            self.validate_skip_end()?;
+        }
         visitor.visit_unit()
     }
 
@@ -989,6 +1080,13 @@ impl<'de> SeqAccess<'de> for ArrayAccess<'_, 'de> {
     {
         // Check if there are no more elements.
         if self.count == 0 {
+            // Only top-level containers need an explicit final overrun check.
+            // Nested containers are bounded by the value that contains them.
+            if self.de.depth <= 1 && self.de.current_ptr > self.de.limit {
+                return Err(self
+                    .de
+                    .invalid_db_error("skipped value extends beyond buffer"));
+            }
             return Ok(None);
         }
         self.count -= 1;
@@ -1018,6 +1116,13 @@ impl<'de> MapAccess<'de> for MapAccessor<'_, 'de> {
     {
         // Check if there are no more entries.
         if self.count == 0 {
+            // Only top-level containers need an explicit final overrun check.
+            // Nested containers are bounded by the value that contains them.
+            if self.de.depth <= 1 && self.de.current_ptr > self.de.limit {
+                return Err(self
+                    .de
+                    .invalid_db_error("skipped value extends beyond buffer"));
+            }
             return Ok(None);
         }
         self.count -= 1;
@@ -1094,7 +1199,9 @@ impl<'de> de::VariantAccess<'de> for EnumAccessor<'_, 'de> {
 
 #[cfg(test)]
 mod tests {
-    use crate::Reader;
+    use crate::{MaxMindDbError, Reader};
+
+    use super::Decoder;
 
     #[test]
     fn test_decoder_accepts_tuple_with_matching_length() {
@@ -1158,5 +1265,13 @@ mod tests {
         assert!(tuple_struct_err
             .to_string()
             .contains("expected tuple of length 2, got array of length 3"));
+    }
+
+    #[test]
+    fn test_skip_value_for_verification_rejects_truncated_pointer_payload() {
+        let mut decoder = Decoder::new(&[0x28], 0);
+        let err = decoder.skip_value_for_verification().unwrap_err();
+
+        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
     }
 }

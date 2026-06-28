@@ -1,5 +1,49 @@
 # Upgrading Guide
 
+## 0.28 to 0.29
+
+### Reader Metadata
+
+`Reader::metadata` is now private. Use `Reader::metadata()` to access
+validated metadata by shared reference.
+
+**Before (0.28):**
+
+```rust
+let database_type = &reader.metadata.database_type;
+```
+
+**After (0.29):**
+
+```rust
+let database_type = &reader.metadata().database_type;
+```
+
+### Metadata Build Time
+
+`Metadata::build_time()` now returns `Result<SystemTime, MaxMindDbError>`.
+Databases whose `build_epoch` cannot be represented as `SystemTime` are
+rejected as invalid when opened or verified.
+
+**Before (0.28):**
+
+```rust
+let build_time = reader.metadata.build_time();
+```
+
+**After (0.29):**
+
+```rust
+let build_time = reader.metadata().build_time()?;
+```
+
+### Metadata Validation
+
+Opening a database now rejects unsupported major format versions, unsupported
+IP versions, zero-node search trees, and unrepresentable build epochs as
+invalid databases. Minor format versions are still accepted for forward
+compatibility.
+
 ## 0.26 to 0.27
 
 This release includes significant API changes to improve ergonomics and enable
