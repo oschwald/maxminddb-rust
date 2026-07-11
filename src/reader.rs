@@ -542,49 +542,23 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         // We are looking up an IPv4 address in an IPv6 tree. Skip over the
         // first 96 nodes.
         let mut node: usize = 0;
-        let mut depth: usize = 0;
         for i in 0_u8..96 {
             if node >= self.node_count {
-                depth = i as usize;
-                break;
+                return (node, i as usize);
             }
             node = self.read_node(node, 0);
-            depth = (i + 1) as usize;
         }
-        (node, depth)
+        (node, 96)
     }
 
     #[inline(always)]
     pub(crate) fn read_node(&self, node_number: usize, index: usize) -> usize {
         let buf = self.buf.as_ref();
-        let base_offset = node_number * self.node_byte_size;
 
         match self.record_size {
-            24 => {
-                let offset = base_offset + index * 3;
-                (buf[offset] as usize) << 16
-                    | (buf[offset + 1] as usize) << 8
-                    | buf[offset + 2] as usize
-            }
-            28 => {
-                let middle = if index != 0 {
-                    buf[base_offset + 3] & 0x0F
-                } else {
-                    (buf[base_offset + 3] & 0xF0) >> 4
-                };
-                let offset = base_offset + index * 4;
-                (middle as usize) << 24
-                    | (buf[offset] as usize) << 16
-                    | (buf[offset + 1] as usize) << 8
-                    | buf[offset + 2] as usize
-            }
-            32 => {
-                let offset = base_offset + index * 4;
-                (buf[offset] as usize) << 24
-                    | (buf[offset + 1] as usize) << 16
-                    | (buf[offset + 2] as usize) << 8
-                    | buf[offset + 3] as usize
-            }
+            24 => RecordSize24::read_node(buf, node_number, index),
+            28 => RecordSize28::read_node(buf, node_number, index),
+            32 => RecordSize32::read_node(buf, node_number, index),
             _ => unreachable!("record_size is validated in Reader::from_source"),
         }
     }
@@ -625,7 +599,9 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// - Debugging database corruption issues
     /// - Ensuring database integrity in critical applications
     ///
-    /// Note: Verification traverses the entire database and may be slow on large files.
+    /// Note: Verification traverses the entire database and retains visited data
+    /// offsets for the duration of the call. It may be slow and use memory
+    /// proportional to the number of distinct referenced values on large files.
     /// The method is thread-safe and can be called on an active Reader.
     ///
     /// # Example
@@ -723,6 +699,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         data_section_end: usize,
     ) -> Result<(), MaxMindDbError> {
         let data_section = &self.buf.as_ref()[self.pointer_base..data_section_end];
+        let mut verification_state = decoder::VerificationState::default();
 
         // Verify each offset from the search tree points to valid, decodable data
         for &offset in &offsets {
@@ -739,7 +716,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
             let mut dec = decoder::Decoder::new(data_section, offset);
 
             // Try to skip/decode the value to verify it's valid
-            if let Err(e) = dec.skip_value_for_verification() {
+            if let Err(e) = dec.skip_value_for_verification(&mut verification_state) {
                 return Err(MaxMindDbError::invalid_database_at(
                     format!("decoding error: {e}"),
                     offset,

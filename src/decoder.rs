@@ -7,9 +7,9 @@
 //! Most users should not need to interact with this module directly.
 //! Use [`Reader::lookup()`](crate::Reader::lookup) for normal lookups.
 
-use log::debug;
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::forward_to_deserialize_any;
+use std::collections::HashSet;
 use std::convert::TryInto;
 
 use crate::error::MaxMindDbError;
@@ -113,6 +113,13 @@ pub(crate) struct Decoder<'de> {
     depth: u16,
 }
 
+/// Tracks data values visited by a single database verification pass.
+#[derive(Debug, Default)]
+pub(crate) struct VerificationState {
+    validated: HashSet<usize>,
+    active: HashSet<usize>,
+}
+
 impl<'de> Decoder<'de> {
     pub(crate) fn new(buf: &'de [u8], start_ptr: usize) -> Decoder<'de> {
         Decoder::new_with_limit(buf, start_ptr, buf.len())
@@ -189,7 +196,8 @@ impl<'de> Decoder<'de> {
 
     #[inline(always)]
     fn skip_bytes(&mut self, size: usize, label: &str) -> DecodeResult<()> {
-        if self.current_ptr > self.limit || size > self.limit - self.current_ptr {
+        debug_assert!(self.current_ptr <= self.limit);
+        if size > self.limit - self.current_ptr {
             return Err(self.invalid_db_error(&format!("{label} of size {size}")));
         }
         self.current_ptr += size;
@@ -526,35 +534,9 @@ impl<'de> Decoder<'de> {
         Ok(result)
     }
 
-    /// Consumes a map header, returning its size. Follows pointers.
-    pub(crate) fn consume_map_header(&mut self) -> DecodeResult<usize> {
-        self.consume_typed_header(TYPE_MAP, "map")
-    }
-
-    /// Consumes an array header, returning its size. Follows pointers.
-    pub(crate) fn consume_array_header(&mut self) -> DecodeResult<usize> {
-        self.consume_typed_header(TYPE_ARRAY, "array")
-    }
-
-    /// Consumes a header of the expected type, following one pointer.
-    fn consume_typed_header(&mut self, expected_type: u8, label: &str) -> DecodeResult<usize> {
-        let (size, type_num) = self.size_and_type()?;
-        if type_num == TYPE_POINTER {
-            self.current_ptr = self.decode_pointer(size);
-            let (size, type_num) = self.size_and_type()?;
-            if type_num == TYPE_POINTER {
-                return Err(self.invalid_db_error("pointer points to another pointer"));
-            }
-            if type_num == expected_type {
-                return Ok(size);
-            }
-            return Err(self.decode_error(&format!("expected {label}, got type {type_num}")));
-        }
-        if type_num == expected_type {
-            Ok(size)
-        } else {
-            Err(self.decode_error(&format!("expected {label}, got type {type_num}")))
-        }
+    /// Consumes a map or array header in one pass, following a pointer if needed.
+    pub(crate) fn consume_container_header(&mut self) -> DecodeResult<(usize, u8)> {
+        self.size_and_type_following_pointers()
     }
 
     /// Gets size and type, following any pointers.
@@ -692,14 +674,35 @@ impl<'de> Decoder<'de> {
     /// Skips the current value, following pointers.
     pub(crate) fn skip_value(&mut self) -> DecodeResult<()> {
         let (size, type_num) = self.size_and_type()?;
-        self.skip_value_inner(size, type_num, true, 0)
+        self.skip_value_inner(size, type_num, 0)
     }
 
-    /// Skips the current value without following pointers (for verification).
-    pub(crate) fn skip_value_for_verification(&mut self) -> DecodeResult<()> {
-        let (size, type_num) = self.size_and_type()?;
-        self.skip_value_inner(size, type_num, false, 0)?;
-        self.validate_skip_end()
+    /// Skips the current value and validates any referenced pointer targets.
+    pub(crate) fn skip_value_for_verification(
+        &mut self,
+        state: &mut VerificationState,
+    ) -> DecodeResult<()> {
+        let offset = self.current_ptr;
+        if state.validated.contains(&offset) {
+            return Ok(());
+        }
+        if !state.active.insert(offset) {
+            return Err(
+                self.invalid_db_error(&format!("cyclic data pointer references offset {offset}"))
+            );
+        }
+
+        let result = (|| {
+            let (size, type_num) = self.size_and_type()?;
+            self.skip_value_inner_for_verification(size, type_num, 0, state)?;
+            self.validate_skip_end()
+        })();
+
+        state.active.remove(&offset);
+        if result.is_ok() {
+            state.validated.insert(offset);
+        }
+        result
     }
 
     #[inline(always)]
@@ -725,34 +728,21 @@ impl<'de> Decoder<'de> {
     }
 
     #[inline(always)]
-    fn skip_value_inner(
-        &mut self,
-        size: usize,
-        type_num: u8,
-        follow_pointers: bool,
-        skip_depth: u16,
-    ) -> DecodeResult<()> {
-        // When following pointers during normal serde skips, scalar payload
-        // bounds are validated once the whole skipped value is consumed. The
-        // no-follow verification path validates each raw payload immediately.
+    fn skip_value_inner(&mut self, size: usize, type_num: u8, skip_depth: u16) -> DecodeResult<()> {
+        // Headers and scalar payloads validate every cursor advance. A
+        // successful recursive skip therefore already guarantees that the
+        // cursor remains within the decoder limit.
         match type_num {
             TYPE_POINTER => {
-                if follow_pointers {
-                    let new_ptr = self.decode_pointer(size);
-                    let saved_ptr = self.current_ptr;
-                    self.current_ptr = new_ptr;
-                    let result = match self.check_skip_depth(skip_depth) {
-                        Ok(child_depth) => match self.skip_value_with_depth(child_depth) {
-                            Ok(()) => self.validate_skip_end(),
-                            Err(err) => Err(err),
-                        },
-                        Err(err) => Err(err),
-                    };
-                    self.current_ptr = saved_ptr;
-                    return result;
-                }
-                let pointer_size = ((size >> 3) & 0x3) + 1;
-                self.skip_bytes(pointer_size, "pointer")
+                let new_ptr = self.decode_pointer(size);
+                let saved_ptr = self.current_ptr;
+                self.current_ptr = new_ptr;
+                let result = match self.check_skip_depth(skip_depth) {
+                    Ok(child_depth) => self.skip_value_with_depth(child_depth),
+                    Err(err) => Err(err),
+                };
+                self.current_ptr = saved_ptr;
+                result
             }
             TYPE_STRING | TYPE_BYTES => {
                 // String or Bytes - skip size bytes
@@ -761,36 +751,21 @@ impl<'de> Decoder<'de> {
                 } else {
                     "bytes"
                 };
-                if follow_pointers {
-                    self.current_ptr += size;
-                    Ok(())
-                } else {
-                    self.skip_bytes(size, label)
-                }
+                self.skip_bytes(size, label)
             }
             TYPE_DOUBLE => {
                 // Double - must be exactly 8 bytes
                 if size != 8 {
                     return Err(self.invalid_db_error(&format!("double of size {size}")));
                 }
-                if follow_pointers {
-                    self.current_ptr += size;
-                    Ok(())
-                } else {
-                    self.skip_bytes(size, "double")
-                }
+                self.skip_bytes(size, "double")
             }
             TYPE_FLOAT => {
                 // Float - must be exactly 4 bytes
                 if size != 4 {
                     return Err(self.invalid_db_error(&format!("float of size {size}")));
                 }
-                if follow_pointers {
-                    self.current_ptr += size;
-                    Ok(())
-                } else {
-                    self.skip_bytes(size, "float")
-                }
+                self.skip_bytes(size, "float")
             }
             TYPE_UINT16 | TYPE_UINT32 | TYPE_INT32 | TYPE_UINT64 | TYPE_UINT128 => {
                 // Numeric types - skip size bytes
@@ -802,25 +777,30 @@ impl<'de> Decoder<'de> {
                     TYPE_UINT128 => "u128",
                     _ => unreachable!(),
                 };
-                if follow_pointers {
-                    self.current_ptr += size;
-                    Ok(())
-                } else {
-                    self.skip_bytes(size, label)
+                let max_size = match type_num {
+                    TYPE_UINT16 => 2,
+                    TYPE_UINT32 | TYPE_INT32 => 4,
+                    TYPE_UINT64 => 8,
+                    TYPE_UINT128 => 16,
+                    _ => unreachable!(),
+                };
+                if size > max_size {
+                    return Err(self.invalid_db_error(&format!("{label} of size {size}")));
                 }
+                self.skip_bytes(size, label)
             }
             TYPE_BOOL => {
                 // Boolean - size field IS the value, no data bytes to skip
-                Ok(())
+                self.decode_bool(size).map(|_| ())
             }
             TYPE_MAP => {
                 // Map - skip size key-value pairs
                 let child_depth = self.check_skip_depth(skip_depth)?;
                 for _ in 0..size {
                     // key
-                    self.skip_value_inner_with_follow(follow_pointers, child_depth)?;
+                    self.skip_value_with_depth(child_depth)?;
                     // value
-                    self.skip_value_inner_with_follow(follow_pointers, child_depth)?;
+                    self.skip_value_with_depth(child_depth)?;
                 }
                 Ok(())
             }
@@ -828,7 +808,7 @@ impl<'de> Decoder<'de> {
                 // Array - skip size elements
                 let child_depth = self.check_skip_depth(skip_depth)?;
                 for _ in 0..size {
-                    self.skip_value_inner_with_follow(follow_pointers, child_depth)?;
+                    self.skip_value_with_depth(child_depth)?;
                 }
                 Ok(())
             }
@@ -839,17 +819,87 @@ impl<'de> Decoder<'de> {
     #[inline(always)]
     fn skip_value_with_depth(&mut self, skip_depth: u16) -> DecodeResult<()> {
         let (size, type_num) = self.size_and_type()?;
-        self.skip_value_inner(size, type_num, true, skip_depth)
+        self.skip_value_inner(size, type_num, skip_depth)
     }
 
-    #[inline(always)]
-    fn skip_value_inner_with_follow(
+    fn skip_value_inner_for_verification(
         &mut self,
-        follow_pointers: bool,
+        size: usize,
+        type_num: u8,
         skip_depth: u16,
+        state: &mut VerificationState,
+    ) -> DecodeResult<()> {
+        match type_num {
+            TYPE_STRING => {
+                let end = self.checked_offset(size, "string")?;
+                let bytes = self.slice(self.current_ptr, end);
+                self.current_ptr = end;
+                std::str::from_utf8(bytes)
+                    .map(|_| ())
+                    .map_err(|_| self.invalid_db_error("invalid UTF-8 in string"))
+            }
+            TYPE_POINTER => {
+                let target = self.decode_pointer(size);
+                let child_depth = self.check_skip_depth(skip_depth)?;
+                self.verify_pointer_target(target, child_depth, state)
+            }
+            TYPE_MAP => {
+                let child_depth = self.check_skip_depth(skip_depth)?;
+                for _ in 0..size {
+                    self.skip_value_with_verification(child_depth, state)?;
+                    self.skip_value_with_verification(child_depth, state)?;
+                }
+                self.validate_skip_end()
+            }
+            TYPE_ARRAY => {
+                let child_depth = self.check_skip_depth(skip_depth)?;
+                for _ in 0..size {
+                    self.skip_value_with_verification(child_depth, state)?;
+                }
+                self.validate_skip_end()
+            }
+            _ => self.skip_value_inner(size, type_num, skip_depth),
+        }
+    }
+
+    fn skip_value_with_verification(
+        &mut self,
+        skip_depth: u16,
+        state: &mut VerificationState,
     ) -> DecodeResult<()> {
         let (size, type_num) = self.size_and_type()?;
-        self.skip_value_inner(size, type_num, follow_pointers, skip_depth)
+        self.skip_value_inner_for_verification(size, type_num, skip_depth, state)
+    }
+
+    fn verify_pointer_target(
+        &mut self,
+        target: usize,
+        skip_depth: u16,
+        state: &mut VerificationState,
+    ) -> DecodeResult<()> {
+        if state.validated.contains(&target) {
+            return Ok(());
+        }
+        if !state.active.insert(target) {
+            return Err(
+                self.invalid_db_error(&format!("cyclic data pointer references offset {target}"))
+            );
+        }
+
+        let continuation = self.current_ptr;
+        self.current_ptr = target;
+        let result = (|| {
+            let (size, type_num) = self.size_and_type()?;
+            self.skip_value_inner_for_verification(size, type_num, skip_depth, state)?;
+            self.validate_skip_end()
+        })();
+        self.current_ptr = continuation;
+
+        state.active.remove(&target);
+        if result.is_ok() {
+            state.validated.insert(target);
+        }
+        result
     }
 }
 
@@ -862,8 +912,6 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
     where
         V: Visitor<'de>,
     {
-        debug!("deserialize_any");
-
         self.decode_any(visitor)
     }
 
@@ -871,8 +919,6 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
     where
         V: Visitor<'de>,
     {
-        debug!("deserialize_option");
-
         visitor.visit_some(self)
     }
 
@@ -1027,9 +1073,6 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
         V: Visitor<'de>,
     {
         self.skip_value()?;
-        if self.depth == 0 {
-            self.validate_skip_end()?;
-        }
         visitor.visit_unit()
     }
 
@@ -1070,8 +1113,13 @@ struct ArrayAccess<'a, 'de: 'a> {
 impl<'de> SeqAccess<'de> for ArrayAccess<'_, 'de> {
     type Error = MaxMindDbError;
 
+    #[inline(always)]
     fn size_hint(&self) -> Option<usize> {
-        Some(self.count)
+        // Never let a corrupt declared count drive an allocation larger than
+        // the remaining encoded data can possibly fill.
+        // Cursor advances are checked, so ordinary subtraction is sufficient.
+        debug_assert!(self.de.current_ptr <= self.de.limit);
+        Some(self.count.min(self.de.limit - self.de.current_ptr))
     }
 
     fn next_element_seed<T>(&mut self, seed: T) -> DecodeResult<Option<T::Value>>
@@ -1080,9 +1128,7 @@ impl<'de> SeqAccess<'de> for ArrayAccess<'_, 'de> {
     {
         // Check if there are no more elements.
         if self.count == 0 {
-            // Only top-level containers need an explicit final overrun check.
-            // Nested containers are bounded by the value that contains them.
-            if self.de.depth <= 1 && self.de.current_ptr > self.de.limit {
+            if self.de.current_ptr > self.de.limit {
                 return Err(self
                     .de
                     .invalid_db_error("skipped value extends beyond buffer"));
@@ -1106,8 +1152,12 @@ struct MapAccessor<'a, 'de: 'a> {
 impl<'de> MapAccess<'de> for MapAccessor<'_, 'de> {
     type Error = MaxMindDbError;
 
+    #[inline(always)]
     fn size_hint(&self) -> Option<usize> {
-        Some(self.count / 2)
+        // Each map entry needs at least one control byte for both key and value.
+        // Cursor advances are checked, so ordinary subtraction is sufficient.
+        debug_assert!(self.de.current_ptr <= self.de.limit);
+        Some((self.count / 2).min((self.de.limit - self.de.current_ptr) / 2))
     }
 
     fn next_key_seed<K>(&mut self, seed: K) -> DecodeResult<Option<K::Value>>
@@ -1116,9 +1166,7 @@ impl<'de> MapAccess<'de> for MapAccessor<'_, 'de> {
     {
         // Check if there are no more entries.
         if self.count == 0 {
-            // Only top-level containers need an explicit final overrun check.
-            // Nested containers are bounded by the value that contains them.
-            if self.de.depth <= 1 && self.de.current_ptr > self.de.limit {
+            if self.de.current_ptr > self.de.limit {
                 return Err(self
                     .de
                     .invalid_db_error("skipped value extends beyond buffer"));
@@ -1199,9 +1247,11 @@ impl<'de> de::VariantAccess<'de> for EnumAccessor<'_, 'de> {
 
 #[cfg(test)]
 mod tests {
+    use serde::Deserialize;
+
     use crate::{MaxMindDbError, Reader};
 
-    use super::Decoder;
+    use super::{Decoder, VerificationState};
 
     #[test]
     fn test_decoder_accepts_tuple_with_matching_length() {
@@ -1270,8 +1320,102 @@ mod tests {
     #[test]
     fn test_skip_value_for_verification_rejects_truncated_pointer_payload() {
         let mut decoder = Decoder::new(&[0x28], 0);
-        let err = decoder.skip_value_for_verification().unwrap_err();
+        let err = decoder
+            .skip_value_for_verification(&mut VerificationState::default())
+            .unwrap_err();
 
         assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+    }
+
+    #[test]
+    fn test_decoder_caps_impossible_container_size_hint() {
+        // Extended array with 284 declared elements and no element payload.
+        let mut decoder = Decoder::new(&[0x1d, 0x04, 0xff], 0);
+        let err = Vec::<serde::de::IgnoredAny>::deserialize(&mut decoder).unwrap_err();
+
+        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+        assert!(err.to_string().contains("unexpected end of buffer"));
+    }
+
+    #[test]
+    fn test_verification_rejects_invalid_bool_size() {
+        // Extended bool type with an invalid size value of two.
+        let mut decoder = Decoder::new(&[0x02, 0x07], 0);
+        let err = decoder
+            .skip_value_for_verification(&mut VerificationState::default())
+            .unwrap_err();
+
+        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+    }
+
+    #[test]
+    fn test_verification_rejects_and_does_not_cache_invalid_utf8() {
+        let buf = [0x41, 0xff];
+        let mut state = VerificationState::default();
+
+        for _ in 0..2 {
+            let mut decoder = Decoder::new(&buf, 0);
+            let err = decoder.skip_value_for_verification(&mut state).unwrap_err();
+
+            assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+            assert!(err.to_string().contains("invalid UTF-8"));
+            assert!(state.validated.is_empty());
+            assert!(state.active.is_empty());
+        }
+
+        #[cfg(not(feature = "unsafe-str-decode"))]
+        {
+            let mut decoder = Decoder::new(&buf, 0);
+            let err = String::deserialize(&mut decoder).unwrap_err();
+            assert!(err.to_string().contains("invalid UTF-8"));
+        }
+    }
+
+    fn append_pointer(buf: &mut Vec<u8>, target: usize) {
+        assert!(target < 2048);
+        buf.push(0x20 | ((target >> 8) as u8));
+        buf.push(target as u8);
+    }
+
+    #[test]
+    fn test_verification_caches_shared_pointer_targets() {
+        // A false boolean leaf followed by arrays containing two pointers to
+        // the preceding value. Without caching, verification work doubles at
+        // every level even though the encoded graph grows only linearly.
+        let mut buf = vec![0x00, 0x07];
+        let mut target = 0;
+        const LEVELS: usize = 20;
+
+        for _ in 0..LEVELS {
+            let array = buf.len();
+            buf.extend_from_slice(&[0x02, 0x04]);
+            append_pointer(&mut buf, target);
+            append_pointer(&mut buf, target);
+            target = array;
+        }
+
+        let mut decoder = Decoder::new(&buf, target);
+        let mut state = VerificationState::default();
+        decoder.skip_value_for_verification(&mut state).unwrap();
+
+        assert_eq!(state.validated.len(), LEVELS + 1);
+        assert!(state.active.is_empty());
+    }
+
+    #[test]
+    fn test_verification_rejects_data_pointer_cycles() {
+        // Two single-element arrays whose values point to each other.
+        let mut buf = vec![0x01, 0x04];
+        append_pointer(&mut buf, 4);
+        buf.extend_from_slice(&[0x01, 0x04]);
+        append_pointer(&mut buf, 0);
+
+        let mut decoder = Decoder::new(&buf, 0);
+        let err = decoder
+            .skip_value_for_verification(&mut VerificationState::default())
+            .unwrap_err();
+
+        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+        assert!(err.to_string().contains("cyclic data pointer"));
     }
 }

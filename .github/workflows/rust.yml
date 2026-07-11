@@ -27,7 +27,7 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
 
       - name: Run cargo check
-        run: cargo check
+        run: cargo check --features mmap,simdutf8
 
   test:
     name: Test Suite
@@ -50,6 +50,36 @@ jobs:
       - name: Run cargo test
         run: cargo test
 
+  feature-test:
+    name: Feature Tests
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      matrix:
+        include:
+          - platform: ubuntu-latest
+            features: mmap
+          - platform: ubuntu-latest
+            features: mmap,simdutf8
+          - platform: ubuntu-latest
+            features: unsafe-str-decode
+          - platform: ubuntu-latest
+            features: mmap,unsafe-str-decode
+          - platform: macos-latest
+            features: mmap
+          - platform: windows-latest
+            features: mmap
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run feature tests
+        run: cargo test --features "${{ matrix.features }}"
+
   lints:
     name: Lints
     runs-on: ubuntu-latest
@@ -66,4 +96,4 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run cargo clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --all-targets --features mmap,simdutf8 -- -D warnings

@@ -224,6 +224,11 @@ impl<'de, S: AsRef<[u8]>> Iterator for Within<'de, S> {
                     // Otherwise skip (current behavior)
                 }
                 Ordering::Less => {
+                    if current.prefix_len >= bit_count {
+                        return Some(Err(MaxMindDbError::invalid_database(
+                            "search tree appears to have a cycle or invalid structure (traversal exceeded the address bit length)",
+                        )));
+                    }
                     // In order traversal of our children
                     // right/1-bit
                     let mut right_ip_int = current.ip_int;

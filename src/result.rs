@@ -256,17 +256,15 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
 
             match *element {
                 PathElement::Key(key) => {
-                    let (_, type_num) = decoder.peek_type().map_err(with_path)?;
+                    let header_offset = decoder.offset();
+                    let (size, type_num) = decoder.consume_container_header().map_err(with_path)?;
                     if type_num != TYPE_MAP {
                         return Err(MaxMindDbError::decoding_at_path(
                             format!("expected map for Key(\"{key}\"), got type {type_num}"),
-                            decoder.offset(),
+                            header_offset,
                             render_path(&path[..=i]),
                         ));
                     }
-
-                    // Consume the map header and get size
-                    let size = decoder.consume_map_header().map_err(with_path)?;
 
                     let mut found = false;
                     let key_bytes = key.as_bytes();
@@ -286,7 +284,8 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
                     }
                 }
                 PathElement::Index(idx) | PathElement::IndexFromEnd(idx) => {
-                    let (_, type_num) = decoder.peek_type().map_err(with_path)?;
+                    let header_offset = decoder.offset();
+                    let (size, type_num) = decoder.consume_container_header().map_err(with_path)?;
                     if type_num != TYPE_ARRAY {
                         let elem = match *element {
                             PathElement::Index(i) => format!("Index({i})"),
@@ -295,13 +294,10 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
                         };
                         return Err(MaxMindDbError::decoding_at_path(
                             format!("expected array for {elem}, got type {type_num}"),
-                            decoder.offset(),
+                            header_offset,
                             render_path(&path[..=i]),
                         ));
                     }
-
-                    // Consume the array header and get size
-                    let size = decoder.consume_array_header().map_err(with_path)?;
 
                     if idx >= size {
                         return Ok(None); // Out of bounds
@@ -353,7 +349,7 @@ fn render_path(path: &[PathElement<'_>]) -> String {
         match elem {
             PathElement::Key(k) => s.push_str(k),
             PathElement::Index(i) => write!(s, "{i}").unwrap(),
-            PathElement::IndexFromEnd(i) => write!(s, "{}", -((*i as isize) + 1)).unwrap(),
+            PathElement::IndexFromEnd(i) => write!(s, "-{}", (*i as u128) + 1).unwrap(),
         }
     }
     s
@@ -674,6 +670,14 @@ mod tests {
         assert_eq!(
             render_path(&[PathElement::Key("arr"), PathElement::IndexFromEnd(1)]),
             "/arr/-2"
+        );
+        assert_eq!(
+            render_path(&[PathElement::IndexFromEnd(isize::MAX as usize)]),
+            format!("/-{}", (isize::MAX as u128) + 1)
+        );
+        assert_eq!(
+            render_path(&[PathElement::IndexFromEnd(usize::MAX)]),
+            format!("/-{}", (usize::MAX as u128) + 1)
         );
     }
 

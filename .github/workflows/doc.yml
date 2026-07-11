@@ -19,7 +19,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build documentation with warnings denied
-        run: cargo doc --all --no-deps
+        run: cargo doc --all --features mmap,simdutf8 --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
 
@@ -37,7 +37,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build Documentation
-        run: cargo doc --all --no-deps
+        run: cargo doc --all --features mmap,simdutf8 --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
 
