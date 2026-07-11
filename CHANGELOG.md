@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fixed network iteration on cyclic or over-deep corrupt search trees so it
+  returns an error instead of looping indefinitely.
 - Fixed `verify()` to validate shared data-section pointer targets once, reject
   pointer cycles, invalid scalar encodings, and impossible container sizes.
 

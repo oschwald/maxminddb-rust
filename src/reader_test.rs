@@ -1513,6 +1513,25 @@ fn test_serde_flatten() {
 }
 
 #[test]
+fn test_network_iteration_rejects_internal_node_cycle() {
+    let mut reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
+
+    // Make both branches of the root node point back to the root. Opening the
+    // original database already populated all layout invariants, so this
+    // isolates iterator behavior on a corrupt tree without building a fixture.
+    reader.buf[..6].fill(0);
+
+    let err = reader
+        .networks(Default::default())
+        .unwrap()
+        .next()
+        .expect("cyclic tree should yield an error")
+        .unwrap_err();
+    assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+    assert!(err.to_string().contains("address bit length"));
+}
+
+#[test]
 fn test_verify_follows_and_rejects_invalid_data_pointers() {
     let mut reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
     let data_offset = reader
