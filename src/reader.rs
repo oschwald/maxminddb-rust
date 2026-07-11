@@ -625,7 +625,9 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// - Debugging database corruption issues
     /// - Ensuring database integrity in critical applications
     ///
-    /// Note: Verification traverses the entire database and may be slow on large files.
+    /// Note: Verification traverses the entire database and retains visited data
+    /// offsets for the duration of the call. It may be slow and use memory
+    /// proportional to the number of distinct referenced values on large files.
     /// The method is thread-safe and can be called on an active Reader.
     ///
     /// # Example
@@ -723,6 +725,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         data_section_end: usize,
     ) -> Result<(), MaxMindDbError> {
         let data_section = &self.buf.as_ref()[self.pointer_base..data_section_end];
+        let mut verification_state = decoder::VerificationState::default();
 
         // Verify each offset from the search tree points to valid, decodable data
         for &offset in &offsets {
@@ -739,7 +742,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
             let mut dec = decoder::Decoder::new(data_section, offset);
 
             // Try to skip/decode the value to verify it's valid
-            if let Err(e) = dec.skip_value_for_verification() {
+            if let Err(e) = dec.skip_value_for_verification(&mut verification_state) {
                 return Err(MaxMindDbError::invalid_database_at(
                     format!("decoding error: {e}"),
                     offset,

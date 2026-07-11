@@ -1,5 +1,10 @@
 # Change Log
 
+## Unreleased
+
+- Fixed `verify()` to validate shared data-section pointer targets once, reject
+  pointer cycles, invalid scalar encodings, and impossible container sizes.
+
 ## 0.29.0 - 2026-06-28
 
 - Breaking: `Metadata::build_time()` now returns
