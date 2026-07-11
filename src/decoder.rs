@@ -7,7 +7,6 @@
 //! Most users should not need to interact with this module directly.
 //! Use [`Reader::lookup()`](crate::Reader::lookup) for normal lookups.
 
-use log::debug;
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::forward_to_deserialize_any;
 use std::collections::HashSet;
@@ -913,8 +912,6 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
     where
         V: Visitor<'de>,
     {
-        debug!("deserialize_any");
-
         self.decode_any(visitor)
     }
 
@@ -922,8 +919,6 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
     where
         V: Visitor<'de>,
     {
-        debug!("deserialize_option");
-
         visitor.visit_some(self)
     }
 

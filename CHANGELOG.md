@@ -6,6 +6,7 @@
   returns an error instead of looping indefinitely.
 - Fixed `decode_path()` error rendering for extreme negative indexes and
   reduced path traversal header parsing.
+- Removed decoder logging checks from hot deserialization paths.
 - Fixed `verify()` to validate shared data-section pointer targets once, reject
   pointer cycles, invalid scalar encodings, and impossible container sizes.
 
