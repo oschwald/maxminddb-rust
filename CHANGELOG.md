@@ -4,6 +4,8 @@
 
 - Fixed network iteration on cyclic or over-deep corrupt search trees so it
   returns an error instead of looping indefinitely.
+- Fixed `decode_path()` error rendering for extreme negative indexes and
+  reduced path traversal header parsing.
 - Fixed `verify()` to validate shared data-section pointer targets once, reject
   pointer cycles, invalid scalar encodings, and impossible container sizes.
 

@@ -535,35 +535,9 @@ impl<'de> Decoder<'de> {
         Ok(result)
     }
 
-    /// Consumes a map header, returning its size. Follows pointers.
-    pub(crate) fn consume_map_header(&mut self) -> DecodeResult<usize> {
-        self.consume_typed_header(TYPE_MAP, "map")
-    }
-
-    /// Consumes an array header, returning its size. Follows pointers.
-    pub(crate) fn consume_array_header(&mut self) -> DecodeResult<usize> {
-        self.consume_typed_header(TYPE_ARRAY, "array")
-    }
-
-    /// Consumes a header of the expected type, following one pointer.
-    fn consume_typed_header(&mut self, expected_type: u8, label: &str) -> DecodeResult<usize> {
-        let (size, type_num) = self.size_and_type()?;
-        if type_num == TYPE_POINTER {
-            self.current_ptr = self.decode_pointer(size);
-            let (size, type_num) = self.size_and_type()?;
-            if type_num == TYPE_POINTER {
-                return Err(self.invalid_db_error("pointer points to another pointer"));
-            }
-            if type_num == expected_type {
-                return Ok(size);
-            }
-            return Err(self.decode_error(&format!("expected {label}, got type {type_num}")));
-        }
-        if type_num == expected_type {
-            Ok(size)
-        } else {
-            Err(self.decode_error(&format!("expected {label}, got type {type_num}")))
-        }
+    /// Consumes a map or array header in one pass, following a pointer if needed.
+    pub(crate) fn consume_container_header(&mut self) -> DecodeResult<(usize, u8)> {
+        self.size_and_type_following_pointers()
     }
 
     /// Gets size and type, following any pointers.
