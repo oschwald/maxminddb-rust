@@ -542,16 +542,13 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         // We are looking up an IPv4 address in an IPv6 tree. Skip over the
         // first 96 nodes.
         let mut node: usize = 0;
-        let mut depth: usize = 0;
         for i in 0_u8..96 {
             if node >= self.node_count {
-                depth = i as usize;
-                break;
+                return (node, i as usize);
             }
             node = self.read_node(node, 0);
-            depth = (i + 1) as usize;
         }
-        (node, depth)
+        (node, 96)
     }
 
     #[inline(always)]
