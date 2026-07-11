@@ -554,34 +554,11 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     #[inline(always)]
     pub(crate) fn read_node(&self, node_number: usize, index: usize) -> usize {
         let buf = self.buf.as_ref();
-        let base_offset = node_number * self.node_byte_size;
 
         match self.record_size {
-            24 => {
-                let offset = base_offset + index * 3;
-                (buf[offset] as usize) << 16
-                    | (buf[offset + 1] as usize) << 8
-                    | buf[offset + 2] as usize
-            }
-            28 => {
-                let middle = if index != 0 {
-                    buf[base_offset + 3] & 0x0F
-                } else {
-                    (buf[base_offset + 3] & 0xF0) >> 4
-                };
-                let offset = base_offset + index * 4;
-                (middle as usize) << 24
-                    | (buf[offset] as usize) << 16
-                    | (buf[offset + 1] as usize) << 8
-                    | buf[offset + 2] as usize
-            }
-            32 => {
-                let offset = base_offset + index * 4;
-                (buf[offset] as usize) << 24
-                    | (buf[offset + 1] as usize) << 16
-                    | (buf[offset + 2] as usize) << 8
-                    | buf[offset + 3] as usize
-            }
+            24 => RecordSize24::read_node(buf, node_number, index),
+            28 => RecordSize28::read_node(buf, node_number, index),
+            32 => RecordSize32::read_node(buf, node_number, index),
             _ => unreachable!("record_size is validated in Reader::from_source"),
         }
     }
