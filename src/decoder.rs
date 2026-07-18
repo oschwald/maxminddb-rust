@@ -924,20 +924,30 @@ pub type DecodeResult<T> = Result<T, MaxMindDbError>;
 
 /// Deserializes any MaxMind DB value while exposing strings as raw bytes.
 ///
-/// This helper is intended for format adapters that will validate strings
-/// while converting them to another runtime's native string type. MMDB string
-/// values are delivered to [`Visitor::visit_newtype_struct`], whose nested
-/// deserializer yields the borrowed string bytes through
-/// [`Deserializer::deserialize_bytes`]. Genuine MMDB byte values continue to
-/// be delivered directly to [`Visitor::visit_borrowed_bytes`], so callers can
-/// distinguish the two types.
+/// This helper is intended for format adapters that validate strings while
+/// converting them to another runtime's native string type. MMDB string values
+/// are delivered to [`Visitor::visit_newtype_struct`], which the adapter's
+/// visitor must implement. Its nested deserializer answers every
+/// `deserialize_*` call with [`Visitor::visit_borrowed_bytes`]; calling
+/// [`Deserializer::deserialize_bytes`] is the conventional choice. Genuine
+/// MMDB byte values continue to be delivered directly to
+/// [`Visitor::visit_borrowed_bytes`], so callers can distinguish the two
+/// types.
 ///
 /// Callers decoding nested maps or arrays should invoke this helper again from
 /// the [`DeserializeSeed`] used for each nested value. Map keys can be read as
-/// unvalidated bytes with [`Deserializer::deserialize_identifier`].
+/// unvalidated bytes with [`Deserializer::deserialize_identifier`]. Raw-string
+/// mode applies only to the value for which this helper is invoked. Nested
+/// values decoded without re-invoking it silently use normal string decoding,
+/// including the `unsafe-str-decode` behavior when that feature is enabled.
+/// Pointers are followed transparently and preserve the selected mode.
 ///
-/// Unlike the `unsafe-str-decode` feature, this function never constructs an
-/// unvalidated Rust `str`.
+/// This function has its special effect only with this crate's deserializer;
+/// other Serde deserializers may treat the request as an ordinary newtype
+/// struct. The adapter is responsible for ensuring strict UTF-8 validation if
+/// malformed database strings must remain errors, as some runtimes replace
+/// invalid sequences instead. Unlike the `unsafe-str-decode` feature, this
+/// function itself never constructs an unvalidated Rust `str`.
 pub fn deserialize_any_with_raw_strings<'de, D, V>(
     deserializer: D,
     visitor: V,

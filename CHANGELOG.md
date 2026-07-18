@@ -3,8 +3,9 @@
 ## Unreleased
 
 - Added `deserialize_any_with_raw_strings()` for Serde-based format adapters
-  that validate MMDB strings while constructing another runtime's native
-  string type, avoiding duplicate UTF-8 validation without unsafe Rust.
+  to validate MMDB strings while constructing another runtime's native string
+  type, avoiding duplicate UTF-8 validation without unsafe Rust. Adapters
+  remain responsible for strict UTF-8 validation.
 - Fixed network iteration on cyclic or over-deep corrupt search trees so it
   returns an error instead of looping indefinitely.
 - Fixed `decode_path()` error rendering for extreme negative indexes and
