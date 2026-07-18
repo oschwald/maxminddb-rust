@@ -19,7 +19,8 @@ default = []
 simdutf8 = ["dep:simdutf8"]
 # Memory-mapped file access for better performance in long-running applications
 mmap = ["memmap2"]
-# Skip UTF-8 validation for maximum performance (mutually exclusive with simdutf8)
+# Skip UTF-8 validation for trusted Rust-native string decoding
+# (mutually exclusive with simdutf8)
 unsafe-str-decode = []
 
 [lib]

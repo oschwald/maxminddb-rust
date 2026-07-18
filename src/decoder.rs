@@ -512,7 +512,6 @@ impl<'de> Decoder<'de> {
         // If the caller has verified the integrity of their database and trusts their upstream
         // provider, they can opt-into the performance gains provided by this unsafe function via
         // the `unsafe-str-decode` feature flag.
-        // This can provide around 20% performance increase in the lookup benchmark.
         let v = unsafe { from_utf8_unchecked(bytes) };
         Ok(v)
     }
