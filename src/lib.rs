@@ -83,6 +83,7 @@ mod result;
 mod within;
 
 // Re-export public types
+pub use decoder::deserialize_any_with_raw_strings;
 pub use error::MaxMindDbError;
 pub use metadata::Metadata;
 pub use reader::Reader;

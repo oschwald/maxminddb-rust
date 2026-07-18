@@ -7,7 +7,10 @@
 //! Most users should not need to interact with this module directly.
 //! Use [`Reader::lookup()`](crate::Reader::lookup) for normal lookups.
 
-use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
+use serde::de::{
+    self, value::BorrowedBytesDeserializer, DeserializeSeed, Deserializer, MapAccess, SeqAccess,
+    Visitor,
+};
 use serde::forward_to_deserialize_any;
 use std::collections::HashSet;
 use std::convert::TryInto;
@@ -29,6 +32,8 @@ const TYPE_UINT128: u8 = 10;
 pub(crate) const TYPE_ARRAY: u8 = 11;
 const TYPE_BOOL: u8 = 14;
 const TYPE_FLOAT: u8 = 15;
+
+const RAW_STRINGS_NEWTYPE: &str = "$maxminddb::raw_strings";
 
 /// Maximum recursion depth for nested data structures.
 /// This matches the value used in libmaxminddb and the Go reader.
@@ -285,6 +290,59 @@ impl<'de> Decoder<'de> {
                 self.exit_nested();
                 res
             }
+        }
+    }
+
+    fn decode_any_with_raw_strings<V: Visitor<'de>>(
+        &mut self,
+        visitor: V,
+    ) -> DecodeResult<V::Value> {
+        let (size, type_num) = self.size_and_type()?;
+
+        match type_num {
+            TYPE_POINTER => {
+                let new_ptr = self.decode_pointer(size);
+                let continuation = self.current_ptr;
+                self.current_ptr = new_ptr;
+                self.enter_nested()?;
+                let result = self.decode_any_with_raw_strings(visitor);
+                self.exit_nested();
+                self.current_ptr = continuation;
+                result
+            }
+            TYPE_STRING => {
+                let bytes = self.read_string_bytes(size)?;
+                visitor
+                    .visit_newtype_struct(BorrowedBytesDeserializer::<MaxMindDbError>::new(bytes))
+            }
+            TYPE_DOUBLE => visitor.visit_f64(self.decode_double(size)?),
+            TYPE_BYTES => visitor.visit_borrowed_bytes(self.decode_bytes(size)?),
+            TYPE_UINT16 => visitor.visit_u16(self.decode_uint16(size)?),
+            TYPE_UINT32 => visitor.visit_u32(self.decode_uint32(size)?),
+            TYPE_MAP => {
+                self.enter_nested()?;
+                let result = visitor.visit_map(MapAccessor {
+                    de: self,
+                    count: size * 2,
+                });
+                self.exit_nested();
+                result
+            }
+            TYPE_INT32 => visitor.visit_i32(self.decode_int(size)?),
+            TYPE_UINT64 => visitor.visit_u64(self.decode_uint64(size)?),
+            TYPE_UINT128 => visitor.visit_u128(self.decode_uint128(size)?),
+            TYPE_ARRAY => {
+                self.enter_nested()?;
+                let result = visitor.visit_seq(ArrayAccess {
+                    de: self,
+                    count: size,
+                });
+                self.exit_nested();
+                result
+            }
+            TYPE_BOOL => visitor.visit_bool(self.decode_bool(size)?),
+            TYPE_FLOAT => visitor.visit_f32(self.decode_float(size)?),
+            value => Err(self.invalid_db_error(&format!("unknown data type: {value}"))),
         }
     }
 
@@ -905,6 +963,33 @@ impl<'de> Decoder<'de> {
 
 pub type DecodeResult<T> = Result<T, MaxMindDbError>;
 
+/// Deserializes any MaxMind DB value while exposing strings as raw bytes.
+///
+/// This helper is intended for format adapters that will validate strings
+/// while converting them to another runtime's native string type. MMDB string
+/// values are delivered to [`Visitor::visit_newtype_struct`], whose nested
+/// deserializer yields the borrowed string bytes through
+/// [`Deserializer::deserialize_bytes`]. Genuine MMDB byte values continue to
+/// be delivered directly to [`Visitor::visit_borrowed_bytes`], so callers can
+/// distinguish the two types.
+///
+/// Callers decoding nested maps or arrays should invoke this helper again from
+/// the [`DeserializeSeed`] used for each nested value. Map keys can be read as
+/// unvalidated bytes with [`Deserializer::deserialize_identifier`].
+///
+/// Unlike the `unsafe-str-decode` feature, this function never constructs an
+/// unvalidated Rust `str`.
+pub fn deserialize_any_with_raw_strings<'de, D, V>(
+    deserializer: D,
+    visitor: V,
+) -> Result<V::Value, D::Error>
+where
+    D: Deserializer<'de>,
+    V: Visitor<'de>,
+{
+    deserializer.deserialize_newtype_struct(RAW_STRINGS_NEWTYPE, visitor)
+}
+
 impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
     type Error = MaxMindDbError;
 
@@ -1098,8 +1183,19 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
         }
     }
 
+    fn deserialize_newtype_struct<V>(self, name: &'static str, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        if name == RAW_STRINGS_NEWTYPE {
+            self.decode_any_with_raw_strings(visitor)
+        } else {
+            self.decode_any(visitor)
+        }
+    }
+
     forward_to_deserialize_any! {
-        i8 i16 i64 i128 u8 char unit unit_struct newtype_struct
+        i8 i16 i64 i128 u8 char unit unit_struct
     }
 }
 
@@ -1247,11 +1343,224 @@ impl<'de> de::VariantAccess<'de> for EnumAccessor<'_, 'de> {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt;
+
+    use serde::de::{DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
     use serde::Deserialize;
 
-    use crate::{MaxMindDbError, Reader};
+    use crate::{deserialize_any_with_raw_strings, MaxMindDbError, Reader};
 
     use super::{Decoder, VerificationState};
+
+    #[derive(Debug, PartialEq)]
+    enum RawValue<'de> {
+        String(&'de [u8]),
+        Bytes(&'de [u8]),
+        Array(Vec<RawValue<'de>>),
+        Map(Vec<(Vec<u8>, RawValue<'de>)>),
+    }
+
+    struct RawValueSeed;
+
+    impl<'de> DeserializeSeed<'de> for RawValueSeed {
+        type Value = RawValue<'de>;
+
+        fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserialize_any_with_raw_strings(deserializer, RawValueVisitor)
+        }
+    }
+
+    struct RawValueVisitor;
+
+    impl<'de> Visitor<'de> for RawValueVisitor {
+        type Value = RawValue<'de>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("an MMDB string, byte value, or map")
+        }
+
+        fn visit_newtype_struct<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_bytes(RawStringVisitor)
+        }
+
+        fn visit_borrowed_bytes<E>(self, bytes: &'de [u8]) -> Result<Self::Value, E> {
+            Ok(RawValue::Bytes(bytes))
+        }
+
+        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where
+            A: MapAccess<'de>,
+        {
+            let mut entries = Vec::with_capacity(map.size_hint().unwrap_or(0));
+            while let Some(key) = map.next_key_seed(RawIdentifierSeed)? {
+                let value = map.next_value_seed(RawValueSeed)?;
+                entries.push((key, value));
+            }
+            Ok(RawValue::Map(entries))
+        }
+
+        fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            let mut values = Vec::with_capacity(sequence.size_hint().unwrap_or(0));
+            while let Some(value) = sequence.next_element_seed(RawValueSeed)? {
+                values.push(value);
+            }
+            Ok(RawValue::Array(values))
+        }
+    }
+
+    struct RawStringVisitor;
+
+    impl<'de> Visitor<'de> for RawStringVisitor {
+        type Value = RawValue<'de>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("borrowed MMDB string bytes")
+        }
+
+        fn visit_borrowed_bytes<E>(self, bytes: &'de [u8]) -> Result<Self::Value, E> {
+            Ok(RawValue::String(bytes))
+        }
+    }
+
+    struct RawIdentifierSeed;
+
+    impl<'de> DeserializeSeed<'de> for RawIdentifierSeed {
+        type Value = Vec<u8>;
+
+        fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_identifier(RawIdentifierVisitor)
+        }
+    }
+
+    struct RawIdentifierVisitor;
+
+    impl<'de> Visitor<'de> for RawIdentifierVisitor {
+        type Value = Vec<u8>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("borrowed MMDB map-key bytes")
+        }
+
+        fn visit_borrowed_bytes<E>(self, bytes: &'de [u8]) -> Result<Self::Value, E> {
+            Ok(bytes.to_vec())
+        }
+    }
+
+    #[test]
+    fn raw_string_mode_distinguishes_strings_from_bytes() {
+        let mut string_decoder = Decoder::new(&[0x42, 0xff, 0xfe], 0);
+        let string = RawValueSeed.deserialize(&mut string_decoder).unwrap();
+        assert_eq!(string, RawValue::String(&[0xff, 0xfe]));
+
+        let mut bytes_decoder = Decoder::new(&[0x82, 0xff, 0xfe], 0);
+        let bytes = RawValueSeed.deserialize(&mut bytes_decoder).unwrap();
+        assert_eq!(bytes, RawValue::Bytes(&[0xff, 0xfe]));
+    }
+
+    #[test]
+    fn raw_string_mode_recurses_through_maps() {
+        let encoded = [
+            0x02, 0x00, // map with two entries
+            0x44, b't', b'e', b'x', b't', // "text"
+            0x41, 0xff, // invalid UTF-8 string value
+            0x44, b'b', b'l', b'o', b'b', // "blob"
+            0x81, 0xff, // byte value
+        ];
+        let mut decoder = Decoder::new(&encoded, 0);
+
+        let value = RawValueSeed.deserialize(&mut decoder).unwrap();
+
+        assert_eq!(
+            value,
+            RawValue::Map(vec![
+                (b"text".to_vec(), RawValue::String(&[0xff])),
+                (b"blob".to_vec(), RawValue::Bytes(&[0xff])),
+            ])
+        );
+    }
+
+    #[test]
+    fn raw_string_mode_recurses_through_arrays_and_pointers() {
+        let encoded_array = [
+            0x02, 0x04, // array with two elements
+            0x41, 0xff, // invalid UTF-8 string value
+            0x81, 0xff, // byte value
+        ];
+        let mut array_decoder = Decoder::new(&encoded_array, 0);
+        let array = RawValueSeed.deserialize(&mut array_decoder).unwrap();
+        assert_eq!(
+            array,
+            RawValue::Array(vec![RawValue::String(&[0xff]), RawValue::Bytes(&[0xff]),])
+        );
+
+        let encoded_pointer = [
+            0x20, 0x02, // pointer to offset two
+            0x41, 0xff, // invalid UTF-8 string value
+        ];
+        let mut pointer_decoder = Decoder::new(&encoded_pointer, 0);
+        let pointer = RawValueSeed.deserialize(&mut pointer_decoder).unwrap();
+        assert_eq!(pointer, RawValue::String(&[0xff]));
+    }
+
+    #[test]
+    fn ordinary_string_decoding_remains_validated() {
+        struct OrdinaryNewtypeSeed;
+
+        impl<'de> DeserializeSeed<'de> for OrdinaryNewtypeSeed {
+            type Value = &'de str;
+
+            fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                deserializer.deserialize_newtype_struct("ordinary", StringVisitor)
+            }
+        }
+
+        struct StringVisitor;
+
+        impl<'de> Visitor<'de> for StringVisitor {
+            type Value = &'de str;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a borrowed string")
+            }
+
+            fn visit_borrowed_str<E>(self, value: &'de str) -> Result<Self::Value, E> {
+                Ok(value)
+            }
+        }
+
+        let mut valid_decoder = Decoder::new(&[0x45, b'h', b'e', b'l', b'l', b'o'], 0);
+        assert_eq!(String::deserialize(&mut valid_decoder).unwrap(), "hello");
+
+        let mut newtype_decoder = Decoder::new(&[0x45, b'h', b'e', b'l', b'l', b'o'], 0);
+        assert_eq!(
+            OrdinaryNewtypeSeed
+                .deserialize(&mut newtype_decoder)
+                .unwrap(),
+            "hello"
+        );
+
+        #[cfg(not(feature = "unsafe-str-decode"))]
+        {
+            let mut invalid_decoder = Decoder::new(&[0x41, 0xff], 0);
+            let err = String::deserialize(&mut invalid_decoder).unwrap_err();
+            assert!(err.to_string().contains("invalid UTF-8"));
+        }
+    }
 
     #[test]
     fn test_decoder_accepts_tuple_with_matching_length() {
