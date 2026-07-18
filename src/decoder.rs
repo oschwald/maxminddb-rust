@@ -1356,8 +1356,25 @@ mod tests {
     enum RawValue<'de> {
         String(&'de [u8]),
         Bytes(&'de [u8]),
+        Bool(bool),
+        I32(i32),
+        U16(u16),
+        U32(u32),
+        U64(u64),
+        U128(u128),
+        F32(f32),
+        F64(f64),
         Array(Vec<RawValue<'de>>),
         Map(Vec<(Vec<u8>, RawValue<'de>)>),
+    }
+
+    impl<'de> Deserialize<'de> for RawValue<'de> {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            RawValueSeed.deserialize(deserializer)
+        }
     }
 
     struct RawValueSeed;
@@ -1379,7 +1396,7 @@ mod tests {
         type Value = RawValue<'de>;
 
         fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("an MMDB string, byte value, or map")
+            formatter.write_str("an MMDB value")
         }
 
         fn visit_newtype_struct<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
@@ -1391,6 +1408,38 @@ mod tests {
 
         fn visit_borrowed_bytes<E>(self, bytes: &'de [u8]) -> Result<Self::Value, E> {
             Ok(RawValue::Bytes(bytes))
+        }
+
+        fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E> {
+            Ok(RawValue::Bool(value))
+        }
+
+        fn visit_i32<E>(self, value: i32) -> Result<Self::Value, E> {
+            Ok(RawValue::I32(value))
+        }
+
+        fn visit_u16<E>(self, value: u16) -> Result<Self::Value, E> {
+            Ok(RawValue::U16(value))
+        }
+
+        fn visit_u32<E>(self, value: u32) -> Result<Self::Value, E> {
+            Ok(RawValue::U32(value))
+        }
+
+        fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E> {
+            Ok(RawValue::U64(value))
+        }
+
+        fn visit_u128<E>(self, value: u128) -> Result<Self::Value, E> {
+            Ok(RawValue::U128(value))
+        }
+
+        fn visit_f32<E>(self, value: f32) -> Result<Self::Value, E> {
+            Ok(RawValue::F32(value))
+        }
+
+        fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E> {
+            Ok(RawValue::F64(value))
         }
 
         fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
@@ -1512,6 +1561,170 @@ mod tests {
         let mut pointer_decoder = Decoder::new(&encoded_pointer, 0);
         let pointer = RawValueSeed.deserialize(&mut pointer_decoder).unwrap();
         assert_eq!(pointer, RawValue::String(&[0xff]));
+    }
+
+    #[test]
+    fn raw_string_mode_restores_pointer_continuation_in_maps() {
+        let encoded = [
+            0x02, 0x00, // map with two entries
+            0x41, b'a', // "a"
+            0x20, 0x0a, // pointer to the string at offset ten
+            0x41, b'b', // "b"
+            0x41, b'y', // "y"
+            0x41, b'x', // pointed-to string "x"
+        ];
+        let mut decoder = Decoder::new(&encoded, 0);
+
+        let value = RawValueSeed.deserialize(&mut decoder).unwrap();
+
+        assert_eq!(
+            value,
+            RawValue::Map(vec![
+                (b"a".to_vec(), RawValue::String(b"x")),
+                (b"b".to_vec(), RawValue::String(b"y")),
+            ])
+        );
+    }
+
+    #[test]
+    fn raw_string_mode_decodes_all_scalar_types() {
+        let mut encoded = vec![0x08, 0x00]; // map with eight entries
+
+        encoded.extend_from_slice(&[0x41, b'd', 0x68]);
+        encoded.extend_from_slice(&1.5_f64.to_be_bytes());
+        encoded.extend_from_slice(&[0x41, b's', 0xa2, 0x01, 0x02]);
+        encoded.extend_from_slice(&[0x41, b'i', 0xc4, 0x01, 0x02, 0x03, 0x04]);
+        encoded.extend_from_slice(&[0x41, b'n', 0x04, 0x01]);
+        encoded.extend_from_slice(&(-2_i32).to_be_bytes());
+        encoded.extend_from_slice(&[0x41, b'l', 0x08, 0x02]);
+        encoded.extend_from_slice(&0x0102_0304_0506_0708_u64.to_be_bytes());
+        encoded.extend_from_slice(&[0x41, b'x', 0x10, 0x03]);
+        encoded.extend_from_slice(&0x0102_0304_0506_0708_1112_1314_1516_1718_u128.to_be_bytes());
+        encoded.extend_from_slice(&[0x41, b'b', 0x01, 0x07]);
+        encoded.extend_from_slice(&[0x41, b'f', 0x04, 0x08]);
+        encoded.extend_from_slice(&2.5_f32.to_be_bytes());
+
+        let mut decoder = Decoder::new(&encoded, 0);
+        let value = RawValueSeed.deserialize(&mut decoder).unwrap();
+
+        assert_eq!(
+            value,
+            RawValue::Map(vec![
+                (b"d".to_vec(), RawValue::F64(1.5)),
+                (b"s".to_vec(), RawValue::U16(0x0102)),
+                (b"i".to_vec(), RawValue::U32(0x0102_0304)),
+                (b"n".to_vec(), RawValue::I32(-2)),
+                (b"l".to_vec(), RawValue::U64(0x0102_0304_0506_0708)),
+                (
+                    b"x".to_vec(),
+                    RawValue::U128(0x0102_0304_0506_0708_1112_1314_1516_1718)
+                ),
+                (b"b".to_vec(), RawValue::Bool(true)),
+                (b"f".to_vec(), RawValue::F32(2.5)),
+            ])
+        );
+    }
+
+    #[test]
+    fn raw_string_mode_rejects_excessive_pointer_depth_and_unknown_types() {
+        std::thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                let mut cyclic_decoder = Decoder::new(&[0x20, 0x00], 0);
+                let depth_err = RawValueSeed.deserialize(&mut cyclic_decoder).unwrap_err();
+                assert!(depth_err
+                    .to_string()
+                    .contains("exceeded maximum data structure depth"));
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+
+        let mut unknown_decoder = Decoder::new(&[0x00, 0x06], 0);
+        let type_err = RawValueSeed.deserialize(&mut unknown_decoder).unwrap_err();
+        assert!(type_err.to_string().contains("unknown data type: 13"));
+    }
+
+    #[test]
+    fn nested_values_without_raw_opt_in_use_normal_string_decoding() {
+        struct NestedNormalVisitor;
+
+        impl<'de> Visitor<'de> for NestedNormalVisitor {
+            type Value = &'de str;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("an MMDB map containing a string")
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                let Some(_key) = map.next_key_seed(RawIdentifierSeed)? else {
+                    return Err(serde::de::Error::custom("expected one map entry"));
+                };
+                map.next_value::<&'de str>()
+            }
+        }
+
+        let encoded = [
+            0x01, 0x00, // map with one entry
+            0x41, b'k', // "k"
+            0x45, b'h', b'e', b'l', b'l', b'o', // "hello"
+        ];
+        let mut decoder = Decoder::new(&encoded, 0);
+        let value = deserialize_any_with_raw_strings(&mut decoder, NestedNormalVisitor).unwrap();
+
+        assert_eq!(value, "hello");
+    }
+
+    fn raw_map_value<'value, 'de>(
+        value: &'value RawValue<'de>,
+        key: &[u8],
+    ) -> &'value RawValue<'de> {
+        let RawValue::Map(entries) = value else {
+            panic!("expected map, got {value:?}");
+        };
+        entries
+            .iter()
+            .find_map(|(entry_key, value)| (entry_key == key).then_some(value))
+            .unwrap_or_else(|| panic!("missing map key {:?}", String::from_utf8_lossy(key)))
+    }
+
+    #[test]
+    fn raw_string_mode_decodes_reader_lookup_results() {
+        let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+        let lookup = reader.lookup("89.160.20.128".parse().unwrap()).unwrap();
+        let value = lookup.decode::<RawValue<'_>>().unwrap().unwrap();
+
+        let city = raw_map_value(&value, b"city");
+        let city_names = raw_map_value(city, b"names");
+        assert_eq!(
+            raw_map_value(city_names, b"en"),
+            &RawValue::String("Linköping".as_bytes())
+        );
+
+        let country = raw_map_value(&value, b"country");
+        assert_eq!(
+            raw_map_value(country, b"is_in_european_union"),
+            &RawValue::Bool(true)
+        );
+
+        let location = raw_map_value(&value, b"location");
+        assert_eq!(
+            raw_map_value(location, b"accuracy_radius"),
+            &RawValue::U16(76)
+        );
+        assert_eq!(
+            raw_map_value(location, b"latitude"),
+            &RawValue::F64(58.4167)
+        );
+
+        let subdivisions = raw_map_value(&value, b"subdivisions");
+        let RawValue::Array(subdivisions) = subdivisions else {
+            panic!("expected subdivisions array, got {subdivisions:?}");
+        };
+        assert!(!subdivisions.is_empty());
     }
 
     #[test]
