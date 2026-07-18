@@ -94,6 +94,7 @@ enum Value<'a, 'de> {
     Any { prev_ptr: usize },
     Bytes(&'de [u8]),
     String(&'de str),
+    RawString(&'de [u8]),
     Bool(bool),
     I32(i32),
     U16(u16),
@@ -260,11 +261,18 @@ impl<'de> Decoder<'de> {
     }
 
     fn decode_any<V: Visitor<'de>>(&mut self, visitor: V) -> DecodeResult<V::Value> {
-        match self.decode_any_value()? {
+        self.decode_any_impl::<false, V>(visitor)
+    }
+
+    fn decode_any_impl<const RAW_STRINGS: bool, V: Visitor<'de>>(
+        &mut self,
+        visitor: V,
+    ) -> DecodeResult<V::Value> {
+        match self.decode_any_value::<RAW_STRINGS>()? {
             Value::Any { prev_ptr } => {
                 // Pointer dereference - track depth
                 self.enter_nested()?;
-                let res = self.decode_any(visitor);
+                let res = self.decode_any_impl::<RAW_STRINGS, V>(visitor);
                 self.exit_nested();
                 self.current_ptr = prev_ptr;
                 res
@@ -272,6 +280,9 @@ impl<'de> Decoder<'de> {
             Value::Bool(x) => visitor.visit_bool(x),
             Value::Bytes(x) => visitor.visit_borrowed_bytes(x),
             Value::String(x) => visitor.visit_borrowed_str(x),
+            Value::RawString(x) => {
+                visitor.visit_newtype_struct(BorrowedBytesDeserializer::<MaxMindDbError>::new(x))
+            }
             Value::I32(x) => visitor.visit_i32(x),
             Value::U16(x) => visitor.visit_u16(x),
             Value::U32(x) => visitor.visit_u32(x),
@@ -290,59 +301,6 @@ impl<'de> Decoder<'de> {
                 self.exit_nested();
                 res
             }
-        }
-    }
-
-    fn decode_any_with_raw_strings<V: Visitor<'de>>(
-        &mut self,
-        visitor: V,
-    ) -> DecodeResult<V::Value> {
-        let (size, type_num) = self.size_and_type()?;
-
-        match type_num {
-            TYPE_POINTER => {
-                let new_ptr = self.decode_pointer(size);
-                let continuation = self.current_ptr;
-                self.current_ptr = new_ptr;
-                self.enter_nested()?;
-                let result = self.decode_any_with_raw_strings(visitor);
-                self.exit_nested();
-                self.current_ptr = continuation;
-                result
-            }
-            TYPE_STRING => {
-                let bytes = self.read_string_bytes(size)?;
-                visitor
-                    .visit_newtype_struct(BorrowedBytesDeserializer::<MaxMindDbError>::new(bytes))
-            }
-            TYPE_DOUBLE => visitor.visit_f64(self.decode_double(size)?),
-            TYPE_BYTES => visitor.visit_borrowed_bytes(self.decode_bytes(size)?),
-            TYPE_UINT16 => visitor.visit_u16(self.decode_uint16(size)?),
-            TYPE_UINT32 => visitor.visit_u32(self.decode_uint32(size)?),
-            TYPE_MAP => {
-                self.enter_nested()?;
-                let result = visitor.visit_map(MapAccessor {
-                    de: self,
-                    count: size * 2,
-                });
-                self.exit_nested();
-                result
-            }
-            TYPE_INT32 => visitor.visit_i32(self.decode_int(size)?),
-            TYPE_UINT64 => visitor.visit_u64(self.decode_uint64(size)?),
-            TYPE_UINT128 => visitor.visit_u128(self.decode_uint128(size)?),
-            TYPE_ARRAY => {
-                self.enter_nested()?;
-                let result = visitor.visit_seq(ArrayAccess {
-                    de: self,
-                    count: size,
-                });
-                self.exit_nested();
-                result
-            }
-            TYPE_BOOL => visitor.visit_bool(self.decode_bool(size)?),
-            TYPE_FLOAT => visitor.visit_f32(self.decode_float(size)?),
-            value => Err(self.invalid_db_error(&format!("unknown data type: {value}"))),
         }
     }
 
@@ -366,7 +324,7 @@ impl<'de> Decoder<'de> {
     }
 
     #[inline(always)]
-    fn decode_any_value(&mut self) -> DecodeResult<Value<'_, 'de>> {
+    fn decode_any_value<const RAW_STRINGS: bool>(&mut self) -> DecodeResult<Value<'_, 'de>> {
         let (size, type_num) = self.size_and_type()?;
 
         Ok(match type_num {
@@ -377,6 +335,7 @@ impl<'de> Decoder<'de> {
 
                 Value::Any { prev_ptr }
             }
+            TYPE_STRING if RAW_STRINGS => Value::RawString(self.read_string_bytes(size)?),
             TYPE_STRING => Value::String(self.decode_string(size)?),
             TYPE_DOUBLE => Value::F64(self.decode_double(size)?),
             TYPE_BYTES => Value::Bytes(self.decode_bytes(size)?),
@@ -1188,7 +1147,7 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
         V: Visitor<'de>,
     {
         if name == RAW_STRINGS_NEWTYPE {
-            self.decode_any_with_raw_strings(visitor)
+            self.decode_any_impl::<true, V>(visitor)
         } else {
             self.decode_any(visitor)
         }
