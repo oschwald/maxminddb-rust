@@ -1,6 +1,6 @@
 # Change Log
 
-## Unreleased
+## 0.30.0 - 2026-07-18
 
 - Added `deserialize_any_with_raw_strings()` for Serde-based format adapters
   to validate MMDB strings while constructing another runtime's native string
