@@ -107,7 +107,10 @@ Optional features:
 
 - **`mmap`**: Memory-mapped file access for long-running applications
 - **`simdutf8`**: SIMD-accelerated UTF-8 validation
-- **`unsafe-str-decode`**: Skip UTF-8 validation (requires trusted data)
+- **`unsafe-str-decode`**: Skip UTF-8 validation when deserializing trusted
+  database strings into Rust `str` or `String` values. Cross-runtime format
+  adapters should prefer `deserialize_any_with_raw_strings()` and validate
+  while constructing the target runtime's string type.
 
 Enable in `Cargo.toml`:
 

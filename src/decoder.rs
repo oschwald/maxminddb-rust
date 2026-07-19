@@ -7,7 +7,10 @@
 //! Most users should not need to interact with this module directly.
 //! Use [`Reader::lookup()`](crate::Reader::lookup) for normal lookups.
 
-use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
+use serde::de::{
+    self, value::BorrowedBytesDeserializer, DeserializeSeed, Deserializer, MapAccess, SeqAccess,
+    Visitor,
+};
 use serde::forward_to_deserialize_any;
 use std::collections::HashSet;
 use std::convert::TryInto;
@@ -29,6 +32,8 @@ const TYPE_UINT128: u8 = 10;
 pub(crate) const TYPE_ARRAY: u8 = 11;
 const TYPE_BOOL: u8 = 14;
 const TYPE_FLOAT: u8 = 15;
+
+const RAW_STRINGS_NEWTYPE: &str = "$maxminddb::raw_strings";
 
 /// Maximum recursion depth for nested data structures.
 /// This matches the value used in libmaxminddb and the Go reader.
@@ -89,6 +94,7 @@ enum Value<'a, 'de> {
     Any { prev_ptr: usize },
     Bytes(&'de [u8]),
     String(&'de str),
+    RawString(&'de [u8]),
     Bool(bool),
     I32(i32),
     U16(u16),
@@ -255,11 +261,18 @@ impl<'de> Decoder<'de> {
     }
 
     fn decode_any<V: Visitor<'de>>(&mut self, visitor: V) -> DecodeResult<V::Value> {
-        match self.decode_any_value()? {
+        self.decode_any_impl::<false, V>(visitor)
+    }
+
+    fn decode_any_impl<const RAW_STRINGS: bool, V: Visitor<'de>>(
+        &mut self,
+        visitor: V,
+    ) -> DecodeResult<V::Value> {
+        match self.decode_any_value::<RAW_STRINGS>()? {
             Value::Any { prev_ptr } => {
                 // Pointer dereference - track depth
                 self.enter_nested()?;
-                let res = self.decode_any(visitor);
+                let res = self.decode_any_impl::<RAW_STRINGS, V>(visitor);
                 self.exit_nested();
                 self.current_ptr = prev_ptr;
                 res
@@ -267,6 +280,9 @@ impl<'de> Decoder<'de> {
             Value::Bool(x) => visitor.visit_bool(x),
             Value::Bytes(x) => visitor.visit_borrowed_bytes(x),
             Value::String(x) => visitor.visit_borrowed_str(x),
+            Value::RawString(x) => {
+                visitor.visit_newtype_struct(BorrowedBytesDeserializer::<MaxMindDbError>::new(x))
+            }
             Value::I32(x) => visitor.visit_i32(x),
             Value::U16(x) => visitor.visit_u16(x),
             Value::U32(x) => visitor.visit_u32(x),
@@ -308,7 +324,7 @@ impl<'de> Decoder<'de> {
     }
 
     #[inline(always)]
-    fn decode_any_value(&mut self) -> DecodeResult<Value<'_, 'de>> {
+    fn decode_any_value<const RAW_STRINGS: bool>(&mut self) -> DecodeResult<Value<'_, 'de>> {
         let (size, type_num) = self.size_and_type()?;
 
         Ok(match type_num {
@@ -319,6 +335,7 @@ impl<'de> Decoder<'de> {
 
                 Value::Any { prev_ptr }
             }
+            TYPE_STRING if RAW_STRINGS => Value::RawString(self.read_string_bytes(size)?),
             TYPE_STRING => Value::String(self.decode_string(size)?),
             TYPE_DOUBLE => Value::F64(self.decode_double(size)?),
             TYPE_BYTES => Value::Bytes(self.decode_bytes(size)?),
@@ -495,7 +512,6 @@ impl<'de> Decoder<'de> {
         // If the caller has verified the integrity of their database and trusts their upstream
         // provider, they can opt-into the performance gains provided by this unsafe function via
         // the `unsafe-str-decode` feature flag.
-        // This can provide around 20% performance increase in the lookup benchmark.
         let v = unsafe { from_utf8_unchecked(bytes) };
         Ok(v)
     }
@@ -905,6 +921,43 @@ impl<'de> Decoder<'de> {
 
 pub type DecodeResult<T> = Result<T, MaxMindDbError>;
 
+/// Deserializes any MaxMind DB value while exposing strings as raw bytes.
+///
+/// This helper is intended for format adapters that validate strings while
+/// converting them to another runtime's native string type. MMDB string values
+/// are delivered to [`Visitor::visit_newtype_struct`], which the adapter's
+/// visitor must implement. Its nested deserializer answers every
+/// `deserialize_*` call with [`Visitor::visit_borrowed_bytes`]; calling
+/// [`Deserializer::deserialize_bytes`] is the conventional choice. Genuine
+/// MMDB byte values continue to be delivered directly to
+/// [`Visitor::visit_borrowed_bytes`], so callers can distinguish the two
+/// types.
+///
+/// Callers decoding nested maps or arrays should invoke this helper again from
+/// the [`DeserializeSeed`] used for each nested value. Map keys can be read as
+/// unvalidated bytes with [`Deserializer::deserialize_identifier`]. Raw-string
+/// mode applies only to the value for which this helper is invoked. Nested
+/// values decoded without re-invoking it silently use normal string decoding,
+/// including the `unsafe-str-decode` behavior when that feature is enabled.
+/// Pointers are followed transparently and preserve the selected mode.
+///
+/// This function has its special effect only with this crate's deserializer;
+/// other Serde deserializers may treat the request as an ordinary newtype
+/// struct. The adapter is responsible for ensuring strict UTF-8 validation if
+/// malformed database strings must remain errors, as some runtimes replace
+/// invalid sequences instead. Unlike the `unsafe-str-decode` feature, this
+/// function itself never constructs an unvalidated Rust `str`.
+pub fn deserialize_any_with_raw_strings<'de, D, V>(
+    deserializer: D,
+    visitor: V,
+) -> Result<V::Value, D::Error>
+where
+    D: Deserializer<'de>,
+    V: Visitor<'de>,
+{
+    deserializer.deserialize_newtype_struct(RAW_STRINGS_NEWTYPE, visitor)
+}
+
 impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
     type Error = MaxMindDbError;
 
@@ -1098,8 +1151,19 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
         }
     }
 
+    fn deserialize_newtype_struct<V>(self, name: &'static str, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        if name == RAW_STRINGS_NEWTYPE {
+            self.decode_any_impl::<true, V>(visitor)
+        } else {
+            self.decode_any(visitor)
+        }
+    }
+
     forward_to_deserialize_any! {
-        i8 i16 i64 i128 u8 char unit unit_struct newtype_struct
+        i8 i16 i64 i128 u8 char unit unit_struct
     }
 }
 
@@ -1247,11 +1311,437 @@ impl<'de> de::VariantAccess<'de> for EnumAccessor<'_, 'de> {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt;
+
+    use serde::de::{DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
     use serde::Deserialize;
 
-    use crate::{MaxMindDbError, Reader};
+    use crate::{deserialize_any_with_raw_strings, MaxMindDbError, Reader};
 
     use super::{Decoder, VerificationState};
+
+    #[derive(Debug, PartialEq)]
+    enum RawValue<'de> {
+        String(&'de [u8]),
+        Bytes(&'de [u8]),
+        Bool(bool),
+        I32(i32),
+        U16(u16),
+        U32(u32),
+        U64(u64),
+        U128(u128),
+        F32(f32),
+        F64(f64),
+        Array(Vec<RawValue<'de>>),
+        Map(Vec<(Vec<u8>, RawValue<'de>)>),
+    }
+
+    impl<'de> Deserialize<'de> for RawValue<'de> {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            RawValueSeed.deserialize(deserializer)
+        }
+    }
+
+    struct RawValueSeed;
+
+    impl<'de> DeserializeSeed<'de> for RawValueSeed {
+        type Value = RawValue<'de>;
+
+        fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserialize_any_with_raw_strings(deserializer, RawValueVisitor)
+        }
+    }
+
+    struct RawValueVisitor;
+
+    impl<'de> Visitor<'de> for RawValueVisitor {
+        type Value = RawValue<'de>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("an MMDB value")
+        }
+
+        fn visit_newtype_struct<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_bytes(RawStringVisitor)
+        }
+
+        fn visit_borrowed_bytes<E>(self, bytes: &'de [u8]) -> Result<Self::Value, E> {
+            Ok(RawValue::Bytes(bytes))
+        }
+
+        fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E> {
+            Ok(RawValue::Bool(value))
+        }
+
+        fn visit_i32<E>(self, value: i32) -> Result<Self::Value, E> {
+            Ok(RawValue::I32(value))
+        }
+
+        fn visit_u16<E>(self, value: u16) -> Result<Self::Value, E> {
+            Ok(RawValue::U16(value))
+        }
+
+        fn visit_u32<E>(self, value: u32) -> Result<Self::Value, E> {
+            Ok(RawValue::U32(value))
+        }
+
+        fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E> {
+            Ok(RawValue::U64(value))
+        }
+
+        fn visit_u128<E>(self, value: u128) -> Result<Self::Value, E> {
+            Ok(RawValue::U128(value))
+        }
+
+        fn visit_f32<E>(self, value: f32) -> Result<Self::Value, E> {
+            Ok(RawValue::F32(value))
+        }
+
+        fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E> {
+            Ok(RawValue::F64(value))
+        }
+
+        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where
+            A: MapAccess<'de>,
+        {
+            let mut entries = Vec::with_capacity(map.size_hint().unwrap_or(0));
+            while let Some(key) = map.next_key_seed(RawIdentifierSeed)? {
+                let value = map.next_value_seed(RawValueSeed)?;
+                entries.push((key, value));
+            }
+            Ok(RawValue::Map(entries))
+        }
+
+        fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            let mut values = Vec::with_capacity(sequence.size_hint().unwrap_or(0));
+            while let Some(value) = sequence.next_element_seed(RawValueSeed)? {
+                values.push(value);
+            }
+            Ok(RawValue::Array(values))
+        }
+    }
+
+    struct RawStringVisitor;
+
+    impl<'de> Visitor<'de> for RawStringVisitor {
+        type Value = RawValue<'de>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("borrowed MMDB string bytes")
+        }
+
+        fn visit_borrowed_bytes<E>(self, bytes: &'de [u8]) -> Result<Self::Value, E> {
+            Ok(RawValue::String(bytes))
+        }
+    }
+
+    struct RawIdentifierSeed;
+
+    impl<'de> DeserializeSeed<'de> for RawIdentifierSeed {
+        type Value = Vec<u8>;
+
+        fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_identifier(RawIdentifierVisitor)
+        }
+    }
+
+    struct RawIdentifierVisitor;
+
+    impl<'de> Visitor<'de> for RawIdentifierVisitor {
+        type Value = Vec<u8>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("borrowed MMDB map-key bytes")
+        }
+
+        fn visit_borrowed_bytes<E>(self, bytes: &'de [u8]) -> Result<Self::Value, E> {
+            Ok(bytes.to_vec())
+        }
+    }
+
+    #[test]
+    fn raw_string_mode_distinguishes_strings_from_bytes() {
+        let mut string_decoder = Decoder::new(&[0x42, 0xff, 0xfe], 0);
+        let string = RawValueSeed.deserialize(&mut string_decoder).unwrap();
+        assert_eq!(string, RawValue::String(&[0xff, 0xfe]));
+
+        let mut bytes_decoder = Decoder::new(&[0x82, 0xff, 0xfe], 0);
+        let bytes = RawValueSeed.deserialize(&mut bytes_decoder).unwrap();
+        assert_eq!(bytes, RawValue::Bytes(&[0xff, 0xfe]));
+    }
+
+    #[test]
+    fn raw_string_mode_recurses_through_maps() {
+        let encoded = [
+            0x02, 0x00, // map with two entries
+            0x44, b't', b'e', b'x', b't', // "text"
+            0x41, 0xff, // invalid UTF-8 string value
+            0x44, b'b', b'l', b'o', b'b', // "blob"
+            0x81, 0xff, // byte value
+        ];
+        let mut decoder = Decoder::new(&encoded, 0);
+
+        let value = RawValueSeed.deserialize(&mut decoder).unwrap();
+
+        assert_eq!(
+            value,
+            RawValue::Map(vec![
+                (b"text".to_vec(), RawValue::String(&[0xff])),
+                (b"blob".to_vec(), RawValue::Bytes(&[0xff])),
+            ])
+        );
+    }
+
+    #[test]
+    fn raw_string_mode_recurses_through_arrays_and_pointers() {
+        let encoded_array = [
+            0x02, 0x04, // array with two elements
+            0x41, 0xff, // invalid UTF-8 string value
+            0x81, 0xff, // byte value
+        ];
+        let mut array_decoder = Decoder::new(&encoded_array, 0);
+        let array = RawValueSeed.deserialize(&mut array_decoder).unwrap();
+        assert_eq!(
+            array,
+            RawValue::Array(vec![RawValue::String(&[0xff]), RawValue::Bytes(&[0xff]),])
+        );
+
+        let encoded_pointer = [
+            0x20, 0x02, // pointer to offset two
+            0x41, 0xff, // invalid UTF-8 string value
+        ];
+        let mut pointer_decoder = Decoder::new(&encoded_pointer, 0);
+        let pointer = RawValueSeed.deserialize(&mut pointer_decoder).unwrap();
+        assert_eq!(pointer, RawValue::String(&[0xff]));
+    }
+
+    #[test]
+    fn raw_string_mode_restores_pointer_continuation_in_maps() {
+        let encoded = [
+            0x02, 0x00, // map with two entries
+            0x41, b'a', // "a"
+            0x20, 0x0a, // pointer to the string at offset ten
+            0x41, b'b', // "b"
+            0x41, b'y', // "y"
+            0x41, b'x', // pointed-to string "x"
+        ];
+        let mut decoder = Decoder::new(&encoded, 0);
+
+        let value = RawValueSeed.deserialize(&mut decoder).unwrap();
+
+        assert_eq!(
+            value,
+            RawValue::Map(vec![
+                (b"a".to_vec(), RawValue::String(b"x")),
+                (b"b".to_vec(), RawValue::String(b"y")),
+            ])
+        );
+    }
+
+    #[test]
+    fn raw_string_mode_decodes_all_scalar_types() {
+        let mut encoded = vec![0x08, 0x00]; // map with eight entries
+
+        encoded.extend_from_slice(&[0x41, b'd', 0x68]);
+        encoded.extend_from_slice(&1.5_f64.to_be_bytes());
+        encoded.extend_from_slice(&[0x41, b's', 0xa2, 0x01, 0x02]);
+        encoded.extend_from_slice(&[0x41, b'i', 0xc4, 0x01, 0x02, 0x03, 0x04]);
+        encoded.extend_from_slice(&[0x41, b'n', 0x04, 0x01]);
+        encoded.extend_from_slice(&(-2_i32).to_be_bytes());
+        encoded.extend_from_slice(&[0x41, b'l', 0x08, 0x02]);
+        encoded.extend_from_slice(&0x0102_0304_0506_0708_u64.to_be_bytes());
+        encoded.extend_from_slice(&[0x41, b'x', 0x10, 0x03]);
+        encoded.extend_from_slice(&0x0102_0304_0506_0708_1112_1314_1516_1718_u128.to_be_bytes());
+        encoded.extend_from_slice(&[0x41, b'b', 0x01, 0x07]);
+        encoded.extend_from_slice(&[0x41, b'f', 0x04, 0x08]);
+        encoded.extend_from_slice(&2.5_f32.to_be_bytes());
+
+        let mut decoder = Decoder::new(&encoded, 0);
+        let value = RawValueSeed.deserialize(&mut decoder).unwrap();
+
+        assert_eq!(
+            value,
+            RawValue::Map(vec![
+                (b"d".to_vec(), RawValue::F64(1.5)),
+                (b"s".to_vec(), RawValue::U16(0x0102)),
+                (b"i".to_vec(), RawValue::U32(0x0102_0304)),
+                (b"n".to_vec(), RawValue::I32(-2)),
+                (b"l".to_vec(), RawValue::U64(0x0102_0304_0506_0708)),
+                (
+                    b"x".to_vec(),
+                    RawValue::U128(0x0102_0304_0506_0708_1112_1314_1516_1718)
+                ),
+                (b"b".to_vec(), RawValue::Bool(true)),
+                (b"f".to_vec(), RawValue::F32(2.5)),
+            ])
+        );
+    }
+
+    #[test]
+    fn raw_string_mode_rejects_excessive_pointer_depth_and_unknown_types() {
+        std::thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                let mut cyclic_decoder = Decoder::new(&[0x20, 0x00], 0);
+                let depth_err = RawValueSeed.deserialize(&mut cyclic_decoder).unwrap_err();
+                assert!(depth_err
+                    .to_string()
+                    .contains("exceeded maximum data structure depth"));
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+
+        let mut unknown_decoder = Decoder::new(&[0x00, 0x06], 0);
+        let type_err = RawValueSeed.deserialize(&mut unknown_decoder).unwrap_err();
+        assert!(type_err.to_string().contains("unknown data type: 13"));
+    }
+
+    #[test]
+    fn nested_values_without_raw_opt_in_use_normal_string_decoding() {
+        struct NestedNormalVisitor;
+
+        impl<'de> Visitor<'de> for NestedNormalVisitor {
+            type Value = &'de str;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("an MMDB map containing a string")
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                let Some(_key) = map.next_key_seed(RawIdentifierSeed)? else {
+                    return Err(serde::de::Error::custom("expected one map entry"));
+                };
+                map.next_value::<&'de str>()
+            }
+        }
+
+        let encoded = [
+            0x01, 0x00, // map with one entry
+            0x41, b'k', // "k"
+            0x45, b'h', b'e', b'l', b'l', b'o', // "hello"
+        ];
+        let mut decoder = Decoder::new(&encoded, 0);
+        let value = deserialize_any_with_raw_strings(&mut decoder, NestedNormalVisitor).unwrap();
+
+        assert_eq!(value, "hello");
+    }
+
+    fn raw_map_value<'value, 'de>(
+        value: &'value RawValue<'de>,
+        key: &[u8],
+    ) -> &'value RawValue<'de> {
+        let RawValue::Map(entries) = value else {
+            panic!("expected map, got {value:?}");
+        };
+        entries
+            .iter()
+            .find_map(|(entry_key, value)| (entry_key == key).then_some(value))
+            .unwrap_or_else(|| panic!("missing map key {:?}", String::from_utf8_lossy(key)))
+    }
+
+    #[test]
+    fn raw_string_mode_decodes_reader_lookup_results() {
+        let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+        let lookup = reader.lookup("89.160.20.128".parse().unwrap()).unwrap();
+        let value = lookup.decode::<RawValue<'_>>().unwrap().unwrap();
+
+        let city = raw_map_value(&value, b"city");
+        let city_names = raw_map_value(city, b"names");
+        assert_eq!(
+            raw_map_value(city_names, b"en"),
+            &RawValue::String("Linköping".as_bytes())
+        );
+
+        let country = raw_map_value(&value, b"country");
+        assert_eq!(
+            raw_map_value(country, b"is_in_european_union"),
+            &RawValue::Bool(true)
+        );
+
+        let location = raw_map_value(&value, b"location");
+        assert_eq!(
+            raw_map_value(location, b"accuracy_radius"),
+            &RawValue::U16(76)
+        );
+        assert_eq!(
+            raw_map_value(location, b"latitude"),
+            &RawValue::F64(58.4167)
+        );
+
+        let subdivisions = raw_map_value(&value, b"subdivisions");
+        let RawValue::Array(subdivisions) = subdivisions else {
+            panic!("expected subdivisions array, got {subdivisions:?}");
+        };
+        assert!(!subdivisions.is_empty());
+    }
+
+    #[test]
+    fn ordinary_string_decoding_remains_validated() {
+        struct OrdinaryNewtypeSeed;
+
+        impl<'de> DeserializeSeed<'de> for OrdinaryNewtypeSeed {
+            type Value = &'de str;
+
+            fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                deserializer.deserialize_newtype_struct("ordinary", StringVisitor)
+            }
+        }
+
+        struct StringVisitor;
+
+        impl<'de> Visitor<'de> for StringVisitor {
+            type Value = &'de str;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a borrowed string")
+            }
+
+            fn visit_borrowed_str<E>(self, value: &'de str) -> Result<Self::Value, E> {
+                Ok(value)
+            }
+        }
+
+        let mut valid_decoder = Decoder::new(&[0x45, b'h', b'e', b'l', b'l', b'o'], 0);
+        assert_eq!(String::deserialize(&mut valid_decoder).unwrap(), "hello");
+
+        let mut newtype_decoder = Decoder::new(&[0x45, b'h', b'e', b'l', b'l', b'o'], 0);
+        assert_eq!(
+            OrdinaryNewtypeSeed
+                .deserialize(&mut newtype_decoder)
+                .unwrap(),
+            "hello"
+        );
+
+        #[cfg(not(feature = "unsafe-str-decode"))]
+        {
+            let mut invalid_decoder = Decoder::new(&[0x41, 0xff], 0);
+            let err = String::deserialize(&mut invalid_decoder).unwrap_err();
+            assert!(err.to_string().contains("invalid UTF-8"));
+        }
+    }
 
     #[test]
     fn test_decoder_accepts_tuple_with_matching_length() {
