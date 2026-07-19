@@ -1,5 +1,10 @@
 # Change Log
 
+## Unreleased
+
+- Improved array decoding performance for raw-string format adapters by
+  validating declared sizes once before exposing exact allocation hints.
+
 ## 0.30.0 - 2026-07-18
 
 - Added `deserialize_any_with_raw_strings()` for Serde-based format adapters
