@@ -825,82 +825,80 @@
 <a href=#825 id=825 data-nosnippet>825</a>    <span class="attr">#[inline(always)]
 <a href=#826 id=826 data-nosnippet>826</a>    </span><span class="kw">fn </span>read_node(buf: <span class="kw-2">&amp;</span>[u8], node_number: usize, index: usize) -&gt; usize {
 <a href=#827 id=827 data-nosnippet>827</a>        <span class="kw">let </span>offset = node_number * <span class="number">8 </span>+ index * <span class="number">4</span>;
-<a href=#828 id=828 data-nosnippet>828</a>        (buf[offset] <span class="kw">as </span>usize) &lt;&lt; <span class="number">24
-<a href=#829 id=829 data-nosnippet>829</a>            </span>| (buf[offset + <span class="number">1</span>] <span class="kw">as </span>usize) &lt;&lt; <span class="number">16
-<a href=#830 id=830 data-nosnippet>830</a>            </span>| (buf[offset + <span class="number">2</span>] <span class="kw">as </span>usize) &lt;&lt; <span class="number">8
-<a href=#831 id=831 data-nosnippet>831</a>            </span>| buf[offset + <span class="number">3</span>] <span class="kw">as </span>usize
-<a href=#832 id=832 data-nosnippet>832</a>    }
-<a href=#833 id=833 data-nosnippet>833</a>}
-<a href=#834 id=834 data-nosnippet>834</a>
-<a href=#835 id=835 data-nosnippet>835</a><span class="attr">#[inline(always)]
-<a href=#836 id=836 data-nosnippet>836</a></span><span class="kw">fn </span>find_address_in_tree_v4&lt;R: SearchTreeRecord&gt;(
-<a href=#837 id=837 data-nosnippet>837</a>    buf: <span class="kw-2">&amp;</span>[u8],
-<a href=#838 id=838 data-nosnippet>838</a>    start_node: usize,
-<a href=#839 id=839 data-nosnippet>839</a>    node_count: usize,
-<a href=#840 id=840 data-nosnippet>840</a>    ip: u32,
-<a href=#841 id=841 data-nosnippet>841</a>) -&gt; (usize, usize) {
-<a href=#842 id=842 data-nosnippet>842</a>    <span class="kw">let </span><span class="kw-2">mut </span>node = start_node;
-<a href=#843 id=843 data-nosnippet>843</a>    <span class="kw">let </span><span class="kw-2">mut </span>prefix_len = <span class="number">32</span>;
-<a href=#844 id=844 data-nosnippet>844</a>
-<a href=#845 id=845 data-nosnippet>845</a>    <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..<span class="number">32 </span>{
-<a href=#846 id=846 data-nosnippet>846</a>        <span class="kw">if </span>node &gt;= node_count {
-<a href=#847 id=847 data-nosnippet>847</a>            prefix_len = i;
-<a href=#848 id=848 data-nosnippet>848</a>            <span class="kw">break</span>;
-<a href=#849 id=849 data-nosnippet>849</a>        }
-<a href=#850 id=850 data-nosnippet>850</a>        <span class="kw">let </span>bit = ((ip &gt;&gt; (<span class="number">31 </span>- i)) &amp; <span class="number">1</span>) <span class="kw">as </span>usize;
-<a href=#851 id=851 data-nosnippet>851</a>        node = R::read_node(buf, node, bit);
-<a href=#852 id=852 data-nosnippet>852</a>    }
-<a href=#853 id=853 data-nosnippet>853</a>
-<a href=#854 id=854 data-nosnippet>854</a>    normalize_lookup_result(node, node_count, prefix_len)
-<a href=#855 id=855 data-nosnippet>855</a>}
-<a href=#856 id=856 data-nosnippet>856</a>
-<a href=#857 id=857 data-nosnippet>857</a><span class="attr">#[inline(always)]
-<a href=#858 id=858 data-nosnippet>858</a></span><span class="kw">fn </span>find_address_in_tree_v6&lt;R: SearchTreeRecord&gt;(
-<a href=#859 id=859 data-nosnippet>859</a>    buf: <span class="kw-2">&amp;</span>[u8],
-<a href=#860 id=860 data-nosnippet>860</a>    node_count: usize,
-<a href=#861 id=861 data-nosnippet>861</a>    ip: u128,
-<a href=#862 id=862 data-nosnippet>862</a>) -&gt; (usize, usize) {
-<a href=#863 id=863 data-nosnippet>863</a>    <span class="kw">let </span><span class="kw-2">mut </span>node = <span class="number">0</span>;
-<a href=#864 id=864 data-nosnippet>864</a>    <span class="kw">let </span><span class="kw-2">mut </span>prefix_len = <span class="number">128</span>;
-<a href=#865 id=865 data-nosnippet>865</a>
-<a href=#866 id=866 data-nosnippet>866</a>    <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..<span class="number">128 </span>{
-<a href=#867 id=867 data-nosnippet>867</a>        <span class="kw">if </span>node &gt;= node_count {
-<a href=#868 id=868 data-nosnippet>868</a>            prefix_len = i;
-<a href=#869 id=869 data-nosnippet>869</a>            <span class="kw">break</span>;
-<a href=#870 id=870 data-nosnippet>870</a>        }
-<a href=#871 id=871 data-nosnippet>871</a>        <span class="kw">let </span>bit = ((ip &gt;&gt; (<span class="number">127 </span>- i)) &amp; <span class="number">1</span>) <span class="kw">as </span>usize;
-<a href=#872 id=872 data-nosnippet>872</a>        node = R::read_node(buf, node, bit);
-<a href=#873 id=873 data-nosnippet>873</a>    }
-<a href=#874 id=874 data-nosnippet>874</a>
-<a href=#875 id=875 data-nosnippet>875</a>    normalize_lookup_result(node, node_count, prefix_len)
-<a href=#876 id=876 data-nosnippet>876</a>}
-<a href=#877 id=877 data-nosnippet>877</a>
-<a href=#878 id=878 data-nosnippet>878</a><span class="comment">// Map both "not found" outcomes onto pointer 0:
-<a href=#879 id=879 data-nosnippet>879</a>//   - `node == node_count`: the placeholder empty terminal in the search tree.
-<a href=#880 id=880 data-nosnippet>880</a>//   - `node &lt; node_count`: bits exhausted while still on an internal node
-<a href=#881 id=881 data-nosnippet>881</a>//     (a partially-specified address that did not reach a record).
-<a href=#882 id=882 data-nosnippet>882</a>// Anything strictly greater than `node_count` is a data-section pointer that
-<a href=#883 id=883 data-nosnippet>883</a>// the caller must resolve via `resolve_data_pointer`.
-<a href=#884 id=884 data-nosnippet>884</a></span><span class="attr">#[inline(always)]
-<a href=#885 id=885 data-nosnippet>885</a></span><span class="kw">fn </span>normalize_lookup_result(node: usize, node_count: usize, prefix_len: usize) -&gt; (usize, usize) {
-<a href=#886 id=886 data-nosnippet>886</a>    <span class="kw">if </span>node &lt;= node_count {
-<a href=#887 id=887 data-nosnippet>887</a>        (<span class="number">0</span>, prefix_len)
-<a href=#888 id=888 data-nosnippet>888</a>    } <span class="kw">else </span>{
-<a href=#889 id=889 data-nosnippet>889</a>        (node, prefix_len)
-<a href=#890 id=890 data-nosnippet>890</a>    }
-<a href=#891 id=891 data-nosnippet>891</a>}
-<a href=#892 id=892 data-nosnippet>892</a>
-<a href=#893 id=893 data-nosnippet>893</a><span class="kw">fn </span>find_metadata_start(buf: <span class="kw-2">&amp;</span>[u8]) -&gt; <span class="prelude-ty">Result</span>&lt;usize, MaxMindDbError&gt; {
-<a href=#894 id=894 data-nosnippet>894</a>    memchr::memmem::rfind(buf, METADATA_START_MARKER)
-<a href=#895 id=895 data-nosnippet>895</a>        .map(|x| x + METADATA_START_MARKER.len())
-<a href=#896 id=896 data-nosnippet>896</a>        .ok_or_else(|| {
-<a href=#897 id=897 data-nosnippet>897</a>            MaxMindDbError::invalid_database(<span class="string">"could not find MaxMind DB metadata in file"</span>)
-<a href=#898 id=898 data-nosnippet>898</a>        })
-<a href=#899 id=899 data-nosnippet>899</a>}
-<a href=#900 id=900 data-nosnippet>900</a>
-<a href=#901 id=901 data-nosnippet>901</a><span class="kw">fn </span>metadata_marker_start(metadata_start: usize) -&gt; <span class="prelude-ty">Result</span>&lt;usize, MaxMindDbError&gt; {
-<a href=#902 id=902 data-nosnippet>902</a>    metadata_start
-<a href=#903 id=903 data-nosnippet>903</a>        .checked_sub(METADATA_START_MARKER.len())
-<a href=#904 id=904 data-nosnippet>904</a>        .ok_or_else(|| MaxMindDbError::invalid_database(<span class="string">"invalid metadata marker location"</span>))
-<a href=#905 id=905 data-nosnippet>905</a>}
+<a href=#828 id=828 data-nosnippet>828</a>        <span class="kw">let </span>bytes: [u8; <span class="number">4</span>] = buf[offset..offset + <span class="number">4</span>].try_into().unwrap();
+<a href=#829 id=829 data-nosnippet>829</a>        u32::from_be_bytes(bytes) <span class="kw">as </span>usize
+<a href=#830 id=830 data-nosnippet>830</a>    }
+<a href=#831 id=831 data-nosnippet>831</a>}
+<a href=#832 id=832 data-nosnippet>832</a>
+<a href=#833 id=833 data-nosnippet>833</a><span class="attr">#[inline(always)]
+<a href=#834 id=834 data-nosnippet>834</a></span><span class="kw">fn </span>find_address_in_tree_v4&lt;R: SearchTreeRecord&gt;(
+<a href=#835 id=835 data-nosnippet>835</a>    buf: <span class="kw-2">&amp;</span>[u8],
+<a href=#836 id=836 data-nosnippet>836</a>    start_node: usize,
+<a href=#837 id=837 data-nosnippet>837</a>    node_count: usize,
+<a href=#838 id=838 data-nosnippet>838</a>    ip: u32,
+<a href=#839 id=839 data-nosnippet>839</a>) -&gt; (usize, usize) {
+<a href=#840 id=840 data-nosnippet>840</a>    <span class="kw">let </span><span class="kw-2">mut </span>node = start_node;
+<a href=#841 id=841 data-nosnippet>841</a>    <span class="kw">let </span><span class="kw-2">mut </span>prefix_len = <span class="number">32</span>;
+<a href=#842 id=842 data-nosnippet>842</a>
+<a href=#843 id=843 data-nosnippet>843</a>    <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..<span class="number">32 </span>{
+<a href=#844 id=844 data-nosnippet>844</a>        <span class="kw">if </span>node &gt;= node_count {
+<a href=#845 id=845 data-nosnippet>845</a>            prefix_len = i;
+<a href=#846 id=846 data-nosnippet>846</a>            <span class="kw">break</span>;
+<a href=#847 id=847 data-nosnippet>847</a>        }
+<a href=#848 id=848 data-nosnippet>848</a>        <span class="kw">let </span>bit = ((ip &gt;&gt; (<span class="number">31 </span>- i)) &amp; <span class="number">1</span>) <span class="kw">as </span>usize;
+<a href=#849 id=849 data-nosnippet>849</a>        node = R::read_node(buf, node, bit);
+<a href=#850 id=850 data-nosnippet>850</a>    }
+<a href=#851 id=851 data-nosnippet>851</a>
+<a href=#852 id=852 data-nosnippet>852</a>    normalize_lookup_result(node, node_count, prefix_len)
+<a href=#853 id=853 data-nosnippet>853</a>}
+<a href=#854 id=854 data-nosnippet>854</a>
+<a href=#855 id=855 data-nosnippet>855</a><span class="attr">#[inline(always)]
+<a href=#856 id=856 data-nosnippet>856</a></span><span class="kw">fn </span>find_address_in_tree_v6&lt;R: SearchTreeRecord&gt;(
+<a href=#857 id=857 data-nosnippet>857</a>    buf: <span class="kw-2">&amp;</span>[u8],
+<a href=#858 id=858 data-nosnippet>858</a>    node_count: usize,
+<a href=#859 id=859 data-nosnippet>859</a>    ip: u128,
+<a href=#860 id=860 data-nosnippet>860</a>) -&gt; (usize, usize) {
+<a href=#861 id=861 data-nosnippet>861</a>    <span class="kw">let </span><span class="kw-2">mut </span>node = <span class="number">0</span>;
+<a href=#862 id=862 data-nosnippet>862</a>    <span class="kw">let </span><span class="kw-2">mut </span>prefix_len = <span class="number">128</span>;
+<a href=#863 id=863 data-nosnippet>863</a>
+<a href=#864 id=864 data-nosnippet>864</a>    <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..<span class="number">128 </span>{
+<a href=#865 id=865 data-nosnippet>865</a>        <span class="kw">if </span>node &gt;= node_count {
+<a href=#866 id=866 data-nosnippet>866</a>            prefix_len = i;
+<a href=#867 id=867 data-nosnippet>867</a>            <span class="kw">break</span>;
+<a href=#868 id=868 data-nosnippet>868</a>        }
+<a href=#869 id=869 data-nosnippet>869</a>        <span class="kw">let </span>bit = ((ip &gt;&gt; (<span class="number">127 </span>- i)) &amp; <span class="number">1</span>) <span class="kw">as </span>usize;
+<a href=#870 id=870 data-nosnippet>870</a>        node = R::read_node(buf, node, bit);
+<a href=#871 id=871 data-nosnippet>871</a>    }
+<a href=#872 id=872 data-nosnippet>872</a>
+<a href=#873 id=873 data-nosnippet>873</a>    normalize_lookup_result(node, node_count, prefix_len)
+<a href=#874 id=874 data-nosnippet>874</a>}
+<a href=#875 id=875 data-nosnippet>875</a>
+<a href=#876 id=876 data-nosnippet>876</a><span class="comment">// Map both "not found" outcomes onto pointer 0:
+<a href=#877 id=877 data-nosnippet>877</a>//   - `node == node_count`: the placeholder empty terminal in the search tree.
+<a href=#878 id=878 data-nosnippet>878</a>//   - `node &lt; node_count`: bits exhausted while still on an internal node
+<a href=#879 id=879 data-nosnippet>879</a>//     (a partially-specified address that did not reach a record).
+<a href=#880 id=880 data-nosnippet>880</a>// Anything strictly greater than `node_count` is a data-section pointer that
+<a href=#881 id=881 data-nosnippet>881</a>// the caller must resolve via `resolve_data_pointer`.
+<a href=#882 id=882 data-nosnippet>882</a></span><span class="attr">#[inline(always)]
+<a href=#883 id=883 data-nosnippet>883</a></span><span class="kw">fn </span>normalize_lookup_result(node: usize, node_count: usize, prefix_len: usize) -&gt; (usize, usize) {
+<a href=#884 id=884 data-nosnippet>884</a>    <span class="kw">if </span>node &lt;= node_count {
+<a href=#885 id=885 data-nosnippet>885</a>        (<span class="number">0</span>, prefix_len)
+<a href=#886 id=886 data-nosnippet>886</a>    } <span class="kw">else </span>{
+<a href=#887 id=887 data-nosnippet>887</a>        (node, prefix_len)
+<a href=#888 id=888 data-nosnippet>888</a>    }
+<a href=#889 id=889 data-nosnippet>889</a>}
+<a href=#890 id=890 data-nosnippet>890</a>
+<a href=#891 id=891 data-nosnippet>891</a><span class="kw">fn </span>find_metadata_start(buf: <span class="kw-2">&amp;</span>[u8]) -&gt; <span class="prelude-ty">Result</span>&lt;usize, MaxMindDbError&gt; {
+<a href=#892 id=892 data-nosnippet>892</a>    memchr::memmem::rfind(buf, METADATA_START_MARKER)
+<a href=#893 id=893 data-nosnippet>893</a>        .map(|x| x + METADATA_START_MARKER.len())
+<a href=#894 id=894 data-nosnippet>894</a>        .ok_or_else(|| {
+<a href=#895 id=895 data-nosnippet>895</a>            MaxMindDbError::invalid_database(<span class="string">"could not find MaxMind DB metadata in file"</span>)
+<a href=#896 id=896 data-nosnippet>896</a>        })
+<a href=#897 id=897 data-nosnippet>897</a>}
+<a href=#898 id=898 data-nosnippet>898</a>
+<a href=#899 id=899 data-nosnippet>899</a><span class="kw">fn </span>metadata_marker_start(metadata_start: usize) -&gt; <span class="prelude-ty">Result</span>&lt;usize, MaxMindDbError&gt; {
+<a href=#900 id=900 data-nosnippet>900</a>    metadata_start
+<a href=#901 id=901 data-nosnippet>901</a>        .checked_sub(METADATA_START_MARKER.len())
+<a href=#902 id=902 data-nosnippet>902</a>        .ok_or_else(|| MaxMindDbError::invalid_database(<span class="string">"invalid metadata marker location"</span>))
+<a href=#903 id=903 data-nosnippet>903</a>}
 </code></pre></div></section></main></body></html>
