@@ -107,6 +107,24 @@ enum Value<'a, 'de> {
     Array(ArrayAccess<'a, 'de>),
 }
 
+// Keep raw adapter values separate so their exact array hints do not add a
+// mode branch or change the layout of the normal Serde decoder's hot types.
+enum RawDecodedValue<'a, 'de> {
+    Any { prev_ptr: usize },
+    Bytes(&'de [u8]),
+    String(&'de [u8]),
+    Bool(bool),
+    I32(i32),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+    U128(u128),
+    F64(f64),
+    F32(f32),
+    Map(MapAccessor<'a, 'de>),
+    Array(RawArrayAccess<'a, 'de>),
+}
+
 /// Decoder for MaxMind DB binary format.
 ///
 /// Implements serde's `Deserializer` trait. Handles pointer resolution,
@@ -304,6 +322,81 @@ impl<'de> Decoder<'de> {
         }
     }
 
+    fn decode_any_raw<V: Visitor<'de>>(&mut self, visitor: V) -> DecodeResult<V::Value> {
+        match self.decode_any_raw_value()? {
+            RawDecodedValue::Any { prev_ptr } => {
+                self.enter_nested()?;
+                let res = self.decode_any_raw(visitor);
+                self.exit_nested();
+                self.current_ptr = prev_ptr;
+                res
+            }
+            RawDecodedValue::Bool(x) => visitor.visit_bool(x),
+            RawDecodedValue::Bytes(x) => visitor.visit_borrowed_bytes(x),
+            RawDecodedValue::String(x) => {
+                visitor.visit_newtype_struct(BorrowedBytesDeserializer::<MaxMindDbError>::new(x))
+            }
+            RawDecodedValue::I32(x) => visitor.visit_i32(x),
+            RawDecodedValue::U16(x) => visitor.visit_u16(x),
+            RawDecodedValue::U32(x) => visitor.visit_u32(x),
+            RawDecodedValue::U64(x) => visitor.visit_u64(x),
+            RawDecodedValue::U128(x) => visitor.visit_u128(x),
+            RawDecodedValue::F64(x) => visitor.visit_f64(x),
+            RawDecodedValue::F32(x) => visitor.visit_f32(x),
+            RawDecodedValue::Map(x) => {
+                let res = visitor.visit_map(x);
+                self.exit_nested();
+                res
+            }
+            RawDecodedValue::Array(x) => {
+                let res = visitor.visit_seq(x);
+                self.exit_nested();
+                res
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn decode_any_raw_value(&mut self) -> DecodeResult<RawDecodedValue<'_, 'de>> {
+        let (size, type_num) = self.size_and_type()?;
+
+        Ok(match type_num {
+            TYPE_POINTER => {
+                let new_ptr = self.decode_pointer(size);
+                let prev_ptr = self.current_ptr;
+                self.current_ptr = new_ptr;
+
+                RawDecodedValue::Any { prev_ptr }
+            }
+            TYPE_STRING => RawDecodedValue::String(self.read_string_bytes(size)?),
+            TYPE_DOUBLE => RawDecodedValue::F64(self.decode_double(size)?),
+            TYPE_BYTES => RawDecodedValue::Bytes(self.decode_bytes(size)?),
+            TYPE_UINT16 => RawDecodedValue::U16(self.decode_uint16(size)?),
+            TYPE_UINT32 => RawDecodedValue::U32(self.decode_uint32(size)?),
+            TYPE_MAP => {
+                self.enter_nested()?;
+                RawDecodedValue::Map(MapAccessor {
+                    de: self,
+                    count: size * 2,
+                })
+            }
+            TYPE_INT32 => RawDecodedValue::I32(self.decode_int(size)?),
+            TYPE_UINT64 => RawDecodedValue::U64(self.decode_uint64(size)?),
+            TYPE_UINT128 => RawDecodedValue::U128(self.decode_uint128(size)?),
+            TYPE_ARRAY => {
+                self.validate_array_size(size)?;
+                self.enter_nested()?;
+                RawDecodedValue::Array(RawArrayAccess {
+                    de: self,
+                    count: size,
+                })
+            }
+            TYPE_BOOL => RawDecodedValue::Bool(self.decode_bool(size)?),
+            TYPE_FLOAT => RawDecodedValue::F32(self.decode_float(size)?),
+            u => return Err(self.invalid_db_error(&format!("unknown data type: {u}"))),
+        })
+    }
+
     fn deserialize_fixed_size_array<V>(&mut self, len: usize, visitor: V) -> DecodeResult<V::Value>
     where
         V: Visitor<'de>,
@@ -363,6 +456,17 @@ impl<'de> Decoder<'de> {
             de: self,
             count: size,
         })
+    }
+
+    #[inline(always)]
+    fn validate_array_size(&self, size: usize) -> DecodeResult<()> {
+        debug_assert!(self.current_ptr <= self.limit);
+        if size > self.limit - self.current_ptr {
+            return Err(
+                self.invalid_db_error(&format!("array of size {size} exceeds remaining data"))
+            );
+        }
+        Ok(())
     }
 
     fn decode_bool(&mut self, size: usize) -> DecodeResult<bool> {
@@ -1156,7 +1260,7 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
         V: Visitor<'de>,
     {
         if name == RAW_STRINGS_NEWTYPE {
-            self.decode_any_impl::<true, V>(visitor)
+            self.decode_any_raw(visitor)
         } else {
             self.decode_any(visitor)
         }
@@ -1202,6 +1306,37 @@ impl<'de> SeqAccess<'de> for ArrayAccess<'_, 'de> {
         self.count -= 1;
 
         // Deserialize an array element.
+        seed.deserialize(&mut *self.de).map(Some)
+    }
+}
+
+struct RawArrayAccess<'a, 'de: 'a> {
+    de: &'a mut Decoder<'de>,
+    count: usize,
+}
+
+impl<'de> SeqAccess<'de> for RawArrayAccess<'_, 'de> {
+    type Error = MaxMindDbError;
+
+    #[inline(always)]
+    fn size_hint(&self) -> Option<usize> {
+        Some(self.count)
+    }
+
+    fn next_element_seed<T>(&mut self, seed: T) -> DecodeResult<Option<T::Value>>
+    where
+        T: DeserializeSeed<'de>,
+    {
+        if self.count == 0 {
+            if self.de.current_ptr > self.de.limit {
+                return Err(self
+                    .de
+                    .invalid_db_error("skipped value extends beyond buffer"));
+            }
+            return Ok(None);
+        }
+        self.count -= 1;
+
         seed.deserialize(&mut *self.de).map(Some)
     }
 }
@@ -1825,6 +1960,36 @@ mod tests {
 
         assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
         assert!(err.to_string().contains("unexpected end of buffer"));
+    }
+
+    #[test]
+    fn test_raw_decoder_rejects_impossible_array_before_visiting() {
+        struct RejectSequenceVisitor;
+
+        impl<'de> Visitor<'de> for RejectSequenceVisitor {
+            type Value = ();
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("an MMDB value")
+            }
+
+            fn visit_seq<A>(self, _sequence: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                panic!("impossible array size reached the visitor")
+            }
+        }
+
+        // Extended array with 284 declared elements and no element payload.
+        let mut decoder = Decoder::new(&[0x1d, 0x04, 0xff], 0);
+        let err =
+            deserialize_any_with_raw_strings(&mut decoder, RejectSequenceVisitor).unwrap_err();
+
+        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+        assert!(err
+            .to_string()
+            .contains("array of size 284 exceeds remaining data"));
     }
 
     #[test]
