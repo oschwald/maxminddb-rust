@@ -825,10 +825,8 @@ impl SearchTreeRecord for RecordSize32 {
     #[inline(always)]
     fn read_node(buf: &[u8], node_number: usize, index: usize) -> usize {
         let offset = node_number * 8 + index * 4;
-        (buf[offset] as usize) << 24
-            | (buf[offset + 1] as usize) << 16
-            | (buf[offset + 2] as usize) << 8
-            | buf[offset + 3] as usize
+        let bytes: [u8; 4] = buf[offset..offset + 4].try_into().unwrap();
+        u32::from_be_bytes(bytes) as usize
     }
 }
 
