@@ -173,7 +173,11 @@ impl<'de> Decoder<'de> {
 
     #[inline(always)]
     fn type_mismatch(&self, label: &str, type_num: usize) -> MaxMindDbError {
-        self.decode_error(&format!("expected {label}, got type {type_num}"))
+        if type_num > usize::from(u8::MAX) {
+            self.invalid_db_error(&format!("unknown data type: {type_num}"))
+        } else {
+            self.decode_error(&format!("expected {label}, got type {type_num}"))
+        }
     }
 
     #[inline]
@@ -1631,6 +1635,14 @@ mod tests {
                 "unknown data type: {}",
                 u16::from(extended_type) + 7
             )));
+
+            let mut typed_decoder = Decoder::new(&encoded, 0);
+            let typed_error =
+                <u32 as serde::Deserialize>::deserialize(&mut typed_decoder).unwrap_err();
+            assert!(matches!(
+                typed_error,
+                MaxMindDbError::InvalidDatabase { .. }
+            ));
         }
     }
 

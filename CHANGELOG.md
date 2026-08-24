@@ -1,5 +1,10 @@
 # Change Log
 
+## 0.30.3 - 2026-08-23
+
+- Fixed typed decoding of malformed overflowing extended types to consistently
+  return an `InvalidDatabase` error.
+
 ## 0.30.2 - 2026-08-23
 
 - No user-visible changes. This release republishes 0.30.1 because its

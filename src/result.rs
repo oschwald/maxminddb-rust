@@ -259,10 +259,11 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
                     let header_offset = decoder.offset();
                     let (size, type_num) = decoder.consume_container_header().map_err(with_path)?;
                     if type_num != TYPE_MAP {
-                        return Err(MaxMindDbError::decoding_at_path(
-                            format!("expected map for Key(\"{key}\"), got type {type_num}"),
+                        return Err(container_type_mismatch(
+                            type_num,
                             header_offset,
-                            render_path(&path[..=i]),
+                            &path[..=i],
+                            format!("expected map for Key(\"{key}\"), got type {type_num}"),
                         ));
                     }
 
@@ -292,10 +293,11 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
                             PathElement::IndexFromEnd(i) => format!("IndexFromEnd({i})"),
                             PathElement::Key(_) => unreachable!(),
                         };
-                        return Err(MaxMindDbError::decoding_at_path(
-                            format!("expected array for {elem}, got type {type_num}"),
+                        return Err(container_type_mismatch(
+                            type_num,
                             header_offset,
-                            render_path(&path[..=i]),
+                            &path[..=i],
+                            format!("expected array for {elem}, got type {type_num}"),
                         ));
                     }
 
@@ -321,6 +323,20 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
         T::deserialize(&mut decoder)
             .map(Some)
             .map_err(|e| add_path_context(e, path))
+    }
+}
+
+#[cold]
+fn container_type_mismatch(
+    type_num: usize,
+    offset: usize,
+    path: &[PathElement<'_>],
+    message: String,
+) -> MaxMindDbError {
+    if type_num > usize::from(u8::MAX) {
+        MaxMindDbError::invalid_database_at(format!("unknown data type: {type_num}"), offset)
+    } else {
+        MaxMindDbError::decoding_at_path(message, offset, render_path(path))
     }
 }
 
@@ -712,5 +728,18 @@ mod tests {
             err_str.contains("path: /city/0"),
             "error should include full path to failure: {err_str}"
         );
+    }
+
+    #[test]
+    fn test_overflowing_extended_navigation_type_is_invalid_database() {
+        let err = container_type_mismatch(
+            256,
+            7,
+            &[PathElement::Key("city")],
+            "unused mismatch".to_owned(),
+        );
+
+        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+        assert!(err.to_string().contains("unknown data type: 256"));
     }
 }
