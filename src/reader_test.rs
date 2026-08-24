@@ -1215,7 +1215,8 @@ fn test_rejects_data_pointer_to_metadata_marker() {
     assert!(pointer <= 0x00ff_ffff);
 
     let mut bytes = std::fs::read(source_path).unwrap();
-    for record in bytes[..6].chunks_exact_mut(3) {
+    for record_start in [0, 3] {
+        let record = &mut bytes[record_start..record_start + 3];
         record[0] = ((pointer >> 16) & 0xff) as u8;
         record[1] = ((pointer >> 8) & 0xff) as u8;
         record[2] = (pointer & 0xff) as u8;

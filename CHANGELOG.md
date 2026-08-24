@@ -1,5 +1,22 @@
 # Change Log
 
+## 0.30.3 - 2026-08-23
+
+- Fixed typed decoding of malformed overflowing extended types to consistently
+  return an `InvalidDatabase` error.
+
+## 0.30.2 - 2026-08-23
+
+- No user-visible changes. This release republishes 0.30.1 because its
+  immutable GitHub release was deleted.
+
+## 0.30.1 - 2026-08-23
+
+- Fixed malformed extended data types so decoding returns an
+  `InvalidDatabase` error instead of panicking on `u8` overflow. GitHub #122.
+- Added cargo-fuzz targets for standalone data values and public reader
+  operations, including a bounded CI fuzzing job.
+
 ## 0.30.0 - 2026-07-18
 
 - Added `deserialize_any_with_raw_strings()` for Serde-based format adapters

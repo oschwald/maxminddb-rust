@@ -18,20 +18,20 @@ use std::convert::TryInto;
 use crate::error::MaxMindDbError;
 
 // MaxMind DB type constants
-const TYPE_EXTENDED: u8 = 0;
-pub(crate) const TYPE_POINTER: u8 = 1;
-const TYPE_STRING: u8 = 2;
-const TYPE_DOUBLE: u8 = 3;
-const TYPE_BYTES: u8 = 4;
-const TYPE_UINT16: u8 = 5;
-const TYPE_UINT32: u8 = 6;
-pub(crate) const TYPE_MAP: u8 = 7;
-const TYPE_INT32: u8 = 8;
-const TYPE_UINT64: u8 = 9;
-const TYPE_UINT128: u8 = 10;
-pub(crate) const TYPE_ARRAY: u8 = 11;
-const TYPE_BOOL: u8 = 14;
-const TYPE_FLOAT: u8 = 15;
+const TYPE_EXTENDED: usize = 0;
+pub(crate) const TYPE_POINTER: usize = 1;
+const TYPE_STRING: usize = 2;
+const TYPE_DOUBLE: usize = 3;
+const TYPE_BYTES: usize = 4;
+const TYPE_UINT16: usize = 5;
+const TYPE_UINT32: usize = 6;
+pub(crate) const TYPE_MAP: usize = 7;
+const TYPE_INT32: usize = 8;
+const TYPE_UINT64: usize = 9;
+const TYPE_UINT128: usize = 10;
+pub(crate) const TYPE_ARRAY: usize = 11;
+const TYPE_BOOL: usize = 14;
+const TYPE_FLOAT: usize = 15;
 
 const RAW_STRINGS_NEWTYPE: &str = "$maxminddb::raw_strings";
 
@@ -172,8 +172,12 @@ impl<'de> Decoder<'de> {
     }
 
     #[inline(always)]
-    fn type_mismatch(&self, label: &str, type_num: u8) -> MaxMindDbError {
-        self.decode_error(&format!("expected {label}, got type {type_num}"))
+    fn type_mismatch(&self, label: &str, type_num: usize) -> MaxMindDbError {
+        if type_num > usize::from(u8::MAX) {
+            self.invalid_db_error(&format!("unknown data type: {type_num}"))
+        } else {
+            self.decode_error(&format!("expected {label}, got type {type_num}"))
+        }
     }
 
     #[inline]
@@ -224,7 +228,7 @@ impl<'de> Decoder<'de> {
     }
 
     #[inline(always)]
-    fn size_from_ctrl_byte(&mut self, ctrl_byte: u8, type_num: u8) -> DecodeResult<usize> {
+    fn size_from_ctrl_byte(&mut self, ctrl_byte: u8, type_num: usize) -> DecodeResult<usize> {
         let size = (ctrl_byte & 0x1f) as usize;
         // Extended type - size field is used differently
         if type_num == TYPE_EXTENDED {
@@ -249,12 +253,13 @@ impl<'de> Decoder<'de> {
     }
 
     #[inline(always)]
-    fn size_and_type(&mut self) -> DecodeResult<(usize, u8)> {
+    fn size_and_type(&mut self) -> DecodeResult<(usize, usize)> {
         let ctrl_byte = self.eat_byte()?;
-        let mut type_num = ctrl_byte >> 5;
+        let mut type_num = usize::from(ctrl_byte >> 5);
         // Extended type: type 0 means read next byte for actual type
         if type_num == TYPE_EXTENDED {
-            type_num = self.eat_byte()? + TYPE_MAP; // Extended types start at 7
+            // Widen before adding so malformed bytes cannot overflow.
+            type_num = usize::from(self.eat_byte()?) + TYPE_MAP;
         }
         let size = self.size_from_ctrl_byte(ctrl_byte, type_num)?;
         Ok((size, type_num))
@@ -543,7 +548,7 @@ impl<'de> Decoder<'de> {
 
     /// Peeks at the type and size without consuming it.
     /// Returns (size, type_num) and restores the position.
-    pub(crate) fn peek_type(&mut self) -> DecodeResult<(usize, u8)> {
+    pub(crate) fn peek_type(&mut self) -> DecodeResult<(usize, usize)> {
         let saved_ptr = self.current_ptr;
         let result = self.size_and_type_following_pointers()?;
         self.current_ptr = saved_ptr;
@@ -551,12 +556,12 @@ impl<'de> Decoder<'de> {
     }
 
     /// Consumes a map or array header in one pass, following a pointer if needed.
-    pub(crate) fn consume_container_header(&mut self) -> DecodeResult<(usize, u8)> {
+    pub(crate) fn consume_container_header(&mut self) -> DecodeResult<(usize, usize)> {
         self.size_and_type_following_pointers()
     }
 
     /// Gets size and type, following any pointers.
-    fn size_and_type_following_pointers(&mut self) -> DecodeResult<(usize, u8)> {
+    fn size_and_type_following_pointers(&mut self) -> DecodeResult<(usize, usize)> {
         let (size, type_num) = self.size_and_type()?;
         if type_num != TYPE_POINTER {
             return Ok((size, type_num));
@@ -575,8 +580,8 @@ impl<'de> Decoder<'de> {
     fn decode_direct<T, F>(
         &mut self,
         size: usize,
-        type_num: u8,
-        expected_type: u8,
+        type_num: usize,
+        expected_type: usize,
         label: &str,
         decode: F,
     ) -> DecodeResult<T>
@@ -744,7 +749,12 @@ impl<'de> Decoder<'de> {
     }
 
     #[inline(always)]
-    fn skip_value_inner(&mut self, size: usize, type_num: u8, skip_depth: u16) -> DecodeResult<()> {
+    fn skip_value_inner(
+        &mut self,
+        size: usize,
+        type_num: usize,
+        skip_depth: u16,
+    ) -> DecodeResult<()> {
         // Headers and scalar payloads validate every cursor advance. A
         // successful recursive skip therefore already guarantees that the
         // cursor remains within the decoder limit.
@@ -841,7 +851,7 @@ impl<'de> Decoder<'de> {
     fn skip_value_inner_for_verification(
         &mut self,
         size: usize,
-        type_num: u8,
+        type_num: usize,
         skip_depth: u16,
         state: &mut VerificationState,
     ) -> DecodeResult<()> {
@@ -1611,6 +1621,29 @@ mod tests {
         let mut unknown_decoder = Decoder::new(&[0x00, 0x06], 0);
         let type_err = RawValueSeed.deserialize(&mut unknown_decoder).unwrap_err();
         assert!(type_err.to_string().contains("unknown data type: 13"));
+    }
+
+    #[test]
+    fn malformed_extended_types_return_errors_instead_of_overflowing() {
+        for extended_type in 249..=u8::MAX {
+            let encoded = [0x00, extended_type];
+            let mut decoder = Decoder::new(&encoded, 0);
+            let error = RawValueSeed.deserialize(&mut decoder).unwrap_err();
+
+            assert!(matches!(error, MaxMindDbError::InvalidDatabase { .. }));
+            assert!(error.to_string().contains(&format!(
+                "unknown data type: {}",
+                u16::from(extended_type) + 7
+            )));
+
+            let mut typed_decoder = Decoder::new(&encoded, 0);
+            let typed_error =
+                <u32 as serde::Deserialize>::deserialize(&mut typed_decoder).unwrap_err();
+            assert!(matches!(
+                typed_error,
+                MaxMindDbError::InvalidDatabase { .. }
+            ));
+        }
     }
 
     #[test]
