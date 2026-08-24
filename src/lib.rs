@@ -96,6 +96,29 @@ pub use within::{Within, WithinOptions};
 #[cfg(feature = "mmap")]
 pub use memmap2::Mmap;
 
+/// Internal entry points for the cargo-fuzz targets.
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub mod fuzzing {
+    use serde::Deserialize;
+
+    use crate::decoder::{Decoder, VerificationState};
+    use crate::MaxMindDbError;
+
+    /// Deserialize one data-section value through the Serde decoder.
+    pub fn decode<'de, T>(data: &'de [u8]) -> Result<T, MaxMindDbError>
+    where
+        T: Deserialize<'de>,
+    {
+        T::deserialize(&mut Decoder::new(data, 0))
+    }
+
+    /// Validate one data-section value through the verification decoder.
+    pub fn verify(data: &[u8]) -> Result<(), MaxMindDbError> {
+        Decoder::new(data, 0).skip_value_for_verification(&mut VerificationState::default())
+    }
+}
+
 #[cfg(test)]
 mod reader_test;
 

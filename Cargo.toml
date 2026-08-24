@@ -22,6 +22,8 @@ mmap = ["memmap2"]
 # Skip UTF-8 validation for trusted Rust-native string decoding
 # (mutually exclusive with simdutf8)
 unsafe-str-decode = []
+# Internal entry points used by the cargo-fuzz targets.
+fuzzing = []
 
 [lib]
 name = "maxminddb"

@@ -4,6 +4,8 @@
 
 - Fixed malformed extended data types so decoding returns an
   `InvalidDatabase` error instead of panicking on `u8` overflow. GitHub #122.
+- Added cargo-fuzz targets for standalone data values and public reader
+  operations, including a bounded CI fuzzing job.
 
 ## 0.30.0 - 2026-07-18
 

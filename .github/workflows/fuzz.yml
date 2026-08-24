@@ -1,0 +1,44 @@
+name: Fuzz
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  schedule:
+    - cron: "0 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Fuzz Smoke Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Fuzz standalone values
+        run: >-
+          cargo fuzz run decode --
+          -max_total_time=${{ github.event_name == 'schedule' && '300' || '30' }}
+          -max_len=4096
+          -timeout=5
+
+      - name: Fuzz reader operations
+        run: >-
+          cargo fuzz run reader --
+          -max_total_time=${{ github.event_name == 'schedule' && '300' || '30' }}
+          -max_len=32768
+          -timeout=5

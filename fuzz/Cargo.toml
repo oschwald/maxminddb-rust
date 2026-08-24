@@ -1,0 +1,30 @@
+[package]
+name = "maxminddb-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+serde = "1.0"
+
+[dependencies.maxminddb]
+path = ".."
+features = ["fuzzing"]
+
+[[bin]]
+name = "decode"
+path = "fuzz_targets/decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "reader"
+path = "fuzz_targets/reader.rs"
+test = false
+doc = false
+bench = false
