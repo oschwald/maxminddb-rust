@@ -2,6 +2,11 @@
 
 ## 0.30.2 - 2026-08-23
 
+- No user-visible changes. This release republishes 0.30.1 because its
+  immutable GitHub release was deleted.
+
+## 0.30.1 - 2026-08-23
+
 - Fixed malformed extended data types so decoding returns an
   `InvalidDatabase` error instead of panicking on `u8` overflow. GitHub #122.
 - Added cargo-fuzz targets for standalone data values and public reader
