@@ -1,5 +1,10 @@
 # Change Log
 
+## Unreleased
+
+- Fixed malformed extended data types so decoding returns an
+  `InvalidDatabase` error instead of panicking on `u8` overflow. GitHub #122.
+
 ## 0.30.0 - 2026-07-18
 
 - Added `deserialize_any_with_raw_strings()` for Serde-based format adapters
