@@ -1550,3 +1550,23 @@ fn test_verify_follows_and_rejects_invalid_data_pointers() {
     assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
     assert!(err.to_string().contains("unexpected end of buffer"));
 }
+
+#[test]
+fn test_pointer_fan_out_is_rejected() {
+    init_logger();
+
+    // A data section of nested arrays, each holding two pointers to the node
+    // below, would cost 2**depth decode operations. The decoder bounds the
+    // number of values it decodes for a single record and rejects the database.
+    let reader = open_test_data_reader("MaxMind-DB-test-pointer-decoder-dos.mmdb");
+    let ip = "1.2.3.4".parse().unwrap();
+    let result: Result<Option<serde_json::Value>, _> = reader.lookup(ip).unwrap().decode();
+    match result {
+        Ok(_) => panic!("expected the fan-out database to be rejected"),
+        Err(e) => assert!(
+            matches!(&e, MaxMindDbError::InvalidDatabase { message, .. }
+                if message.contains("maximum number of data structure values")),
+            "unexpected error: {e}"
+        ),
+    }
+}

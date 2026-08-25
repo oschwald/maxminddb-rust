@@ -39,6 +39,13 @@ const RAW_STRINGS_NEWTYPE: &str = "$maxminddb::raw_strings";
 /// This matches the value used in libmaxminddb and the Go reader.
 const MAXIMUM_DATA_STRUCTURE_DEPTH: u16 = 512;
 
+/// Maximum number of values decoded for a single top-level decode. This bounds
+/// a pointer fan-out, where nested pointers to shared targets would otherwise
+/// cost 2**depth decode operations. The largest real records decode a few
+/// hundred values. Matches the reader resource limits recommended by the
+/// MaxMind DB specification.
+const MAXIMUM_DATA_STRUCTURE_VALUES: u32 = 1 << 16;
+
 /// Lower limit for values skipped through unknown fields or IgnoredAny.
 /// Skipping is recursive and can be reached by corrupt data that callers did
 /// not explicitly request, so keep the limit below small default thread stacks.
@@ -117,6 +124,7 @@ pub(crate) struct Decoder<'de> {
     limit: usize,
     current_ptr: usize,
     depth: u16,
+    values_remaining: u32,
 }
 
 /// Tracks data values visited by a single database verification pass.
@@ -138,6 +146,7 @@ impl<'de> Decoder<'de> {
             limit,
             current_ptr: start_ptr,
             depth: 0,
+            values_remaining: MAXIMUM_DATA_STRUCTURE_VALUES,
         }
     }
 
@@ -157,6 +166,21 @@ impl<'de> Decoder<'de> {
     #[inline]
     fn exit_nested(&mut self) {
         self.depth = self.depth.saturating_sub(1);
+    }
+
+    /// Count one decoded value, returning an error once the per-decode limit is
+    /// exceeded. This bounds a pointer fan-out that the depth limit cannot stop.
+    #[inline]
+    fn count_value(&mut self) -> DecodeResult<()> {
+        match self.values_remaining.checked_sub(1) {
+            Some(remaining) => {
+                self.values_remaining = remaining;
+                Ok(())
+            }
+            None => Err(self.invalid_db_error(
+                "exceeded maximum number of data structure values; database is likely corrupt",
+            )),
+        }
     }
 
     /// Create an InvalidDatabase error with current offset context.
@@ -254,6 +278,7 @@ impl<'de> Decoder<'de> {
 
     #[inline(always)]
     fn size_and_type(&mut self) -> DecodeResult<(usize, usize)> {
+        self.count_value()?;
         let ctrl_byte = self.eat_byte()?;
         let mut type_num = usize::from(ctrl_byte >> 5);
         // Extended type: type 0 means read next byte for actual type
@@ -550,8 +575,12 @@ impl<'de> Decoder<'de> {
     /// Returns (size, type_num) and restores the position.
     pub(crate) fn peek_type(&mut self) -> DecodeResult<(usize, usize)> {
         let saved_ptr = self.current_ptr;
+        // A peek only inspects the header, so restore the value budget too: the
+        // value it looked at is counted when it is actually decoded.
+        let saved_values = self.values_remaining;
         let result = self.size_and_type_following_pointers()?;
         self.current_ptr = saved_ptr;
+        self.values_remaining = saved_values;
         Ok(result)
     }
 
@@ -658,6 +687,10 @@ impl<'de> Decoder<'de> {
     /// - Returns `Err` for malformed pointer chains or invalid string lengths.
     fn try_read_identifier_bytes(&mut self) -> DecodeResult<Option<&'de [u8]>> {
         let saved_ptr = self.current_ptr;
+        // When this probe returns None the value is re-parsed by the caller, so
+        // restore the value budget on those paths and let the real decode count
+        // it. The identifier (string) paths keep the charge.
+        let saved_values = self.values_remaining;
         let (size, type_num) = self.size_and_type()?;
         match type_num {
             TYPE_STRING => self.read_string_bytes(size).map(Some),
@@ -682,11 +715,13 @@ impl<'de> Decoder<'de> {
                 self.current_ptr = after_pointer;
                 if matches!(result, Ok(None)) {
                     self.current_ptr = saved_ptr;
+                    self.values_remaining = saved_values;
                 }
                 result
             }
             _ => {
                 self.current_ptr = saved_ptr;
+                self.values_remaining = saved_values;
                 Ok(None)
             }
         }
