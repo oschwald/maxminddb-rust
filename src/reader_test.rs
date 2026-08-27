@@ -1570,3 +1570,51 @@ fn test_pointer_fan_out_is_rejected() {
         ),
     }
 }
+
+#[test]
+fn test_payload_amplification_is_rejected() {
+    init_logger();
+
+    // Each fixture aims many pointers at one large string or bytes value. The
+    // decoded value count stays low, so only the payload byte budget rejects the
+    // record. The worst-case fixture holds 65,534 pointers, just under the
+    // value-count limit, so it isolates the byte bound. IgnoredAny walks the
+    // whole structure through the same size_and_type path that charges the
+    // budget and, unlike serde_json::Value, accepts byte arrays, so it covers
+    // the bytes fixtures as well as the string one.
+    for database in [
+        "MaxMind-DB-test-payload-amplification-dos.mmdb",
+        "MaxMind-DB-test-payload-amplification-dos-worst-case.mmdb",
+        "MaxMind-DB-test-payload-amplification-dos-string.mmdb",
+    ] {
+        let reader = open_test_data_reader(database);
+        let ip = "1.2.3.4".parse().unwrap();
+        let result: Result<Option<serde::de::IgnoredAny>, _> = reader.lookup(ip).unwrap().decode();
+        assert!(
+            matches!(&result, Err(MaxMindDbError::InvalidDatabase { message, .. })
+                if message.contains("maximum size of data structure string and bytes")),
+            "unexpected result for {database}: {result:?}"
+        );
+    }
+
+    // The UTF-8 string variant also trips the budget when materialized into an
+    // owned dynamic value, the shape a real consumer copies into.
+    let reader = open_test_data_reader("MaxMind-DB-test-payload-amplification-dos-string.mmdb");
+    let ip = "1.2.3.4".parse().unwrap();
+    let result: Result<Option<serde_json::Value>, _> = reader.lookup(ip).unwrap().decode();
+    assert!(
+        matches!(&result, Err(MaxMindDbError::InvalidDatabase { message, .. })
+            if message.contains("maximum size of data structure string and bytes")),
+        "unexpected result for string fixture into Value: {result:?}"
+    );
+
+    // A normal record still decodes into a generic value.
+    let reader = open_test_data_reader("GeoIP2-City-Test.mmdb");
+    let ip = "89.160.20.128".parse().unwrap();
+    let value: Option<serde_json::Value> = reader
+        .lookup(ip)
+        .unwrap()
+        .decode()
+        .expect("normal record should decode");
+    assert!(value.is_some(), "expected a record for the test address");
+}

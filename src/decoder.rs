@@ -46,6 +46,15 @@ const MAXIMUM_DATA_STRUCTURE_DEPTH: u16 = 512;
 /// MaxMind DB specification.
 const MAXIMUM_DATA_STRUCTURE_VALUES: u32 = 1 << 16;
 
+/// Maximum total string and bytes payload materialized for a single top-level
+/// decode. This bounds a payload amplification, where many pointers to one
+/// large string or bytes value cost few decoded values yet copy far more bytes
+/// than the file holds. Each string or bytes value is charged its length every
+/// time it is decoded, so re-decoding a shared target through many pointers
+/// recharges the budget. Matches the 2 MiB limit in libmaxminddb and the Go
+/// reader.
+const MAXIMUM_DATA_STRUCTURE_BYTES: usize = 2 << 20;
+
 /// Lower limit for values skipped through unknown fields or IgnoredAny.
 /// Skipping is recursive and can be reached by corrupt data that callers did
 /// not explicitly request, so keep the limit below small default thread stacks.
@@ -125,6 +134,7 @@ pub(crate) struct Decoder<'de> {
     current_ptr: usize,
     depth: u16,
     values_remaining: u32,
+    payload_remaining: usize,
 }
 
 /// Tracks data values visited by a single database verification pass.
@@ -147,6 +157,7 @@ impl<'de> Decoder<'de> {
             current_ptr: start_ptr,
             depth: 0,
             values_remaining: MAXIMUM_DATA_STRUCTURE_VALUES,
+            payload_remaining: MAXIMUM_DATA_STRUCTURE_BYTES,
         }
     }
 
@@ -179,6 +190,24 @@ impl<'de> Decoder<'de> {
             }
             None => Err(self.invalid_db_error(
                 "exceeded maximum number of data structure values; database is likely corrupt",
+            )),
+        }
+    }
+
+    /// Charge a string or bytes payload against the per-decode byte budget,
+    /// returning an error once the total exceeds the limit. This bounds a
+    /// payload amplification: many pointers to one large value each recharge the
+    /// budget, so the materialized total cannot exceed the limit no matter how
+    /// heavily a target is shared. Small fixed-width scalars are not charged.
+    #[inline]
+    fn count_payload(&mut self, size: usize) -> DecodeResult<()> {
+        match self.payload_remaining.checked_sub(size) {
+            Some(remaining) => {
+                self.payload_remaining = remaining;
+                Ok(())
+            }
+            None => Err(self.invalid_db_error(
+                "exceeded maximum size of data structure string and bytes values; database is likely corrupt",
             )),
         }
     }
@@ -287,6 +316,13 @@ impl<'de> Decoder<'de> {
             type_num = usize::from(self.eat_byte()?) + TYPE_MAP;
         }
         let size = self.size_from_ctrl_byte(ctrl_byte, type_num)?;
+        // Charge string and bytes payloads here so every decode path is bounded,
+        // including inline payloads inside a pointed-to container and map keys.
+        // Variable-length integers are already capped at their type width by the
+        // scalar decoders, so they cannot copy an attacker-controlled length.
+        if type_num == TYPE_STRING || type_num == TYPE_BYTES {
+            self.count_payload(size)?;
+        }
         Ok((size, type_num))
     }
 
@@ -575,12 +611,14 @@ impl<'de> Decoder<'de> {
     /// Returns (size, type_num) and restores the position.
     pub(crate) fn peek_type(&mut self) -> DecodeResult<(usize, usize)> {
         let saved_ptr = self.current_ptr;
-        // A peek only inspects the header, so restore the value budget too: the
-        // value it looked at is counted when it is actually decoded.
+        // A peek only inspects the header, so restore the value and payload
+        // budgets too: what it looked at is charged when it is actually decoded.
         let saved_values = self.values_remaining;
+        let saved_payload = self.payload_remaining;
         let result = self.size_and_type_following_pointers()?;
         self.current_ptr = saved_ptr;
         self.values_remaining = saved_values;
+        self.payload_remaining = saved_payload;
         Ok(result)
     }
 
@@ -688,9 +726,10 @@ impl<'de> Decoder<'de> {
     fn try_read_identifier_bytes(&mut self) -> DecodeResult<Option<&'de [u8]>> {
         let saved_ptr = self.current_ptr;
         // When this probe returns None the value is re-parsed by the caller, so
-        // restore the value budget on those paths and let the real decode count
-        // it. The identifier (string) paths keep the charge.
+        // restore the value and payload budgets on those paths and let the real
+        // decode charge them. The identifier (string) paths keep the charge.
         let saved_values = self.values_remaining;
+        let saved_payload = self.payload_remaining;
         let (size, type_num) = self.size_and_type()?;
         match type_num {
             TYPE_STRING => self.read_string_bytes(size).map(Some),
@@ -716,12 +755,14 @@ impl<'de> Decoder<'de> {
                 if matches!(result, Ok(None)) {
                     self.current_ptr = saved_ptr;
                     self.values_remaining = saved_values;
+                    self.payload_remaining = saved_payload;
                 }
                 result
             }
             _ => {
                 self.current_ptr = saved_ptr;
                 self.values_remaining = saved_values;
+                self.payload_remaining = saved_payload;
                 Ok(None)
             }
         }

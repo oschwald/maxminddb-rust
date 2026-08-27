@@ -4,11 +4,15 @@
 
 - Fixed a denial-of-service issue in the decoder. A crafted database could nest
   data-section pointers to shared targets so that decoding one record cost
-  exponential time and memory from a small file. The decoder now limits the
-  number of values it decodes for a single record to 65,536 and rejects a
-  database that exceeds it. The largest real records decode a few hundred
-  values. This matches the reader resource limits now recommended by the
-  MaxMind DB specification. See GHSA-5mfc-p3f9-5php.
+  exponential time and memory from a small file. A related variant pointed many
+  pointers at one large string or bytes value to materialize far more bytes than
+  the file holds. The decoder now limits the number of values it decodes for a
+  single record to 65,536, and bounds the total string and bytes payload it
+  materializes to 2 MiB, rejecting a database that exceeds either limit. Both
+  limits are charged again each time a shared pointer target is decoded. The
+  largest real records decode a few hundred values. This matches the reader
+  resource limits now recommended by the MaxMind DB specification. See
+  GHSA-5mfc-p3f9-5php.
 
 ## 0.30.3 - 2026-08-23
 
