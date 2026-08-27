@@ -181,7 +181,7 @@ impl<'de> Decoder<'de> {
 
     /// Count one decoded value, returning an error once the per-decode limit is
     /// exceeded. This bounds a pointer fan-out that the depth limit cannot stop.
-    #[inline]
+    #[inline(always)]
     fn count_value(&mut self) -> DecodeResult<()> {
         match self.values_remaining.checked_sub(1) {
             Some(remaining) => {
@@ -199,7 +199,7 @@ impl<'de> Decoder<'de> {
     /// payload amplification: many pointers to one large value each recharge the
     /// budget, so the materialized total cannot exceed the limit no matter how
     /// heavily a target is shared. Small fixed-width scalars are not charged.
-    #[inline]
+    #[inline(always)]
     fn count_payload(&mut self, size: usize) -> DecodeResult<()> {
         match self.payload_remaining.checked_sub(size) {
             Some(remaining) => {
