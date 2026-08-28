@@ -768,7 +768,7 @@ impl<'de> Decoder<'de> {
         }
     }
 
-    /// Skips the current value, following pointers.
+    /// Skips the current encoded value without expanding pointer targets.
     pub(crate) fn skip_value(&mut self) -> DecodeResult<()> {
         let (size, type_num) = self.size_and_type()?;
         self.skip_value_inner(size, type_num, 0)
@@ -836,15 +836,14 @@ impl<'de> Decoder<'de> {
         // cursor remains within the decoder limit.
         match type_num {
             TYPE_POINTER => {
-                let new_ptr = self.decode_pointer(size);
-                let saved_ptr = self.current_ptr;
-                self.current_ptr = new_ptr;
-                let result = match self.check_skip_depth(skip_depth) {
-                    Ok(child_depth) => self.skip_value_with_depth(child_depth),
-                    Err(err) => Err(err),
-                };
-                self.current_ptr = saved_ptr;
-                result
+                // The pointer token is the complete skipped value. Its target
+                // is not materialized, so following it would only amplify work
+                // the destination did not request. Full database verification
+                // still validates referenced targets.
+                let pointer_size = ((size >> 3) & 0x3) + 1;
+                self.checked_offset(pointer_size, "pointer")?;
+                self.decode_pointer(size);
+                Ok(())
             }
             TYPE_STRING | TYPE_BYTES => {
                 // String or Bytes - skip size bytes
@@ -1923,6 +1922,27 @@ mod tests {
             .skip_value_for_verification(&mut VerificationState::default())
             .unwrap_err();
 
+        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+    }
+
+    #[test]
+    fn ignored_any_skips_pointer_targets_but_verification_follows_them() {
+        // A complete pointer token whose target is outside this buffer. An
+        // ignored value need only consume the token; verification must still
+        // reject the invalid referenced value.
+        let encoded = [0x20, 0xff];
+        let mut decoder = Decoder::new(&encoded, 0);
+        serde::de::IgnoredAny::deserialize(&mut decoder).unwrap();
+
+        let mut decoder = Decoder::new(&encoded, 0);
+        let err = decoder
+            .skip_value_for_verification(&mut VerificationState::default())
+            .unwrap_err();
+        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+
+        // The pointer token itself is still bounds-checked while skipping.
+        let mut decoder = Decoder::new(&[0x20], 0);
+        let err = serde::de::IgnoredAny::deserialize(&mut decoder).unwrap_err();
         assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
     }
 
