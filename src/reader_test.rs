@@ -1640,6 +1640,15 @@ fn test_payload_amplification_is_rejected() {
         "unexpected result for string fixture into Value: {result:?}"
     );
 
+    // Concrete collection decoding enters through deserialize_seq rather than
+    // deserialize_any and receives the same aggregate payload protection.
+    let result: Result<Option<Vec<String>>, _> = reader.lookup(ip).unwrap().decode();
+    assert!(
+        matches!(&result, Err(MaxMindDbError::InvalidDatabase { message, .. })
+            if message.contains("maximum size of data structure string and bytes")),
+        "unexpected result for string fixture into Vec<String>: {result:?}"
+    );
+
     // A normal record still decodes into a generic value.
     let reader = open_test_data_reader("GeoIP2-City-Test.mmdb");
     let ip = "89.160.20.128".parse().unwrap();

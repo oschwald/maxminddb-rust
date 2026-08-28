@@ -23,11 +23,6 @@ use crate::within::{IpInt, Within, WithinNode, WithinOptions};
 
 /// Size of the data section separator (16 zero bytes).
 const DATA_SECTION_SEPARATOR_SIZE: usize = 16;
-// With two encoded bytes per pointer, metadata smaller than this cannot
-// amplify string/bytes output anywhere near the decoder's 2 MiB limit. The
-// concrete Metadata schema has no recursive containers, so only payload
-// amplification is possible during its typed decode.
-const METADATA_EXPANSION_PREFLIGHT_THRESHOLD: usize = 1 << 11;
 const METADATA_START_MARKER: &[u8] = b"\xab\xcd\xefMaxMind.com";
 
 /// A reader for the MaxMind DB format. The lifetime `'data` is tied to the
@@ -139,9 +134,6 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         // bytes are not part of the data section and must stay out of limits.
         let data_section_end = metadata_marker_start(metadata_start)?;
         let metadata_bytes = &buf.as_ref()[metadata_start..];
-        if metadata_bytes.len() >= METADATA_EXPANSION_PREFLIGHT_THRESHOLD {
-            decoder::Decoder::new(metadata_bytes, 0).validate_expansion()?;
-        }
         let mut type_decoder = decoder::Decoder::new(metadata_bytes, 0);
         let metadata = Metadata::deserialize(&mut type_decoder)?;
         validate_metadata_for_reader(&metadata)?;
@@ -612,9 +604,10 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// Note: Verification traverses the entire database and retains visited data
     /// offsets for the duration of the call. It may be slow and use memory
     /// proportional to the number of distinct referenced values on large files.
-    /// Verification validates each shared target once; it does not impose a
-    /// materialization budget on a later concrete recursive deserialization.
-    /// The method is thread-safe and can be called on an active Reader.
+    /// Verification validates each shared target once. Later deserialization
+    /// independently applies the per-operation container and payload limits
+    /// documented on [`crate::LookupResult::decode()`]. The method is
+    /// thread-safe and can be called on an active Reader.
     ///
     /// # Example
     ///

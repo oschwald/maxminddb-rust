@@ -175,12 +175,20 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// - `Ok(None)` if the IP was not found in the database
     /// - `Err(...)` if decoding fails
     ///
-    /// Dynamically shaped values that use Serde's `deserialize_any` share a
-    /// per-operation expansion budget of 65,536 values and 2 MiB of string and
-    /// bytes payload. Concrete schema-directed types avoid that bookkeeping,
-    /// and ignored fields do not expand pointer targets. Recursive concrete
-    /// types and custom deserializers must bound their own traversal when the
-    /// database is untrusted.
+    /// Entering any MMDB map or array activates a per-operation expansion
+    /// budget of 65,536 logical values and 2 MiB of string and bytes payload.
+    /// The decoder reserves a container's declared children before Serde can
+    /// allocate for them, including for concrete schema-directed collections,
+    /// and repeated pointer targets are charged on every expansion. Scalar-only
+    /// typed decodes avoid this bookkeeping, and ignored fields do not expand
+    /// pointer targets.
+    ///
+    /// These general limits do not replace tighter bounds implied by an
+    /// application's schema. A collection with a small semantic maximum should
+    /// enforce it in its `Deserialize` implementation or a Serde
+    /// `deserialize_with` visitor, before allocating or consuming its elements.
+    /// Custom deserializers that bypass Serde's map and sequence entry points
+    /// remain responsible for bounding their own traversal over untrusted data.
     ///
     /// # Example
     ///
@@ -218,7 +226,7 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     ///
     /// If `has_data() == false`, returns `Ok(None)`.
     /// Path traversal does not expand skipped pointer targets. The selected
-    /// value receives the same dynamic-decode budget described by
+    /// value receives the same container-activated budget described by
     /// [`decode()`](Self::decode).
     ///
     /// # Path Elements

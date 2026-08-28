@@ -2,17 +2,17 @@
 
 ## 0.31.0
 
-- Fixed a denial-of-service issue in dynamically shaped decoding. A crafted
-  database could nest pointers to shared targets so that decoding one record
-  cost exponential time and memory, or point many times at one large payload to
-  materialize far more bytes than the file holds. Serde decodes driven through
-  `deserialize_any` now share per-operation limits of 65,536 values and 2 MiB
-  of string/bytes payload; metadata receives the same protection before owned
-  deserialization. Skipped unknown values consume pointer tokens without
-  expanding their unrequested targets. Concrete schema-directed decodes retain
-  their previous unbudgeted fast path; recursive concrete types and custom
-  deserializers remain responsible for bounding their own traversal over
-  untrusted databases. See GHSA-5mfc-p3f9-5php.
+- Fixed a denial-of-service issue in record and metadata decoding. A crafted
+  database could nest pointers to shared targets so that decoding one value
+  cost exponential time and memory, point many times at one large payload, or
+  declare a concrete collection large enough to cause excessive allocation.
+  Entering any MMDB map or array now activates per-operation limits of 65,536
+  logical values and 2 MiB of string/bytes payload. Containers reserve their
+  declared children before Serde can allocate, repeated pointer targets are
+  recharged, and skipped unknown values consume pointer tokens without
+  expanding their unrequested targets. Scalar-only typed decodes retain their
+  unbudgeted fast path. Schemas may enforce tighter semantic collection limits
+  in their own deserializers. See GHSA-5mfc-p3f9-5php.
 
 ## 0.30.3 - 2026-08-23
 
