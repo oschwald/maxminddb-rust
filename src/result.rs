@@ -175,6 +175,13 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// - `Ok(None)` if the IP was not found in the database
     /// - `Err(...)` if decoding fails
     ///
+    /// Dynamically shaped values that use Serde's `deserialize_any` share a
+    /// per-operation expansion budget of 65,536 values and 2 MiB of string and
+    /// bytes payload. Concrete schema-directed types avoid that bookkeeping,
+    /// and ignored fields do not expand pointer targets. Recursive concrete
+    /// types and custom deserializers must bound their own traversal when the
+    /// database is untrusted.
+    ///
     /// # Example
     ///
     /// ```
@@ -210,6 +217,9 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// - `Err(...)` if there's a type mismatch during navigation (e.g., `Key` on an array)
     ///
     /// If `has_data() == false`, returns `Ok(None)`.
+    /// Path traversal does not expand skipped pointer targets. The selected
+    /// value receives the same dynamic-decode budget described by
+    /// [`decode()`](Self::decode).
     ///
     /// # Path Elements
     ///

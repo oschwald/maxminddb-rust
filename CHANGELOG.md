@@ -2,17 +2,17 @@
 
 ## 0.31.0
 
-- Fixed a denial-of-service issue in the decoder. A crafted database could nest
-  data-section pointers to shared targets so that decoding one record cost
-  exponential time and memory from a small file. A related variant pointed many
-  pointers at one large string or bytes value to materialize far more bytes than
-  the file holds. The decoder now limits the number of values it decodes for a
-  single record to 65,536, and bounds the total string and bytes payload it
-  materializes to 2 MiB, rejecting a database that exceeds either limit. Both
-  limits are charged again each time a shared pointer target is decoded. The
-  largest real records decode a few hundred values. This matches the reader
-  resource limits now recommended by the MaxMind DB specification. See
-  GHSA-5mfc-p3f9-5php.
+- Fixed a denial-of-service issue in dynamically shaped decoding. A crafted
+  database could nest pointers to shared targets so that decoding one record
+  cost exponential time and memory, or point many times at one large payload to
+  materialize far more bytes than the file holds. Serde decodes driven through
+  `deserialize_any` now share per-operation limits of 65,536 values and 2 MiB
+  of string/bytes payload; metadata receives the same protection before owned
+  deserialization. Skipped unknown values consume pointer tokens without
+  expanding their unrequested targets. Concrete schema-directed decodes retain
+  their previous unbudgeted fast path; recursive concrete types and custom
+  deserializers remain responsible for bounding their own traversal over
+  untrusted databases. See GHSA-5mfc-p3f9-5php.
 
 ## 0.30.3 - 2026-08-23
 
