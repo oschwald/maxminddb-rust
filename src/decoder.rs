@@ -57,13 +57,14 @@ const MAXIMUM_DATA_STRUCTURE_BYTES: usize = 2 << 20;
 const MAXIMUM_UNCHARGED_IDENTIFIER_BYTES: usize =
     MAXIMUM_DATA_STRUCTURE_BYTES / MAXIMUM_DATA_STRUCTURE_VALUES as usize;
 
-// Depth, the logical-value count, and the active flag share one word. Keeping
+// Depth, the logical-value count, and the budget flags share one word. Keeping
 // the payload allowance separate avoids extracting and replacing it for every
 // string while preserving Decoder's existing size.
 const DEPTH_MASK: u32 = (1 << 10) - 1;
 const BUDGET_VALUES_SHIFT: u32 = 10;
 const BUDGET_VALUES_MASK: u32 = ((1 << 17) - 1) << BUDGET_VALUES_SHIFT;
 const BUDGET_ACTIVE_MASK: u32 = 1 << 27;
+const BUDGET_PAYLOAD_PRECHARGED_MASK: u32 = 1 << 28;
 
 /// Lower limit for values skipped through unknown fields or IgnoredAny.
 /// Skipping is recursive and can be reached by corrupt data that callers did
@@ -254,6 +255,10 @@ impl<'de> Decoder<'de> {
     /// fixed-width scalars are not charged.
     #[inline(always)]
     fn count_payload(&mut self, size: usize) -> DecodeResult<()> {
+        if self.state & BUDGET_PAYLOAD_PRECHARGED_MASK != 0 {
+            self.state &= !BUDGET_PAYLOAD_PRECHARGED_MASK;
+            return Ok(());
+        }
         if self.state & BUDGET_ACTIVE_MASK == 0 {
             return Ok(());
         }
@@ -1445,16 +1450,14 @@ impl<'de, const BUDGETED: bool> MapAccess<'de> for MapAccessor<'_, 'de, BUDGETED
             let payload_precharged = self.de.count_payload_at_current()?;
             if payload_precharged {
                 // MMDB map keys are scalar strings. Temporarily disabling an
-                // already-active budget prevents an ordinary String seed from
-                // charging the pre-scanned key again. Identifier visitors do
-                // not charge inline keys themselves. A malformed container key
-                // reactivates the budget through its normal entry point.
-                self.de.state &= !BUDGET_ACTIVE_MASK;
+                // already-active budget would let a custom seed reactivate it
+                // through deserialize_any and charge the pre-scanned key again.
+                // Instead, let the next payload charge consume this one-shot
+                // marker while all other budget accounting remains active.
+                self.de.state |= BUDGET_PAYLOAD_PRECHARGED_MASK;
             }
             let result = seed.deserialize(&mut *self.de).map(Some);
-            if payload_precharged {
-                self.de.state |= BUDGET_ACTIVE_MASK;
-            }
+            self.de.state &= !BUDGET_PAYLOAD_PRECHARGED_MASK;
             return result;
         }
 
@@ -1695,6 +1698,72 @@ mod tests {
 
         fn visit_borrowed_bytes<E>(self, bytes: &'de [u8]) -> Result<Self::Value, E> {
             Ok(bytes.to_vec())
+        }
+    }
+
+    struct AnyIdentifierSeed;
+
+    impl<'de> DeserializeSeed<'de> for AnyIdentifierSeed {
+        type Value = usize;
+
+        fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_any(AnyIdentifierVisitor)
+        }
+    }
+
+    struct AnyIdentifierVisitor;
+
+    impl<'de> Visitor<'de> for AnyIdentifierVisitor {
+        type Value = usize;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("an MMDB map key")
+        }
+
+        fn visit_borrowed_str<E>(self, value: &'de str) -> Result<Self::Value, E> {
+            Ok(value.len())
+        }
+
+        fn visit_borrowed_bytes<E>(self, value: &'de [u8]) -> Result<Self::Value, E> {
+            Ok(value.len())
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct AnyKeyMap(usize);
+
+    impl<'de> Deserialize<'de> for AnyKeyMap {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_map(AnyKeyMapVisitor)
+        }
+    }
+
+    struct AnyKeyMapVisitor;
+
+    impl<'de> Visitor<'de> for AnyKeyMapVisitor {
+        type Value = AnyKeyMap;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("an MMDB map")
+        }
+
+        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where
+            A: MapAccess<'de>,
+        {
+            let mut count = 0;
+            while let Some(key_size) = map.next_key_seed(AnyIdentifierSeed)? {
+                assert_eq!(key_size, 4096);
+                map.next_value::<serde::de::IgnoredAny>()?;
+                count += 1;
+            }
+            Ok(AnyKeyMap(count))
         }
     }
 
@@ -2230,6 +2299,28 @@ mod tests {
             panic!("expected map");
         };
         assert_eq!(entries.len(), 512);
+    }
+
+    #[test]
+    fn dynamic_any_map_keys_are_charged_once() {
+        // deserialize_any activates the budget itself. The map accessor's
+        // precharge must still suppress exactly one payload charge rather than
+        // charging each 4 KiB key twice.
+        let (buf, map_offset) = pointer_key_map(512);
+        let mut decoder = Decoder::new(&buf, map_offset);
+        assert_eq!(
+            AnyKeyMap::deserialize(&mut decoder).unwrap(),
+            AnyKeyMap(512)
+        );
+
+        // The precharge remains effective: one additional key exceeds 2 MiB.
+        let (buf, map_offset) = pointer_key_map(513);
+        let mut decoder = Decoder::new(&buf, map_offset);
+        let err = AnyKeyMap::deserialize(&mut decoder).unwrap_err();
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(err
+            .to_string()
+            .contains("maximum size of data structure string and bytes"));
     }
 
     #[test]
