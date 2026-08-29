@@ -2341,13 +2341,53 @@ mod tests {
             .contains("maximum size of data structure string and bytes"));
     }
 
-    #[test]
-    fn standalone_scalar_retains_unbudgeted_fast_path() {
-        let size = super::MAXIMUM_DATA_STRUCTURE_BYTES + 1;
+    #[allow(dead_code)]
+    #[derive(Debug, Deserialize)]
+    enum StandaloneScalarEnum {
+        Known,
+    }
+
+    fn large_string(size: usize) -> Vec<u8> {
+        assert!((65_821..=65_821 + 0xff_ff_ff).contains(&size));
         let encoded_size = (size - 65_821) as u32;
         let mut buf = vec![0x5f]; // string with a three-byte extended size
         buf.extend_from_slice(&encoded_size.to_be_bytes()[1..]);
         buf.resize(buf.len() + size, b'a');
+        buf
+    }
+
+    #[test]
+    fn budgeted_standalone_scalar_entry_points_enforce_payload_limit() {
+        // The enum identifier receives the 32-byte allowance, so exceed both
+        // that allowance and the ordinary 2 MiB payload budget by one byte.
+        let size =
+            super::MAXIMUM_DATA_STRUCTURE_BYTES + super::MAXIMUM_UNCHARGED_IDENTIFIER_BYTES + 1;
+        let buf = large_string(size);
+
+        let mut decoder = Decoder::new(&buf, 0);
+        let err = serde_json::Value::deserialize(&mut decoder).unwrap_err();
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+
+        let mut decoder = Decoder::new(&buf, 0);
+        let err = RawValueSeed.deserialize(&mut decoder).unwrap_err();
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+
+        let mut decoder = Decoder::new(&buf, 0);
+        let err = StandaloneScalarEnum::deserialize(&mut decoder).unwrap_err();
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+
+        // A directly requested typed scalar intentionally retains its
+        // unbudgeted fast path because one scalar cannot amplify through
+        // container or pointer fan-out.
+        let mut decoder = Decoder::new(&buf, 0);
+        let decoded = <&str>::deserialize(&mut decoder).unwrap();
+        assert_eq!(decoded.len(), size);
+    }
+
+    #[test]
+    fn standalone_scalar_retains_unbudgeted_fast_path() {
+        let size = super::MAXIMUM_DATA_STRUCTURE_BYTES + 1;
+        let buf = large_string(size);
 
         let mut decoder = Decoder::new(&buf, 0);
         let decoded = <&str>::deserialize(&mut decoder).unwrap();
@@ -2387,6 +2427,24 @@ mod tests {
         }
 
         (buf, map_offset)
+    }
+
+    fn repeated_inline_key_map_array(element_count: usize) -> (Vec<u8>, usize) {
+        // A one-entry map with a 4 KiB inline key, followed by an array of
+        // pointers that repeatedly expands that map.
+        let mut buf = vec![0xe1, 0x5e, 0x0e, 0xe3]; // map(1), string(4,096)
+        buf.resize(buf.len() + 4096, b'k');
+        buf.extend_from_slice(&[0x00, 0x07]); // false
+        let array_offset = buf.len();
+
+        assert!((285..=u16::MAX as usize + 285).contains(&element_count));
+        buf.extend_from_slice(&[0x1e, 0x04]); // array with a two-byte extended size
+        buf.extend_from_slice(&((element_count - 285) as u16).to_be_bytes());
+        for _ in 0..element_count {
+            append_pointer(&mut buf, 0);
+        }
+
+        (buf, array_offset)
     }
 
     #[test]
@@ -2446,18 +2504,22 @@ mod tests {
 
     #[test]
     fn flattened_pointer_keys_cannot_bypass_payload_budget() {
-        #[allow(dead_code)]
         #[derive(Debug, Deserialize)]
         struct Flattened {
             #[serde(flatten)]
             fields: std::collections::HashMap<String, serde::de::IgnoredAny>,
         }
 
-        // The 517th copy takes the portion of aggregate identifier payload
-        // above the per-value allowance past the separate 2 MiB byte budget.
-        // Serde buffers flattened keys, so concrete struct identifier decoding
-        // must charge long keys while ordinary short City keys stay on the
-        // uncharged payload-counter fast path.
+        // Each key charges 4,096 - 32 = 4,064 bytes after the per-identifier
+        // allowance. 516 copies leave 128 bytes in the 2 MiB payload budget.
+        let (buf, map_offset) = pointer_key_map(516);
+        let mut decoder = Decoder::new(&buf, map_offset);
+        let decoded = Flattened::deserialize(&mut decoder).unwrap();
+        assert_eq!(decoded.fields.len(), 1);
+
+        // The 517th copy exceeds that budget. Serde buffers flattened keys, so
+        // concrete struct identifier decoding must charge long keys while
+        // ordinary short City keys stay on the uncharged fast path.
         let (buf, map_offset) = pointer_key_map(517);
         let mut decoder = Decoder::new(&buf, map_offset);
         let err = Flattened::deserialize(&mut decoder).unwrap_err();
@@ -2470,26 +2532,21 @@ mod tests {
 
     #[test]
     fn repeated_maps_with_inline_keys_cannot_bypass_payload_budget() {
-        #[allow(dead_code)]
         #[derive(Debug, Deserialize)]
         struct Flattened {
             #[serde(flatten)]
             fields: std::collections::HashMap<String, serde::de::IgnoredAny>,
         }
 
-        // A one-entry map with a 4 KiB inline key, followed by an array of 517
-        // pointers to that map. Each logical map expansion can cause Serde to
-        // buffer the key, so inline and pointer-backed identifiers must share
-        // the same aggregate payload budget.
-        let mut buf = vec![0xe1, 0x5e, 0x0e, 0xe3]; // map(1), string(4,096)
-        buf.resize(buf.len() + 4096, b'k');
-        buf.extend_from_slice(&[0x00, 0x07]); // false
-        let array_offset = buf.len();
-        buf.extend_from_slice(&[0x1e, 0x04, 0x00, 0xe8]); // array size: 517
-        for _ in 0..517 {
-            append_pointer(&mut buf, 0);
-        }
+        // The inline path has the same exact boundary as pointer-backed keys.
+        let (buf, array_offset) = repeated_inline_key_map_array(516);
+        let mut decoder = Decoder::new(&buf, array_offset);
+        let decoded = Vec::<Flattened>::deserialize(&mut decoder).unwrap();
+        assert_eq!(decoded.len(), 516);
+        assert!(decoded.iter().all(|value| value.fields.len() == 1));
 
+        // One additional expansion exceeds the aggregate identifier budget.
+        let (buf, array_offset) = repeated_inline_key_map_array(517);
         let mut decoder = Decoder::new(&buf, array_offset);
         let err = Vec::<Flattened>::deserialize(&mut decoder).unwrap_err();
 

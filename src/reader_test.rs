@@ -1755,6 +1755,41 @@ fn test_decode_path_navigation_and_value_share_payload_budget() {
 }
 
 #[test]
+fn test_decode_path_navigation_shares_logical_value_budget_across_hops() {
+    let mut reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
+    let ip = "1.1.1.1".parse().unwrap();
+    let data_offset = reader.lookup(ip).unwrap().offset().unwrap();
+    let record_start = reader.pointer_base + data_offset;
+
+    // Replace the record with two nested arrays that each declare 32,768
+    // children. Either declaration fits independently, but their cumulative
+    // reservations plus the top-level value exceed the 65,536-value budget by
+    // one. The second header is reached through a real, nonempty path.
+    let array_header = [0x1e, 0x04, 0x7e, 0xe3];
+    reader.buf[record_start..record_start + 4].copy_from_slice(&array_header);
+    reader.buf[record_start + 4..record_start + 8].copy_from_slice(&array_header);
+
+    let err = reader
+        .lookup(ip)
+        .unwrap()
+        .decode_path::<u16>(&[crate::PathElement::Index(0), crate::PathElement::Index(0)])
+        .unwrap_err();
+
+    assert!(
+        matches!(
+            &err,
+            MaxMindDbError::ResourceLimit {
+                message,
+                path: Some(path),
+                ..
+            } if message.contains("maximum number of data structure values")
+                && path == "/0/0"
+        ),
+        "unexpected cumulative decode_path result: {err}"
+    );
+}
+
+#[test]
 fn test_metadata_payload_amplification_is_rejected() {
     let result =
         Reader::open_readfile("test-data/test-data/MaxMind-DB-test-metadata-payload-limit.mmdb");
