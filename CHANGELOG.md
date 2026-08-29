@@ -11,13 +11,14 @@
   entry points activate the limits before the value's type is known. Containers
   reserve their declared children before Serde can allocate, repeated pointer
   targets are recharged, and skipped unknown values consume pointer tokens
-  without expanding their unrequested targets. Ignored inline containers and
-  selective path navigation share the same limits. Direct typed scalar decodes
-  retain their unbudgeted fast path. Decoder-wide limit failures are reported
-  as the distinct `MaxMindDbError::ResourceLimit` variant. The built-in City and
-  Enterprise schemas cap subdivision lists at 32 with a schema-level decoding
-  error; custom schemas should apply similarly narrow semantic collection
-  limits where possible. Full verification now also
+  without expanding their unrequested targets. Ignored inline containers
+  consume the logical-value budget without charging skipped payload, while
+  selective path navigation shares both budgets with the selected value. Direct
+  typed scalar decodes retain their unbudgeted fast path. Decoder-wide limit
+  failures are reported as the distinct `MaxMindDbError::ResourceLimit` variant.
+  The built-in City and Enterprise schemas cap subdivision lists at 32 with a
+  schema-level decoding error; custom schemas should apply similarly narrow
+  semantic collection limits where possible. Full verification now also
   validates pointer targets in unknown metadata fields. Short concrete-schema
   identifiers are covered by a 32-byte-per-value allowance; together with the
   value and payload budgets, this bounds pointer-expanded payload to at most
