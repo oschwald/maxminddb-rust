@@ -19,7 +19,8 @@
   validates pointer targets in unknown metadata fields. Short concrete-schema
   identifiers are covered by a 32-byte-per-value allowance; together with the
   value and payload budgets, this bounds pointer-expanded payload to at most
-  4 MiB without charging ordinary City keys. See GHSA-5mfc-p3f9-5php.
+  4 MiB after activation without charging ordinary City keys. See
+  GHSA-5mfc-p3f9-5php.
 
 ## 0.30.3 - 2026-08-23
 
