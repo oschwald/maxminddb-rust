@@ -35,6 +35,34 @@ version="${BASH_REMATCH[1]}"
 date="${BASH_REMATCH[2]}"
 readme_version="${version%.*}"
 
+update_readme_dependency_versions() {
+    local file=$1
+    local dependency_version=$2
+    local dependency_pattern='^[[:space:]]*maxminddb[[:space:]]*='
+    local dependency_count
+    local expected_count
+
+    dependency_count=$(grep -Ec "$dependency_pattern" "$file")
+    if [ "$dependency_count" -eq 0 ]; then
+        echo "Could not find any maxminddb dependency examples in $file!" >&2
+        exit 1
+    fi
+
+    sed -i -E \
+        -e "s/(^[[:space:]]*maxminddb[[:space:]]*=[[:space:]]*\")[0-9]+\.[0-9]+(\")/\1${dependency_version}\2/" \
+        -e "/$dependency_pattern/ s/(version[[:space:]]*=[[:space:]]*\")[0-9]+\.[0-9]+(\")/\1${dependency_version}\2/" \
+        "$file"
+
+    expected_count=$(grep -Ec \
+        "${dependency_pattern}[[:space:]]*(\"${dependency_version}\"|\{.*version[[:space:]]*=[[:space:]]*\"${dependency_version}\")" \
+        "$file")
+    if [ "$expected_count" -ne "$dependency_count" ]; then
+        echo "Not every maxminddb dependency example in $file uses version $dependency_version:" >&2
+        grep -nE "$dependency_pattern" "$file" >&2
+        exit 1
+    fi
+}
+
 # Extract release notes (everything between first ## version and next ## version)
 notes=$(sed -n '/^## '"$version"'/,/^## [0-9]/p' CHANGELOG.md | sed '1d;$d')
 
@@ -57,14 +85,9 @@ if [ "$current_cargo_version" != "$version" ]; then
     sed -i "s/^version = \"$current_cargo_version\"/version = \"$version\"/" Cargo.toml
 fi
 
-# Update dependency versions in README.md
-current_readme_version=$(grep -E 'maxminddb = "[0-9]+\.[0-9]+"' README.md | head -1 | sed 's/.*"\([0-9]\+\.[0-9]\+\)"/\1/')
-if [ "$current_readme_version" != "$readme_version" ]; then
-    echo "Updating README.md version from $current_readme_version to $readme_version"
-    sed -i -E \
-        "s/maxminddb = \"${current_readme_version}\"/maxminddb = \"${readme_version}\"/g; s/version = \"${current_readme_version}\"/version = \"${readme_version}\"/g" \
-        README.md
-fi
+# Update every dependency example and verify none were missed.
+echo "Updating README.md dependency versions to $readme_version"
+update_readme_dependency_versions README.md "$readme_version"
 
 echo "Running tests..."
 cargo test
