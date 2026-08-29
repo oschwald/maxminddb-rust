@@ -57,16 +57,13 @@ const MAXIMUM_DATA_STRUCTURE_BYTES: usize = 2 << 20;
 const MAXIMUM_UNCHARGED_IDENTIFIER_BYTES: usize =
     MAXIMUM_DATA_STRUCTURE_BYTES / MAXIMUM_DATA_STRUCTURE_VALUES as usize;
 
-// Depth and the container-activated budget share one word. Decoder already
-// needed alignment padding after its old u16 depth field, so this keeps the
-// scalar-only fast-path object the same size while leaving ample bits for each
-// limit.
-const DEPTH_MASK: u64 = (1 << 16) - 1;
-const BUDGET_VALUES_SHIFT: u32 = 16;
-const BUDGET_VALUES_MASK: u64 = ((1 << 17) - 1) << BUDGET_VALUES_SHIFT;
-const BUDGET_PAYLOAD_SHIFT: u32 = 33;
-const BUDGET_PAYLOAD_MASK: u64 = ((1 << 22) - 1) << BUDGET_PAYLOAD_SHIFT;
-const BUDGET_ACTIVE_MASK: u64 = 1 << 55;
+// Depth, the logical-value count, and the active flag share one word. Keeping
+// the payload allowance separate avoids extracting and replacing it for every
+// string while preserving Decoder's existing size.
+const DEPTH_MASK: u32 = (1 << 10) - 1;
+const BUDGET_VALUES_SHIFT: u32 = 10;
+const BUDGET_VALUES_MASK: u32 = ((1 << 17) - 1) << BUDGET_VALUES_SHIFT;
+const BUDGET_ACTIVE_MASK: u32 = 1 << 27;
 
 /// Lower limit for values skipped through unknown fields or IgnoredAny.
 /// Skipping is recursive and can be reached by corrupt data that callers did
@@ -160,7 +157,8 @@ pub(crate) struct Decoder<'de> {
     buf: &'de [u8],
     limit: usize,
     current_ptr: usize,
-    state: u64,
+    state: u32,
+    payload_remaining: u32,
 }
 
 /// Tracks data values visited by a single database verification pass.
@@ -182,6 +180,7 @@ impl<'de> Decoder<'de> {
             limit,
             current_ptr: start_ptr,
             state: 0,
+            payload_remaining: MAXIMUM_DATA_STRUCTURE_BYTES as u32,
         }
     }
 
@@ -196,7 +195,7 @@ impl<'de> Decoder<'de> {
     /// Check and increment depth, returning error if limit exceeded.
     #[inline]
     fn enter_nested(&mut self) -> DecodeResult<()> {
-        if self.state & DEPTH_MASK >= u64::from(MAXIMUM_DATA_STRUCTURE_DEPTH) {
+        if self.state & DEPTH_MASK >= u32::from(MAXIMUM_DATA_STRUCTURE_DEPTH) {
             return Err(self.invalid_db_error(
                 "exceeded maximum data structure depth; database is likely corrupt",
             ));
@@ -227,7 +226,7 @@ impl<'de> Decoder<'de> {
                 self.resource_limit_error("exceeded maximum number of data structure values")
             );
         }
-        self.state += (count as u64) << BUDGET_VALUES_SHIFT;
+        self.state += (count as u32) << BUDGET_VALUES_SHIFT;
         Ok(())
     }
 
@@ -258,13 +257,12 @@ impl<'de> Decoder<'de> {
         if self.state & BUDGET_ACTIVE_MASK == 0 {
             return Ok(());
         }
-        let payload_used = ((self.state & BUDGET_PAYLOAD_MASK) >> BUDGET_PAYLOAD_SHIFT) as usize;
-        if size > MAXIMUM_DATA_STRUCTURE_BYTES - payload_used {
+        if size > self.payload_remaining as usize {
             return Err(self.resource_limit_error(
                 "exceeded maximum size of data structure string and bytes values",
             ));
         }
-        self.state += (size as u64) << BUDGET_PAYLOAD_SHIFT;
+        self.payload_remaining -= size as u32;
         Ok(())
     }
 
@@ -305,7 +303,8 @@ impl<'de> Decoder<'de> {
     }
 
     /// Create a ResourceLimit error with current offset context.
-    #[inline]
+    #[cold]
+    #[inline(never)]
     fn resource_limit_error(&self, msg: &str) -> MaxMindDbError {
         MaxMindDbError::resource_limit_at(msg, self.current_ptr)
     }
