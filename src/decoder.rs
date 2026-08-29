@@ -266,6 +266,17 @@ impl<'de> Decoder<'de> {
         Ok(())
     }
 
+    /// Charge identifier payload beyond the portion already covered by the
+    /// logical-value budget. Ordinary short schema keys remain free from
+    /// payload-counter updates.
+    #[inline(always)]
+    fn count_identifier_payload(&mut self, size: usize) -> DecodeResult<()> {
+        if size <= MAXIMUM_UNCHARGED_IDENTIFIER_BYTES {
+            return Ok(());
+        }
+        self.count_payload(size - MAXIMUM_UNCHARGED_IDENTIFIER_BYTES)
+    }
+
     /// Charges a string or bytes value at the current position without
     /// consuming it. Dynamically shaped maps use this for keys because a raw
     /// identifier visitor may copy them without requesting a string decode.
@@ -819,7 +830,10 @@ impl<'de> Decoder<'de> {
         let saved_ptr = self.current_ptr;
         let (size, type_num) = self.size_and_type()?;
         match type_num {
-            TYPE_STRING => self.read_string_bytes(size).map(Some),
+            TYPE_STRING => {
+                self.count_identifier_payload(size)?;
+                self.read_string_bytes(size).map(Some)
+            }
             TYPE_POINTER => {
                 let new_ptr = self.decode_pointer(size);
                 let after_pointer = self.current_ptr;
@@ -828,11 +842,7 @@ impl<'de> Decoder<'de> {
                 let result = if inner_type == TYPE_POINTER {
                     Err(self.invalid_db_error("pointer points to another pointer"))
                 } else if inner_type == TYPE_STRING {
-                    let payload_result = if inner_size > MAXIMUM_UNCHARGED_IDENTIFIER_BYTES {
-                        self.count_payload(inner_size - MAXIMUM_UNCHARGED_IDENTIFIER_BYTES)
-                    } else {
-                        Ok(())
-                    };
+                    let payload_result = self.count_identifier_payload(inner_size);
                     match payload_result {
                         Ok(()) => self.read_string_bytes(inner_size).map(Some),
                         Err(error) => Err(error),
@@ -2252,11 +2262,42 @@ mod tests {
         // The 517th copy takes the portion of aggregate identifier payload
         // above the per-value allowance past the separate 2 MiB byte budget.
         // Serde buffers flattened keys, so concrete struct identifier decoding
-        // must charge pointer-backed keys even though ordinary inline keys stay
-        // on the uncharged City lookup fast path.
+        // must charge long keys while ordinary short City keys stay on the
+        // uncharged payload-counter fast path.
         let (buf, map_offset) = pointer_key_map(517);
         let mut decoder = Decoder::new(&buf, map_offset);
         let err = Flattened::deserialize(&mut decoder).unwrap_err();
+
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(err
+            .to_string()
+            .contains("maximum size of data structure string and bytes"));
+    }
+
+    #[test]
+    fn repeated_maps_with_inline_keys_cannot_bypass_payload_budget() {
+        #[allow(dead_code)]
+        #[derive(Debug, Deserialize)]
+        struct Flattened {
+            #[serde(flatten)]
+            fields: std::collections::HashMap<String, serde::de::IgnoredAny>,
+        }
+
+        // A one-entry map with a 4 KiB inline key, followed by an array of 517
+        // pointers to that map. Each logical map expansion can cause Serde to
+        // buffer the key, so inline and pointer-backed identifiers must share
+        // the same aggregate payload budget.
+        let mut buf = vec![0xe1, 0x5e, 0x0e, 0xe3]; // map(1), string(4,096)
+        buf.resize(buf.len() + 4096, b'k');
+        buf.extend_from_slice(&[0x00, 0x07]); // false
+        let array_offset = buf.len();
+        buf.extend_from_slice(&[0x1e, 0x04, 0x00, 0xe8]); // array size: 517
+        for _ in 0..517 {
+            append_pointer(&mut buf, 0);
+        }
+
+        let mut decoder = Decoder::new(&buf, array_offset);
+        let err = Vec::<Flattened>::deserialize(&mut decoder).unwrap_err();
 
         assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
         assert!(err

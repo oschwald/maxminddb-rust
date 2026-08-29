@@ -185,14 +185,13 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// [`MaxMindDbError::ResourceLimit`] rather than treating the database as
     /// necessarily corrupt.
     ///
-    /// Inline concrete-schema identifiers do not amplify pointer targets and
-    /// are not charged as payload. Pointer-backed identifiers get a 32-byte
-    /// allowance per logical value before using the 2 MiB payload counter; the
-    /// logical-value limit bounds all such allowances to another 2 MiB. Thus,
-    /// after an operation activates its budget, pointer-expanded string and
-    /// byte payload remains bounded to at most 4 MiB even for custom identifier
-    /// visitors. A scalar-only typed decode remains limited only by the MMDB
-    /// format's maximum encoded payload size.
+    /// Concrete-schema identifiers get a 32-byte allowance per logical value
+    /// before using the 2 MiB payload counter, whether they are encoded inline
+    /// or behind a pointer. The logical-value limit bounds all such allowances
+    /// to another 2 MiB. Thus, after an operation activates its budget,
+    /// expanded string and byte payload remains bounded to at most 4 MiB even
+    /// for custom identifier visitors. A scalar-only typed decode remains
+    /// limited only by the MMDB format's maximum encoded payload size.
     ///
     /// These general limits do not replace tighter bounds implied by an
     /// application's schema. A collection with a small semantic maximum should
