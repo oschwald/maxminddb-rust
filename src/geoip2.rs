@@ -58,7 +58,7 @@
 use std::fmt;
 use std::marker::PhantomData;
 
-use serde::de::{Error as _, IgnoredAny, SeqAccess, Visitor};
+use serde::de::{IgnoredAny, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// Maximum number of subdivisions decoded by the built-in City and Enterprise
@@ -69,6 +69,17 @@ use serde::{Deserialize, Deserializer, Serialize};
 /// collection fields when decoding databases that are not trusted.
 pub const MAX_SUBDIVISIONS: usize = 32;
 
+#[cold]
+fn subdivisions_too_long<E>() -> E
+where
+    E: serde::de::Error,
+{
+    E::custom(format_args!(
+        "subdivisions exceeds maximum length of {MAX_SUBDIVISIONS}"
+    ))
+}
+
+#[inline(always)]
 fn deserialize_subdivisions<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
 where
     D: Deserializer<'de>,
@@ -89,18 +100,24 @@ where
             )
         }
 
+        #[inline(always)]
         fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
         where
             A: SeqAccess<'de>,
         {
-            let size = sequence.size_hint().unwrap_or(0);
-            if size > MAX_SUBDIVISIONS {
-                return Err(A::Error::custom(format_args!(
-                    "subdivisions exceeds maximum length of {MAX_SUBDIVISIONS}"
-                )));
+            if let Some(size) = sequence.size_hint() {
+                if size > MAX_SUBDIVISIONS {
+                    return Err(subdivisions_too_long());
+                }
+
+                let mut subdivisions = Vec::with_capacity(size);
+                while let Some(subdivision) = sequence.next_element()? {
+                    subdivisions.push(subdivision);
+                }
+                return Ok(subdivisions);
             }
 
-            let mut subdivisions = Vec::with_capacity(size);
+            let mut subdivisions = Vec::new();
             while subdivisions.len() < MAX_SUBDIVISIONS {
                 let Some(subdivision) = sequence.next_element()? else {
                     return Ok(subdivisions);
@@ -109,9 +126,7 @@ where
             }
 
             if sequence.next_element::<IgnoredAny>()?.is_some() {
-                return Err(A::Error::custom(format_args!(
-                    "subdivisions exceeds maximum length of {MAX_SUBDIVISIONS}"
-                )));
+                return Err(subdivisions_too_long());
             }
             Ok(subdivisions)
         }

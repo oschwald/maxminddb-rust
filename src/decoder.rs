@@ -50,6 +50,13 @@ const MAXIMUM_DATA_STRUCTURE_VALUES: u32 = 1 << 16;
 /// `IgnoredAny` are not materialized and are not charged.
 const MAXIMUM_DATA_STRUCTURE_BYTES: usize = 2 << 20;
 
+/// Identifier bytes covered by the logical-value budget rather than the
+/// payload counter. At most one identifier occurs per reserved logical value,
+/// so this allowance can add no more than another 2 MiB per operation while
+/// keeping ordinary short schema keys off the payload-accounting hot path.
+const MAXIMUM_UNCHARGED_IDENTIFIER_BYTES: usize =
+    MAXIMUM_DATA_STRUCTURE_BYTES / MAXIMUM_DATA_STRUCTURE_VALUES as usize;
+
 // Depth and the container-activated budget share one word. Decoder already
 // needed alignment padding after its old u16 depth field, so this keeps the
 // scalar-only fast-path object the same size while leaving ample bits for each
@@ -60,7 +67,6 @@ const BUDGET_VALUES_MASK: u64 = ((1 << 17) - 1) << BUDGET_VALUES_SHIFT;
 const BUDGET_PAYLOAD_SHIFT: u32 = 33;
 const BUDGET_PAYLOAD_MASK: u64 = ((1 << 22) - 1) << BUDGET_PAYLOAD_SHIFT;
 const BUDGET_ACTIVE_MASK: u64 = 1 << 55;
-const BUDGET_PAYLOAD_PRECHARGED_MASK: u64 = 1 << 56;
 
 /// Lower limit for values skipped through unknown fields or IgnoredAny.
 /// Skipping is recursive and can be reached by corrupt data that callers did
@@ -249,10 +255,6 @@ impl<'de> Decoder<'de> {
     /// fixed-width scalars are not charged.
     #[inline(always)]
     fn count_payload(&mut self, size: usize) -> DecodeResult<()> {
-        if self.state & BUDGET_PAYLOAD_PRECHARGED_MASK != 0 {
-            self.state &= !BUDGET_PAYLOAD_PRECHARGED_MASK;
-            return Ok(());
-        }
         if self.state & BUDGET_ACTIVE_MASK == 0 {
             return Ok(());
         }
@@ -269,7 +271,7 @@ impl<'de> Decoder<'de> {
     /// Charges a string or bytes value at the current position without
     /// consuming it. Dynamically shaped maps use this for keys because a raw
     /// identifier visitor may copy them without requesting a string decode.
-    fn count_payload_at_current(&mut self) -> DecodeResult<()> {
+    fn count_payload_at_current(&mut self) -> DecodeResult<bool> {
         let saved_ptr = self.current_ptr;
         let result = (|| {
             let (mut size, mut type_num) = self.size_and_type()?;
@@ -282,25 +284,12 @@ impl<'de> Decoder<'de> {
             }
             if type_num == TYPE_STRING || type_num == TYPE_BYTES {
                 self.count_payload(size)?;
-                self.state |= BUDGET_PAYLOAD_PRECHARGED_MASK;
+                return Ok(true);
             }
-            Ok(())
+            Ok(false)
         })();
         self.current_ptr = saved_ptr;
         result
-    }
-
-    #[inline(always)]
-    fn clear_precharged_payload(&mut self) {
-        self.state &= !BUDGET_PAYLOAD_PRECHARGED_MASK;
-    }
-
-    #[inline(always)]
-    fn count_identifier_payload(&mut self, size: usize, pointer_backed: bool) -> DecodeResult<()> {
-        if pointer_backed || self.state & BUDGET_PAYLOAD_PRECHARGED_MASK != 0 {
-            self.count_payload(size)?;
-        }
-        Ok(())
     }
 
     /// Create an InvalidDatabase error with current offset context.
@@ -831,10 +820,7 @@ impl<'de> Decoder<'de> {
         let saved_ptr = self.current_ptr;
         let (size, type_num) = self.size_and_type()?;
         match type_num {
-            TYPE_STRING => {
-                self.count_identifier_payload(size, false)?;
-                self.read_string_bytes(size).map(Some)
-            }
+            TYPE_STRING => self.read_string_bytes(size).map(Some),
             TYPE_POINTER => {
                 let new_ptr = self.decode_pointer(size);
                 let after_pointer = self.current_ptr;
@@ -843,9 +829,15 @@ impl<'de> Decoder<'de> {
                 let result = if inner_type == TYPE_POINTER {
                     Err(self.invalid_db_error("pointer points to another pointer"))
                 } else if inner_type == TYPE_STRING {
-                    self.count_identifier_payload(inner_size, true)
-                        .and_then(|()| self.read_string_bytes(inner_size))
-                        .map(Some)
+                    let payload_result = if inner_size > MAXIMUM_UNCHARGED_IDENTIFIER_BYTES {
+                        self.count_payload(inner_size - MAXIMUM_UNCHARGED_IDENTIFIER_BYTES)
+                    } else {
+                        Ok(())
+                    };
+                    match payload_result {
+                        Ok(()) => self.read_string_bytes(inner_size).map(Some),
+                        Err(error) => Err(error),
+                    }
                 } else {
                     Ok(None)
                 };
@@ -1441,9 +1433,19 @@ impl<'de, const BUDGETED: bool> MapAccess<'de> for MapAccessor<'_, 'de, BUDGETED
         self.count -= 1;
 
         if BUDGETED {
-            self.de.count_payload_at_current()?;
+            let payload_precharged = self.de.count_payload_at_current()?;
+            if payload_precharged {
+                // MMDB map keys are scalar strings. Temporarily disabling an
+                // already-active budget prevents an ordinary String seed from
+                // charging the pre-scanned key again. Identifier visitors do
+                // not charge inline keys themselves. A malformed container key
+                // reactivates the budget through its normal entry point.
+                self.de.state &= !BUDGET_ACTIVE_MASK;
+            }
             let result = seed.deserialize(&mut *self.de).map(Some);
-            self.de.clear_precharged_payload();
+            if payload_precharged {
+                self.de.state |= BUDGET_ACTIVE_MASK;
+            }
             return result;
         }
 
@@ -2248,11 +2250,12 @@ mod tests {
             fields: std::collections::HashMap<String, serde::de::IgnoredAny>,
         }
 
-        // The 513th copy would take aggregate identifier payload above 2 MiB.
+        // The 517th copy takes the portion of aggregate identifier payload
+        // above the per-value allowance past the separate 2 MiB byte budget.
         // Serde buffers flattened keys, so concrete struct identifier decoding
         // must charge pointer-backed keys even though ordinary inline keys stay
         // on the uncharged City lookup fast path.
-        let (buf, map_offset) = pointer_key_map(513);
+        let (buf, map_offset) = pointer_key_map(517);
         let mut decoder = Decoder::new(&buf, map_offset);
         let err = Flattened::deserialize(&mut decoder).unwrap_err();
 

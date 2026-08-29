@@ -16,7 +16,10 @@
   `MaxMindDbError::ResourceLimit` variant. The built-in City and Enterprise
   schemas cap subdivision lists at 32; custom schemas should apply similarly
   narrow semantic collection limits where possible. Full verification now also
-  validates pointer targets in unknown metadata fields. See GHSA-5mfc-p3f9-5php.
+  validates pointer targets in unknown metadata fields. Short concrete-schema
+  identifiers are covered by a 32-byte-per-value allowance; together with the
+  value and payload budgets, this bounds pointer-expanded payload to at most
+  4 MiB without charging ordinary City keys. See GHSA-5mfc-p3f9-5php.
 
 ## 0.30.3 - 2026-08-23
 
