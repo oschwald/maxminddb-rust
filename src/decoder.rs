@@ -713,7 +713,11 @@ impl<'de> Decoder<'de> {
 
     /// Consumes a map or array header in one pass, following a pointer if needed.
     pub(crate) fn consume_container_header(&mut self) -> DecodeResult<(usize, usize)> {
-        self.size_and_type_following_pointers()
+        let (size, type_num) = self.size_and_type_following_pointers()?;
+        if type_num == TYPE_MAP || type_num == TYPE_ARRAY {
+            self.reserve_container_values(size, type_num)?;
+        }
+        Ok((size, type_num))
     }
 
     /// Gets size and type, following any pointers.
@@ -796,14 +800,18 @@ impl<'de> Decoder<'de> {
                 let result = if type_num == TYPE_POINTER {
                     Err(self.invalid_db_error("pointer points to another pointer"))
                 } else if type_num == TYPE_STRING {
-                    self.read_string_bytes(size)
+                    self.count_payload(size)
+                        .and_then(|()| self.read_string_bytes(size))
                 } else {
                     Err(self.invalid_db_error(&format!("expected string, got type {type_num}")))
                 };
                 self.current_ptr = saved_ptr;
                 result
             }
-            TYPE_STRING => self.read_string_bytes(size),
+            TYPE_STRING => {
+                self.count_payload(size)?;
+                self.read_string_bytes(size)
+            }
             _ => Err(self.invalid_db_error(&format!("expected string, got type {type_num}"))),
         }
     }
@@ -981,6 +989,7 @@ impl<'de> Decoder<'de> {
             }
             TYPE_MAP => {
                 // Map - skip size key-value pairs
+                self.reserve_container_values(size, TYPE_MAP)?;
                 let child_depth = self.check_skip_depth(skip_depth)?;
                 for _ in 0..size {
                     // key
@@ -992,6 +1001,7 @@ impl<'de> Decoder<'de> {
             }
             TYPE_ARRAY => {
                 // Array - skip size elements
+                self.reserve_container_values(size, TYPE_ARRAY)?;
                 let child_depth = self.check_skip_depth(skip_depth)?;
                 for _ in 0..size {
                     self.skip_value_with_depth(child_depth)?;
@@ -2067,6 +2077,29 @@ mod tests {
     }
 
     #[test]
+    fn ignored_any_rejects_excessive_inline_container_work() {
+        // Extended array with 65,536 declared elements and no payload. An
+        // ignored inline container still requires one loop iteration per
+        // child, so it shares the logical-value operation budget.
+        let mut decoder = Decoder::new(&[0x1e, 0x04, 0xfe, 0xe3], 0);
+        let err = serde::de::IgnoredAny::deserialize(&mut decoder).unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("maximum number of data structure values"));
+    }
+
+    #[test]
+    fn navigation_rejects_excessive_declared_container_work() {
+        let mut decoder = Decoder::new(&[0x1e, 0x04, 0xfe, 0xe3], 0);
+        let err = decoder.consume_container_header().unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("maximum number of data structure values"));
+    }
+
+    #[test]
     fn city_subdivisions_reject_declared_size_before_allocating() {
         // Extended array with 65,536 elements and no payload. Concrete Vec
         // decoding must reject its declared children before Serde sees the
@@ -2179,6 +2212,24 @@ mod tests {
             panic!("expected map");
         };
         assert_eq!(entries.len(), 512);
+    }
+
+    #[test]
+    fn navigation_charges_repeated_pointer_keys() {
+        let (buf, map_offset) = pointer_key_map(513);
+        let mut decoder = Decoder::new(&buf, map_offset);
+        let (size, type_num) = decoder.consume_container_header().unwrap();
+        assert_eq!((size, type_num), (513, super::TYPE_MAP));
+
+        for _ in 0..512 {
+            assert_eq!(decoder.read_str_as_bytes().unwrap().len(), 4096);
+            decoder.skip_value().unwrap();
+        }
+        let err = decoder.read_str_as_bytes().unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("maximum size of data structure string and bytes"));
     }
 
     #[test]
