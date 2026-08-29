@@ -1767,6 +1767,37 @@ mod tests {
         }
     }
 
+    #[allow(dead_code)]
+    #[derive(Debug)]
+    struct OwnedBytes(Vec<u8>);
+
+    impl<'de> Deserialize<'de> for OwnedBytes {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_byte_buf(OwnedBytesVisitor)
+        }
+    }
+
+    struct OwnedBytesVisitor;
+
+    impl<'de> Visitor<'de> for OwnedBytesVisitor {
+        type Value = OwnedBytes;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("an MMDB byte value")
+        }
+
+        fn visit_borrowed_bytes<E>(self, value: &'de [u8]) -> Result<Self::Value, E> {
+            Ok(OwnedBytes(value.to_vec()))
+        }
+
+        fn visit_byte_buf<E>(self, value: Vec<u8>) -> Result<Self::Value, E> {
+            Ok(OwnedBytes(value))
+        }
+    }
+
     #[test]
     fn raw_string_mode_distinguishes_strings_from_bytes() {
         let mut string_decoder = Decoder::new(&[0x42, 0xff, 0xfe], 0);
@@ -2177,6 +2208,19 @@ mod tests {
     }
 
     #[test]
+    fn ignored_any_rejects_excessive_inline_map_work() {
+        // A 32,768-entry map contains 65,536 children in addition to the map
+        // itself, so it cannot fit within the logical-value operation budget.
+        let mut decoder = Decoder::new(&[0xfe, 0x7e, 0xe3], 0);
+        let err = serde::de::IgnoredAny::deserialize(&mut decoder).unwrap_err();
+
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(err
+            .to_string()
+            .contains("maximum number of data structure values"));
+    }
+
+    #[test]
     fn navigation_rejects_excessive_declared_container_work() {
         let mut decoder = Decoder::new(&[0x1e, 0x04, 0xfe, 0xe3], 0);
         let err = decoder.consume_container_header().unwrap_err();
@@ -2267,6 +2311,61 @@ mod tests {
         assert!(err
             .to_string()
             .contains("maximum size of data structure string and bytes"));
+    }
+
+    #[test]
+    fn direct_byte_buf_decoding_charges_repeated_payloads() {
+        let (buf, array_offset) = repeated_4k_payload_array(0x9e, 600);
+        let mut decoder = Decoder::new(&buf, array_offset);
+        let err = Vec::<OwnedBytes>::deserialize(&mut decoder).unwrap_err();
+
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(err
+            .to_string()
+            .contains("maximum size of data structure string and bytes"));
+    }
+
+    #[test]
+    fn raw_string_decoding_charges_repeated_payloads() {
+        let (buf, array_offset) = repeated_4k_payload_array(0x5e, 600);
+        let mut decoder = Decoder::new(&buf, array_offset);
+        let err = RawValueSeed.deserialize(&mut decoder).unwrap_err();
+
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(err
+            .to_string()
+            .contains("maximum size of data structure string and bytes"));
+    }
+
+    #[test]
+    fn standalone_scalar_retains_unbudgeted_fast_path() {
+        let size = super::MAXIMUM_DATA_STRUCTURE_BYTES + 1;
+        let encoded_size = (size - 65_821) as u32;
+        let mut buf = vec![0x5f]; // string with a three-byte extended size
+        buf.extend_from_slice(&encoded_size.to_be_bytes()[1..]);
+        buf.resize(buf.len() + size, b'a');
+
+        let mut decoder = Decoder::new(&buf, 0);
+        let decoded = <&str>::deserialize(&mut decoder).unwrap();
+        assert_eq!(decoded.len(), size);
+    }
+
+    fn repeated_4k_payload_array(control: u8, element_count: usize) -> (Vec<u8>, usize) {
+        // A shared 4 KiB string or bytes value followed by an array of pointers
+        // to it. Both payload types use the same extended-size representation.
+        assert!(matches!(control, 0x5e | 0x9e));
+        let mut buf = vec![control, 0x0e, 0xe3]; // size: 285 + 3,811 = 4,096
+        buf.resize(buf.len() + 4096, b'a');
+        let array_offset = buf.len();
+
+        assert!((285..=u16::MAX as usize + 285).contains(&element_count));
+        buf.extend_from_slice(&[0x1e, 0x04]); // array with a two-byte extended size
+        buf.extend_from_slice(&((element_count - 285) as u16).to_be_bytes());
+        for _ in 0..element_count {
+            append_pointer(&mut buf, 0);
+        }
+
+        (buf, array_offset)
     }
 
     fn pointer_key_map(entry_count: usize) -> (Vec<u8>, usize) {
