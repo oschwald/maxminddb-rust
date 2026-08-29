@@ -1733,6 +1733,28 @@ fn test_decoder_resource_limit_boundaries() {
 }
 
 #[test]
+fn test_decode_path_navigation_and_value_share_payload_budget() {
+    let reader = open_test_data_reader("MaxMind-DB-test-decode-path-shared-budget.mmdb");
+    let lookup = reader.lookup("1.2.3.4".parse().unwrap()).unwrap();
+    let err = lookup
+        .decode_path::<String>(&[crate::PathElement::Key("target")])
+        .unwrap_err();
+
+    assert!(
+        matches!(
+            &err,
+            MaxMindDbError::ResourceLimit {
+                message,
+                path: Some(path),
+                ..
+            } if message.contains("maximum size of data structure string and bytes")
+                && path == "/target"
+        ),
+        "unexpected cumulative decode_path result: {err}"
+    );
+}
+
+#[test]
 fn test_metadata_payload_amplification_is_rejected() {
     let result =
         Reader::open_readfile("test-data/test-data/MaxMind-DB-test-metadata-payload-limit.mmdb");
