@@ -2,6 +2,9 @@
 
 set -eu -o pipefail
 
+release_script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+source "$release_script_dir/release-lib.sh"
+
 # Check that we're not on the main branch
 current_branch=$(git branch --show-current)
 if [ "$current_branch" = "main" ]; then
@@ -34,34 +37,6 @@ fi
 version="${BASH_REMATCH[1]}"
 date="${BASH_REMATCH[2]}"
 readme_version="${version%.*}"
-
-update_readme_dependency_versions() {
-    local file=$1
-    local dependency_version=$2
-    local dependency_pattern='^[[:space:]]*maxminddb[[:space:]]*='
-    local dependency_count
-    local expected_count
-
-    dependency_count=$(grep -Ec "$dependency_pattern" "$file")
-    if [ "$dependency_count" -eq 0 ]; then
-        echo "Could not find any maxminddb dependency examples in $file!" >&2
-        exit 1
-    fi
-
-    sed -i -E \
-        -e "s/(^[[:space:]]*maxminddb[[:space:]]*=[[:space:]]*\")[0-9]+\.[0-9]+(\")/\1${dependency_version}\2/" \
-        -e "/$dependency_pattern/ s/(version[[:space:]]*=[[:space:]]*\")[0-9]+\.[0-9]+(\")/\1${dependency_version}\2/" \
-        "$file"
-
-    expected_count=$(grep -Ec \
-        "${dependency_pattern}[[:space:]]*(\"${dependency_version}\"|\{.*version[[:space:]]*=[[:space:]]*\"${dependency_version}\")" \
-        "$file")
-    if [ "$expected_count" -ne "$dependency_count" ]; then
-        echo "Not every maxminddb dependency example in $file uses version $dependency_version:" >&2
-        grep -nE "$dependency_pattern" "$file" >&2
-        exit 1
-    fi
-}
 
 # Extract release notes (everything between first ## version and next ## version)
 notes=$(sed -n '/^## '"$version"'/,/^## [0-9]/p' CHANGELOG.md | sed '1d;$d')
