@@ -790,14 +790,19 @@ mod tests {
     use super::{City, Enterprise, MAX_SUBDIVISIONS};
     use crate::decoder::Decoder;
 
-    fn record_with_subdivisions(count: usize) -> Vec<u8> {
-        assert!((29..=284).contains(&count));
+    fn record_with_declared_subdivisions(declared_count: usize, encoded_count: usize) -> Vec<u8> {
+        assert!((29..=284).contains(&declared_count));
+        assert!(encoded_count <= declared_count);
 
         let mut encoded = vec![0xe1, 0x4c]; // one-entry map, 12-byte key
         encoded.extend_from_slice(b"subdivisions");
-        encoded.extend_from_slice(&[0x1d, 0x04, (count - 29) as u8]);
-        encoded.resize(encoded.len() + count, 0xe0); // empty subdivision maps
+        encoded.extend_from_slice(&[0x1d, 0x04, (declared_count - 29) as u8]);
+        encoded.resize(encoded.len() + encoded_count, 0xe0); // empty subdivision maps
         encoded
+    }
+
+    fn record_with_subdivisions(count: usize) -> Vec<u8> {
+        record_with_declared_subdivisions(count, count)
     }
 
     #[test]
@@ -826,5 +831,21 @@ mod tests {
         assert!(err
             .to_string()
             .contains("subdivisions exceeds maximum length of 32"));
+    }
+
+    #[test]
+    fn city_rejects_truncated_oversized_subdivisions() {
+        let encoded = record_with_declared_subdivisions(MAX_SUBDIVISIONS + 1, 1);
+        let err = City::deserialize(&mut Decoder::new(&encoded, 0)).unwrap_err();
+
+        assert!(err.to_string().contains("unexpected end of buffer"));
+    }
+
+    #[test]
+    fn enterprise_rejects_truncated_oversized_subdivisions() {
+        let encoded = record_with_declared_subdivisions(MAX_SUBDIVISIONS + 1, 1);
+        let err = Enterprise::deserialize(&mut Decoder::new(&encoded, 0)).unwrap_err();
+
+        assert!(err.to_string().contains("unexpected end of buffer"));
     }
 }
