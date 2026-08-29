@@ -6,16 +6,18 @@
   database could nest pointers to shared targets so that decoding one value
   cost exponential time and memory, point many times at one large payload, or
   declare a concrete collection large enough to cause excessive allocation.
-  Entering any MMDB map or array now activates per-operation limits of 65,536
-  logical values and 2 MiB of string/bytes payload. Containers reserve their
-  declared children before Serde can allocate, repeated pointer targets are
-  recharged, and skipped unknown values consume pointer tokens without
-  expanding their unrequested targets. Ignored inline containers and selective
-  path navigation share the same limits. Scalar-only typed decodes retain their
-  unbudgeted fast path. Limit failures are reported as the distinct
-  `MaxMindDbError::ResourceLimit` variant. The built-in City and Enterprise
-  schemas cap subdivision lists at 32; custom schemas should apply similarly
-  narrow semantic collection limits where possible. Full verification now also
+  Operations that enter any MMDB map or array now have per-operation limits of
+  65,536 logical values and 2 MiB of string/bytes payload. Dynamic and enum
+  entry points activate the limits before the value's type is known. Containers
+  reserve their declared children before Serde can allocate, repeated pointer
+  targets are recharged, and skipped unknown values consume pointer tokens
+  without expanding their unrequested targets. Ignored inline containers and
+  selective path navigation share the same limits. Direct typed scalar decodes
+  retain their unbudgeted fast path. Decoder-wide limit failures are reported
+  as the distinct `MaxMindDbError::ResourceLimit` variant. The built-in City and
+  Enterprise schemas cap subdivision lists at 32 with a schema-level decoding
+  error; custom schemas should apply similarly narrow semantic collection
+  limits where possible. Full verification now also
   validates pointer targets in unknown metadata fields. Short concrete-schema
   identifiers are covered by a 32-byte-per-value allowance; together with the
   value and payload budgets, this bounds pointer-expanded payload to at most

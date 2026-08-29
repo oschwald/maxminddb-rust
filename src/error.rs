@@ -38,22 +38,26 @@ pub enum MaxMindDbError {
     Decoding {
         /// Description of the decoding error.
         message: String,
-        /// Byte offset in the data section where the error occurred.
+        /// Byte offset relative to the section being decoded: the data section
+        /// for records, or the metadata value after its marker for metadata.
         offset: Option<usize>,
         /// JSON-pointer-like path to the field (e.g., "/city/names/en").
         path: Option<String>,
     },
 
-    /// Decoding stopped because the requested value exceeded a safety limit.
+    /// Decoding stopped because the requested value exceeded a decoder-wide
+    /// expansion safety limit.
     ///
     /// This does not necessarily mean that the database is structurally
-    /// invalid. Applications may choose a narrower schema or reject the
-    /// database as untrusted input.
+    /// invalid. Schema-specific limits reported by a custom Serde visitor use
+    /// [`MaxMindDbError::Decoding`] instead. Applications may choose a narrower
+    /// schema or reject the database as untrusted input.
     #[error("{}", format_resource_limit(.message, .offset, .path.as_deref()))]
     ResourceLimit {
         /// Description of the limit that was exceeded.
         message: String,
-        /// Byte offset in the data section where the limit was detected.
+        /// Byte offset relative to the section being decoded: the data section
+        /// for records, or the metadata value after its marker for metadata.
         offset: Option<usize>,
         /// JSON-pointer-like path to the field (e.g., "/subdivisions").
         path: Option<String>,

@@ -66,7 +66,10 @@ use serde::{Deserialize, Deserializer, Serialize};
 ///
 /// Geographic records ordinarily contain only a small administrative
 /// hierarchy. Custom schemas should likewise apply a semantic limit to
-/// collection fields when decoding databases that are not trusted.
+/// collection fields when decoding databases that are not trusted. Exceeding
+/// this schema-defined cap is reported as [`crate::MaxMindDbError::Decoding`];
+/// [`crate::MaxMindDbError::ResourceLimit`] is reserved for decoder-wide
+/// expansion limits.
 pub const MAX_SUBDIVISIONS: usize = 32;
 
 #[cold]
@@ -788,7 +791,7 @@ mod tests {
     use serde::Deserialize;
 
     use super::{City, Enterprise, MAX_SUBDIVISIONS};
-    use crate::decoder::Decoder;
+    use crate::{decoder::Decoder, MaxMindDbError};
 
     fn record_with_declared_subdivisions(declared_count: usize, encoded_count: usize) -> Vec<u8> {
         assert!((29..=284).contains(&declared_count));
@@ -818,6 +821,7 @@ mod tests {
         let encoded = record_with_subdivisions(MAX_SUBDIVISIONS + 1);
         let err = City::deserialize(&mut Decoder::new(&encoded, 0)).unwrap_err();
 
+        assert!(matches!(err, MaxMindDbError::Decoding { .. }));
         assert!(err
             .to_string()
             .contains("subdivisions exceeds maximum length of 32"));
@@ -828,6 +832,7 @@ mod tests {
         let encoded = record_with_subdivisions(MAX_SUBDIVISIONS + 1);
         let err = Enterprise::deserialize(&mut Decoder::new(&encoded, 0)).unwrap_err();
 
+        assert!(matches!(err, MaxMindDbError::Decoding { .. }));
         assert!(err
             .to_string()
             .contains("subdivisions exceeds maximum length of 32"));
@@ -838,6 +843,7 @@ mod tests {
         let encoded = record_with_declared_subdivisions(MAX_SUBDIVISIONS + 1, 1);
         let err = City::deserialize(&mut Decoder::new(&encoded, 0)).unwrap_err();
 
+        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
         assert!(err.to_string().contains("unexpected end of buffer"));
     }
 
@@ -846,6 +852,7 @@ mod tests {
         let encoded = record_with_declared_subdivisions(MAX_SUBDIVISIONS + 1, 1);
         let err = Enterprise::deserialize(&mut Decoder::new(&encoded, 0)).unwrap_err();
 
+        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
         assert!(err.to_string().contains("unexpected end of buffer"));
     }
 }

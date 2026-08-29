@@ -175,13 +175,15 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// - `Ok(None)` if the IP was not found in the database
     /// - `Err(...)` if decoding fails
     ///
-    /// Entering any MMDB map or array activates a per-operation expansion
-    /// budget of 65,536 logical values and 2 MiB of string and bytes payload.
-    /// The decoder reserves a container's declared children before Serde can
-    /// allocate for them, including for concrete schema-directed collections,
-    /// and repeated pointer targets are charged on every expansion. Scalar-only
-    /// typed decodes avoid this bookkeeping, and ignored fields do not expand
-    /// pointer targets. Exceeding either operation limit returns
+    /// Any operation that enters an MMDB map or array has an expansion budget
+    /// of 65,536 logical values and 2 MiB of string and bytes payload. Dynamic
+    /// `deserialize_any`, enum, and raw-string-helper entry points activate the
+    /// budget before the value's type is known. Only scalar values requested
+    /// directly through a typed scalar entry point avoid this bookkeeping. The
+    /// decoder reserves a container's declared children before Serde can
+    /// allocate for them, repeated pointer targets are charged on every
+    /// expansion, and ignored fields do not expand pointer targets. Exceeding
+    /// either decoder-wide operation limit returns
     /// [`MaxMindDbError::ResourceLimit`] rather than treating the database as
     /// necessarily corrupt.
     ///
@@ -199,7 +201,9 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// `deserialize_with` visitor, before allocating or consuming its elements.
     /// The built-in [`crate::geoip2::City`] and [`crate::geoip2::Enterprise`]
     /// schemas cap their subdivision lists at
-    /// [`crate::geoip2::MAX_SUBDIVISIONS`].
+    /// [`crate::geoip2::MAX_SUBDIVISIONS`]. As a schema-defined Serde limit,
+    /// that cap returns [`MaxMindDbError::Decoding`] rather than
+    /// [`MaxMindDbError::ResourceLimit`].
     /// Custom deserializers that bypass Serde's map and sequence entry points
     /// remain responsible for bounding their own traversal over untrusted data.
     ///
