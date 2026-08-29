@@ -10,9 +10,13 @@
   logical values and 2 MiB of string/bytes payload. Containers reserve their
   declared children before Serde can allocate, repeated pointer targets are
   recharged, and skipped unknown values consume pointer tokens without
-  expanding their unrequested targets. Scalar-only typed decodes retain their
-  unbudgeted fast path. Schemas may enforce tighter semantic collection limits
-  in their own deserializers. See GHSA-5mfc-p3f9-5php.
+  expanding their unrequested targets. Ignored inline containers and selective
+  path navigation share the same limits. Scalar-only typed decodes retain their
+  unbudgeted fast path. Limit failures are reported as the distinct
+  `MaxMindDbError::ResourceLimit` variant. The built-in City and Enterprise
+  schemas cap subdivision lists at 32; custom schemas should apply similarly
+  narrow semantic collection limits where possible. Full verification now also
+  validates pointer targets in unknown metadata fields. See GHSA-5mfc-p3f9-5php.
 
 ## 0.30.3 - 2026-08-23
 

@@ -45,10 +45,9 @@ const MAXIMUM_DATA_STRUCTURE_DEPTH: u16 = 512;
 /// header. A pointer and the value it resolves to are one logical occurrence.
 const MAXIMUM_DATA_STRUCTURE_VALUES: u32 = 1 << 16;
 
-/// Maximum total string and bytes payload decoded after an operation enters a
-/// container. Re-decoding a shared target recharges its payload and therefore
-/// cannot amplify output past this limit. Values skipped by `IgnoredAny` are
-/// not materialized and are not charged.
+/// Maximum total string and bytes payload delivered through budgeted decode
+/// paths. Re-decoding a shared target recharges its payload. Values skipped by
+/// `IgnoredAny` are not materialized and are not charged.
 const MAXIMUM_DATA_STRUCTURE_BYTES: usize = 2 << 20;
 
 // Depth and the container-activated budget share one word. Decoder already
@@ -218,9 +217,9 @@ impl<'de> Decoder<'de> {
         }
         let values_used = ((self.state & BUDGET_VALUES_MASK) >> BUDGET_VALUES_SHIFT) as usize;
         if count > MAXIMUM_DATA_STRUCTURE_VALUES as usize - values_used {
-            return Err(self.invalid_db_error(
-                "exceeded maximum number of data structure values; database is likely corrupt",
-            ));
+            return Err(
+                self.resource_limit_error("exceeded maximum number of data structure values")
+            );
         }
         self.state += (count as u64) << BUDGET_VALUES_SHIFT;
         Ok(())
@@ -244,8 +243,10 @@ impl<'de> Decoder<'de> {
     /// Charge a string or bytes payload against the per-decode byte budget,
     /// returning an error once the total exceeds the limit. This bounds a
     /// payload amplification: many pointers to one large value each recharge the
-    /// budget, so the materialized total cannot exceed the limit no matter how
-    /// heavily a target is shared. Small fixed-width scalars are not charged.
+    /// budget, so the decoder will not repeatedly deliver more payload than the
+    /// limit no matter how heavily a target is shared. A custom visitor may
+    /// still allocate a representation larger than the borrowed input. Small
+    /// fixed-width scalars are not charged.
     #[inline(always)]
     fn count_payload(&mut self, size: usize) -> DecodeResult<()> {
         if self.state & BUDGET_PAYLOAD_PRECHARGED_MASK != 0 {
@@ -257,8 +258,8 @@ impl<'de> Decoder<'de> {
         }
         let payload_used = ((self.state & BUDGET_PAYLOAD_MASK) >> BUDGET_PAYLOAD_SHIFT) as usize;
         if size > MAXIMUM_DATA_STRUCTURE_BYTES - payload_used {
-            return Err(self.invalid_db_error(
-                "exceeded maximum size of data structure string and bytes values; database is likely corrupt",
+            return Err(self.resource_limit_error(
+                "exceeded maximum size of data structure string and bytes values",
             ));
         }
         self.state += (size as u64) << BUDGET_PAYLOAD_SHIFT;
@@ -312,6 +313,12 @@ impl<'de> Decoder<'de> {
     #[inline]
     fn decode_error(&self, msg: &str) -> MaxMindDbError {
         MaxMindDbError::decoding_at(msg, self.current_ptr)
+    }
+
+    /// Create a ResourceLimit error with current offset context.
+    #[inline]
+    fn resource_limit_error(&self, msg: &str) -> MaxMindDbError {
+        MaxMindDbError::resource_limit_at(msg, self.current_ptr)
     }
 
     #[inline(always)]
@@ -2108,7 +2115,7 @@ mod tests {
         let err =
             Vec::<crate::geoip2::city::Subdivision<'_>>::deserialize(&mut decoder).unwrap_err();
 
-        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
         assert!(err
             .to_string()
             .contains("maximum number of data structure values"));
@@ -2125,7 +2132,7 @@ mod tests {
             std::collections::HashMap::<String, serde::de::IgnoredAny>::deserialize(&mut decoder)
                 .unwrap_err();
 
-        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
         assert!(err
             .to_string()
             .contains("maximum number of data structure values"));
@@ -2154,7 +2161,7 @@ mod tests {
         let mut decoder = Decoder::new(&buf, array_offset);
         let err = Vec::<EmptyRecord>::deserialize(&mut decoder).unwrap_err();
 
-        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
         assert!(err
             .to_string()
             .contains("maximum number of data structure values"));
@@ -2176,7 +2183,7 @@ mod tests {
         let mut decoder = Decoder::new(&buf, array_offset);
         let err = Vec::<&str>::deserialize(&mut decoder).unwrap_err();
 
-        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
         assert!(err
             .to_string()
             .contains("maximum size of data structure string and bytes"));
@@ -2249,7 +2256,7 @@ mod tests {
         let mut decoder = Decoder::new(&buf, map_offset);
         let err = Flattened::deserialize(&mut decoder).unwrap_err();
 
-        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
         assert!(err
             .to_string()
             .contains("maximum size of data structure string and bytes"));

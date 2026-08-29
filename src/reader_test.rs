@@ -1621,7 +1621,7 @@ fn test_pointer_fan_out_is_rejected() {
     match result {
         Ok(_) => panic!("expected the fan-out database to be rejected"),
         Err(e) => assert!(
-            matches!(&e, MaxMindDbError::InvalidDatabase { message, .. }
+            matches!(&e, MaxMindDbError::ResourceLimit { message, .. }
                 if message.contains("maximum number of data structure values")),
             "unexpected error: {e}"
         ),
@@ -1644,7 +1644,7 @@ fn test_payload_amplification_is_rejected() {
         let ip = "1.2.3.4".parse().unwrap();
         let result: Result<Option<Vec<OwnedBytes>>, _> = reader.lookup(ip).unwrap().decode();
         assert!(
-            matches!(&result, Err(MaxMindDbError::InvalidDatabase { message, .. })
+            matches!(&result, Err(MaxMindDbError::ResourceLimit { message, .. })
                 if message.contains("maximum size of data structure string and bytes")),
             "unexpected result for {database}: {result:?}"
         );
@@ -1656,7 +1656,7 @@ fn test_payload_amplification_is_rejected() {
     let ip = "1.2.3.4".parse().unwrap();
     let result: Result<Option<serde_json::Value>, _> = reader.lookup(ip).unwrap().decode();
     assert!(
-        matches!(&result, Err(MaxMindDbError::InvalidDatabase { message, .. })
+        matches!(&result, Err(MaxMindDbError::ResourceLimit { message, .. })
             if message.contains("maximum size of data structure string and bytes")),
         "unexpected result for string fixture into Value: {result:?}"
     );
@@ -1665,7 +1665,7 @@ fn test_payload_amplification_is_rejected() {
     // deserialize_any and receives the same aggregate payload protection.
     let result: Result<Option<Vec<String>>, _> = reader.lookup(ip).unwrap().decode();
     assert!(
-        matches!(&result, Err(MaxMindDbError::InvalidDatabase { message, .. })
+        matches!(&result, Err(MaxMindDbError::ResourceLimit { message, .. })
             if message.contains("maximum size of data structure string and bytes")),
         "unexpected result for string fixture into Vec<String>: {result:?}"
     );
@@ -1701,14 +1701,14 @@ fn test_decoder_resource_limit_boundaries() {
     let lookup = reader.lookup(ip).unwrap();
     let result: Result<Option<serde_json::Value>, _> = lookup.decode();
     assert!(
-        matches!(&result, Err(MaxMindDbError::InvalidDatabase { message, .. })
+        matches!(&result, Err(MaxMindDbError::ResourceLimit { message, .. })
             if message.contains("maximum number of data structure values")),
         "unexpected result above the value limit: {result:?}"
     );
 
     let path_result: Result<Option<serde_json::Value>, _> = lookup.decode_path(&[]);
     assert!(
-        matches!(&path_result, Err(MaxMindDbError::InvalidDatabase { message, .. })
+        matches!(&path_result, Err(MaxMindDbError::ResourceLimit { message, .. })
             if message.contains("maximum number of data structure values")),
         "unexpected decode_path result above the value limit: {path_result:?}"
     );
@@ -1726,7 +1726,7 @@ fn test_decoder_resource_limit_boundaries() {
     let reader = open_test_data_reader("MaxMind-DB-test-decoder-payload-limit-over.mmdb");
     let result: Result<Option<Vec<OwnedBytes>>, _> = reader.lookup(ip).unwrap().decode();
     assert!(
-        matches!(&result, Err(MaxMindDbError::InvalidDatabase { message, .. })
+        matches!(&result, Err(MaxMindDbError::ResourceLimit { message, .. })
             if message.contains("maximum size of data structure string and bytes")),
         "unexpected result above the payload limit: {result:?}"
     );
@@ -1737,7 +1737,7 @@ fn test_metadata_payload_amplification_is_rejected() {
     let result =
         Reader::open_readfile("test-data/test-data/MaxMind-DB-test-metadata-payload-limit.mmdb");
     assert!(
-        matches!(&result, Err(MaxMindDbError::InvalidDatabase { message, .. })
+        matches!(&result, Err(MaxMindDbError::ResourceLimit { message, .. })
             if message.contains("maximum size of data structure string and bytes")),
         "unexpected metadata amplification result: {result:?}"
     );

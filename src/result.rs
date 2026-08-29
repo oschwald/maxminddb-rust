@@ -181,12 +181,17 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// allocate for them, including for concrete schema-directed collections,
     /// and repeated pointer targets are charged on every expansion. Scalar-only
     /// typed decodes avoid this bookkeeping, and ignored fields do not expand
-    /// pointer targets.
+    /// pointer targets. Exceeding either operation limit returns
+    /// [`MaxMindDbError::ResourceLimit`] rather than treating the database as
+    /// necessarily corrupt.
     ///
     /// These general limits do not replace tighter bounds implied by an
     /// application's schema. A collection with a small semantic maximum should
     /// enforce it in its `Deserialize` implementation or a Serde
     /// `deserialize_with` visitor, before allocating or consuming its elements.
+    /// The built-in [`crate::geoip2::City`] and [`crate::geoip2::Enterprise`]
+    /// schemas cap their subdivision lists at
+    /// [`crate::geoip2::MAX_SUBDIVISIONS`].
     /// Custom deserializers that bypass Serde's map and sequence entry points
     /// remain responsible for bounding their own traversal over untrusted data.
     ///
@@ -225,9 +230,10 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// - `Err(...)` if there's a type mismatch during navigation (e.g., `Key` on an array)
     ///
     /// If `has_data() == false`, returns `Ok(None)`.
-    /// Path traversal does not expand skipped pointer targets. The selected
-    /// value receives the same container-activated budget described by
-    /// [`decode()`](Self::decode).
+    /// Path traversal does not expand skipped pointer targets. Navigation and
+    /// the selected value share the container and payload budgets described by
+    /// [`decode()`](Self::decode); resource-limit errors include the path reached
+    /// when the limit was detected.
     ///
     /// # Path Elements
     ///
@@ -358,7 +364,8 @@ fn container_type_mismatch(
     }
 }
 
-/// Adds path context to a Decoding error if it doesn't already have one.
+/// Adds path context to a decoding or resource-limit error if it does not
+/// already have one.
 fn add_path_context(err: MaxMindDbError, path: &[PathElement<'_>]) -> MaxMindDbError {
     match err {
         MaxMindDbError::Decoding {
@@ -366,6 +373,15 @@ fn add_path_context(err: MaxMindDbError, path: &[PathElement<'_>]) -> MaxMindDbE
             offset,
             path: None,
         } => MaxMindDbError::Decoding {
+            message,
+            offset,
+            path: Some(render_path(path)),
+        },
+        MaxMindDbError::ResourceLimit {
+            message,
+            offset,
+            path: None,
+        } => MaxMindDbError::ResourceLimit {
             message,
             offset,
             path: Some(render_path(path)),
@@ -759,5 +775,21 @@ mod tests {
 
         assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
         assert!(err.to_string().contains("unknown data type: 256"));
+    }
+
+    #[test]
+    fn test_resource_limit_error_includes_path() {
+        let err = add_path_context(
+            MaxMindDbError::resource_limit_at("too many values", 7),
+            &[PathElement::Key("subdivisions")],
+        );
+
+        assert!(matches!(
+            err,
+            MaxMindDbError::ResourceLimit {
+                path: Some(ref path),
+                ..
+            } if path == "/subdivisions"
+        ));
     }
 }

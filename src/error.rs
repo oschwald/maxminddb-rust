@@ -44,6 +44,21 @@ pub enum MaxMindDbError {
         path: Option<String>,
     },
 
+    /// Decoding stopped because the requested value exceeded a safety limit.
+    ///
+    /// This does not necessarily mean that the database is structurally
+    /// invalid. Applications may choose a narrower schema or reject the
+    /// database as untrusted input.
+    #[error("{}", format_resource_limit(.message, .offset, .path.as_deref()))]
+    ResourceLimit {
+        /// Description of the limit that was exceeded.
+        message: String,
+        /// Byte offset in the data section where the limit was detected.
+        offset: Option<usize>,
+        /// JSON-pointer-like path to the field (e.g., "/subdivisions").
+        path: Option<String>,
+    },
+
     /// The provided network/CIDR is invalid.
     #[error("invalid network: {0}")]
     InvalidNetwork(
@@ -73,6 +88,17 @@ fn format_decoding_error(message: &str, offset: &Option<usize>, path: Option<&st
         (Some(off), None) => format!("decoding error at offset {off}: {message}"),
         (None, Some(p)) => format!("decoding error (path: {p}): {message}"),
         (None, None) => format!("decoding error: {message}"),
+    }
+}
+
+fn format_resource_limit(message: &str, offset: &Option<usize>, path: Option<&str>) -> String {
+    match (offset, path) {
+        (Some(off), Some(p)) => {
+            format!("resource limit exceeded at offset {off} (path: {p}): {message}")
+        }
+        (Some(off), None) => format!("resource limit exceeded at offset {off}: {message}"),
+        (None, Some(p)) => format!("resource limit exceeded (path: {p}): {message}"),
+        (None, None) => format!("resource limit exceeded: {message}"),
     }
 }
 
@@ -121,6 +147,15 @@ impl MaxMindDbError {
             message: message.into(),
             offset: Some(offset),
             path: Some(path.into()),
+        }
+    }
+
+    /// Creates a ResourceLimit error with a message and offset.
+    pub fn resource_limit_at(message: impl Into<String>, offset: usize) -> Self {
+        MaxMindDbError::ResourceLimit {
+            message: message.into(),
+            offset: Some(offset),
+            path: None,
         }
     }
 
@@ -193,6 +228,14 @@ mod tests {
                 MaxMindDbError::decoding_at_path("unexpected type", 100, "/city/names/en")
             ),
             "decoding error at offset 100 (path: /city/names/en): unexpected type".to_owned(),
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                MaxMindDbError::resource_limit_at("too many values", 100)
+            ),
+            "resource limit exceeded at offset 100: too many values".to_owned(),
         );
 
         let net_err = IpNetworkError::InvalidPrefix;
