@@ -64,7 +64,6 @@ const DEPTH_MASK: u32 = (1 << 10) - 1;
 const BUDGET_VALUES_SHIFT: u32 = 10;
 const BUDGET_VALUES_MASK: u32 = ((1 << 17) - 1) << BUDGET_VALUES_SHIFT;
 const BUDGET_ACTIVE_MASK: u32 = 1 << 27;
-const BUDGET_PAYLOAD_PRECHARGED_MASK: u32 = 1 << 28;
 
 /// Lower limit for values skipped through unknown fields or IgnoredAny.
 /// Skipping is recursive and can be reached by corrupt data that callers did
@@ -255,10 +254,6 @@ impl<'de> Decoder<'de> {
     /// fixed-width scalars are not charged.
     #[inline(always)]
     fn count_payload(&mut self, size: usize) -> DecodeResult<()> {
-        if self.state & BUDGET_PAYLOAD_PRECHARGED_MASK != 0 {
-            self.state &= !BUDGET_PAYLOAD_PRECHARGED_MASK;
-            return Ok(());
-        }
         if self.state & BUDGET_ACTIVE_MASK == 0 {
             return Ok(());
         }
@@ -279,6 +274,12 @@ impl<'de> Decoder<'de> {
         if size <= MAXIMUM_UNCHARGED_IDENTIFIER_BYTES {
             return Ok(());
         }
+        self.count_long_identifier_payload(size)
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn count_long_identifier_payload(&mut self, size: usize) -> DecodeResult<()> {
         self.count_payload(size - MAXIMUM_UNCHARGED_IDENTIFIER_BYTES)
     }
 
@@ -831,6 +832,7 @@ impl<'de> Decoder<'de> {
     /// - Returns `Ok(Some(bytes))` and consumes the identifier when it is a string.
     /// - Returns `Ok(None)` and restores `current_ptr` when the next value is not a string.
     /// - Returns `Err` for malformed pointer chains or invalid string lengths.
+    #[inline(always)]
     fn try_read_identifier_bytes(&mut self) -> DecodeResult<Option<&'de [u8]>> {
         let saved_ptr = self.current_ptr;
         let (size, type_num) = self.size_and_type()?;
@@ -1447,17 +1449,19 @@ impl<'de, const BUDGETED: bool> MapAccess<'de> for MapAccessor<'_, 'de, BUDGETED
         self.count -= 1;
 
         if BUDGETED {
+            let payload_remaining_before = self.de.payload_remaining;
             let payload_precharged = self.de.count_payload_at_current()?;
-            if payload_precharged {
-                // MMDB map keys are scalar strings. Temporarily disabling an
-                // already-active budget would let a custom seed reactivate it
-                // through deserialize_any and charge the pre-scanned key again.
-                // Instead, let the next payload charge consume this one-shot
-                // marker while all other budget accounting remains active.
-                self.de.state |= BUDGET_PAYLOAD_PRECHARGED_MASK;
-            }
+            let payload_remaining_after = self.de.payload_remaining;
+
+            // Let the seed perform its ordinary payload charge, while retaining
+            // the precharge if an identifier visitor does not request one. This
+            // avoids disabling a budget that deserialize_any can reactivate and
+            // keeps the ordinary payload counter free of a map-key-only branch.
+            self.de.payload_remaining = payload_remaining_before;
             let result = seed.deserialize(&mut *self.de).map(Some);
-            self.de.state &= !BUDGET_PAYLOAD_PRECHARGED_MASK;
+            if payload_precharged {
+                self.de.payload_remaining = self.de.payload_remaining.min(payload_remaining_after);
+            }
             return result;
         }
 
