@@ -620,11 +620,22 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     pub fn verify(&self) -> Result<(), MaxMindDbError> {
         let metadata_start = find_metadata_start(self.buf.as_ref())?;
         let data_section_end = metadata_marker_start(metadata_start)?;
-        self.verify_metadata(data_section_end)?;
+        self.verify_metadata(metadata_start, data_section_end)?;
         self.verify_database(data_section_end)
     }
 
-    fn verify_metadata(&self, data_section_end: usize) -> Result<(), MaxMindDbError> {
+    fn verify_metadata(
+        &self,
+        metadata_start: usize,
+        data_section_end: usize,
+    ) -> Result<(), MaxMindDbError> {
+        // Metadata deserialization intentionally ignores unknown fields. Verify
+        // the original value graph as well so an invalid or cyclic pointer in
+        // an unknown field cannot hide behind the cached typed representation.
+        let metadata_bytes = &self.buf.as_ref()[metadata_start..];
+        let mut decoder = decoder::Decoder::new(metadata_bytes, 0);
+        decoder.skip_value_for_verification(&mut decoder::VerificationState::default())?;
+
         let m = &self.metadata;
 
         validate_metadata_for_reader(m)?;
