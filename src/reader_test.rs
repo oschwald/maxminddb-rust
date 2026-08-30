@@ -68,6 +68,12 @@ fn collect_networks<S: AsRef<[u8]>>(iter: Within<'_, S>) -> Vec<String> {
     .collect()
 }
 
+fn four_byte_pointer(target: usize) -> [u8; 5] {
+    let target = u32::try_from(target).expect("test pointer target must fit in four bytes");
+    let bytes = target.to_be_bytes();
+    [0x38, bytes[0], bytes[1], bytes[2], bytes[3]]
+}
+
 #[allow(clippy::float_cmp)]
 #[test]
 fn test_decoder() {
@@ -979,6 +985,38 @@ fn test_skip_empty_values_with_other_options() {
     assert!(count > 0, "Should have some networks");
 }
 
+#[test]
+fn test_skip_empty_values_reports_absolute_file_offset() {
+    let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
+    let original = Reader::open_readfile(source_path).unwrap();
+    let data_offset = original
+        .lookup("1.1.1.32".parse().unwrap())
+        .unwrap()
+        .offset()
+        .unwrap();
+    let record_start = original.pointer_base + data_offset;
+    let expected_offset = original.pointer_base + original.data_section_len;
+    let pointer = four_byte_pointer(original.data_section_len);
+    let mut bytes = std::fs::read(source_path).unwrap();
+    bytes[record_start..record_start + pointer.len()].copy_from_slice(&pointer);
+
+    let reader = Reader::from_source(bytes).unwrap();
+    let options = WithinOptions::default().skip_empty_values();
+    let err = reader
+        .networks(options)
+        .unwrap()
+        .find_map(Result::err)
+        .expect("iterator should encounter the malformed record");
+
+    assert!(matches!(
+        err,
+        MaxMindDbError::InvalidDatabase {
+            offset: Some(offset),
+            ..
+        } if offset == expected_offset
+    ));
+}
+
 /// Test various NetworksWithin scenarios matching Go tests
 #[test]
 fn test_networks_within_scenarios() {
@@ -1234,6 +1272,33 @@ fn test_verify_rejects_invalid_pointer_in_unknown_metadata_field() {
     ));
 }
 
+#[test]
+fn test_from_source_reports_absolute_metadata_offset() {
+    let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
+    let original = Reader::open_readfile(source_path).unwrap();
+    let metadata_start = original.metadata_start;
+    let mut bytes = std::fs::read(source_path).unwrap();
+    let metadata_len = bytes.len() - metadata_start;
+    let database_type = b"database_type";
+    let key_start = bytes[metadata_start..]
+        .windows(database_type.len())
+        .position(|window| window == database_type)
+        .map(|offset| metadata_start + offset)
+        .expect("metadata should contain database_type");
+    let value_start = key_start + database_type.len();
+    let pointer = four_byte_pointer(metadata_len);
+    bytes[value_start..value_start + pointer.len()].copy_from_slice(&pointer);
+
+    let err = Reader::from_source(bytes).unwrap_err();
+    assert!(matches!(
+        err,
+        MaxMindDbError::InvalidDatabase {
+            offset: Some(offset),
+            ..
+        } if offset == metadata_start + metadata_len
+    ));
+}
+
 /// Test that verify() returns errors on broken databases (matching Go's TestVerifyOnBrokenDatabases)
 #[test]
 fn test_verify_broken_double_format() {
@@ -1390,6 +1455,17 @@ fn test_decode_rejects_truncated_ignored_scalar_value() {
     let lookup = reader.lookup("1.1.1.32".parse().unwrap()).unwrap();
     let err = lookup.decode::<Empty>().unwrap_err();
 
+    assert!(matches!(
+        err,
+        MaxMindDbError::InvalidDatabase {
+            offset: Some(offset),
+            ..
+        } if offset == string_ctrl_offset + 1
+    ));
+
+    let err = lookup
+        .decode_path::<String>(&[crate::PathElement::Key("ip")])
+        .unwrap_err();
     assert!(matches!(
         err,
         MaxMindDbError::InvalidDatabase {
