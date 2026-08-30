@@ -46,8 +46,11 @@ const MAXIMUM_DATA_STRUCTURE_DEPTH: u16 = 512;
 const MAXIMUM_DATA_STRUCTURE_VALUES: u32 = 1 << 16;
 
 /// Maximum total string and bytes payload delivered through budgeted decode
-/// paths. Re-decoding a shared target recharges its payload. Values skipped by
-/// `IgnoredAny` are not materialized and are not charged.
+/// paths. Re-decoding a shared target recharges its payload. Payload reached
+/// only through `skip_value`, including an unknown or `IgnoredAny` value, is not
+/// materialized or charged. Keys exposed to a dynamically shaped map visitor
+/// are conservatively precharged before the visitor's key seed runs, even when
+/// that seed ignores them.
 const MAXIMUM_DATA_STRUCTURE_BYTES: usize = 2 << 20;
 
 /// Identifier bytes covered by the logical-value budget rather than the
@@ -2354,6 +2357,31 @@ mod tests {
         buf.extend_from_slice(&encoded_size.to_be_bytes()[1..]);
         buf.resize(buf.len() + size, b'a');
         buf
+    }
+
+    #[test]
+    fn partial_struct_skips_unknown_inline_payload_over_budget() {
+        #[derive(Deserialize)]
+        struct PartialRecord {
+            known: bool,
+        }
+
+        let payload_size = super::MAXIMUM_DATA_STRUCTURE_BYTES + 1;
+        for control in [0x5f, 0x9f] {
+            let mut payload = large_string(payload_size);
+            payload[0] = control; // string or bytes with a three-byte extended size
+
+            let mut buf = vec![0xe2, 0x47]; // two-entry map, seven-byte key
+            buf.extend_from_slice(b"unknown");
+            buf.extend_from_slice(&payload);
+            buf.extend_from_slice(&[0x45]); // five-byte key
+            buf.extend_from_slice(b"known");
+            buf.extend_from_slice(&[0x01, 0x07]); // true
+
+            let mut decoder = Decoder::new(&buf, 0);
+            let decoded = PartialRecord::deserialize(&mut decoder).unwrap();
+            assert!(decoded.known);
+        }
     }
 
     #[test]

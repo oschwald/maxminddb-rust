@@ -14,8 +14,10 @@
   without expanding their unrequested targets. Ignored inline containers
   consume the logical-value budget without charging skipped payload, while
   selective path navigation shares both budgets with the selected value. Direct
-  typed scalar decodes retain their unbudgeted fast path. Decoder-wide limit
-  failures are reported as the distinct `MaxMindDbError::ResourceLimit` variant.
+  typed scalar decodes retain their unbudgeted fast path. Exceeding the
+  logical-value or payload operation budget is reported as the distinct
+  `MaxMindDbError::ResourceLimit` variant; depth and structural validation
+  failures remain `MaxMindDbError::InvalidDatabase`.
   The built-in City and Enterprise schemas reject subdivision lists above 32
   during deserialization through any Serde format. An otherwise valid
   oversized MMDB list produces a schema-level decoding error; malformed data or
