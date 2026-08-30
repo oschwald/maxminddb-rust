@@ -16,9 +16,11 @@
   selective path navigation shares both budgets with the selected value. Direct
   typed scalar decodes retain their unbudgeted fast path. Decoder-wide limit
   failures are reported as the distinct `MaxMindDbError::ResourceLimit` variant.
-  The built-in City and Enterprise schemas cap subdivision lists at 32 with a
-  schema-level decoding error; custom schemas should apply similarly narrow
-  semantic collection limits where possible. Full verification now also
+  The built-in City and Enterprise schemas reject subdivision lists above 32
+  during deserialization through any Serde format. An otherwise valid
+  oversized MMDB list produces a schema-level decoding error; malformed data or
+  a decoder-wide limit may fail first. Custom schemas should apply similarly
+  narrow semantic collection limits where possible. Full verification now also
   validates pointer targets in unknown metadata fields. Short concrete-schema
   identifiers are covered by a 32-byte-per-value allowance; together with the
   value and payload budgets, this bounds pointer-expanded payload to at most
