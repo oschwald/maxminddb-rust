@@ -53,13 +53,7 @@ if [ -n "$(git status --porcelain)" ]; then
     exit 1
 fi
 
-release_changes_pending=1
-cleanup_release_changes() {
-    if [ "$release_changes_pending" -eq 1 ]; then
-        git restore --source=HEAD --staged --worktree -- Cargo.toml README.md
-    fi
-}
-trap cleanup_release_changes EXIT
+trap 'git restore --source=HEAD --staged --worktree -- Cargo.toml README.md' EXIT
 
 # Update version in Cargo.toml
 current_cargo_version=$(grep -E '^version = "[0-9]+\.[0-9]+\.[0-9]+"' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
@@ -91,7 +85,7 @@ fi
 if [ -n "$(git status --porcelain)" ]; then
     git commit -m "Prepare $tag release" -a
 fi
-release_changes_pending=0
+trap - EXIT
 
 git push
 
