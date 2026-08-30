@@ -36,7 +36,10 @@ pub enum MaxMindDbError {
     Mmap(#[source] io::Error),
 
     /// Error decoding data from the database.
-    #[error("{}", format_decoding_error(.message, .offset, .path.as_deref()))]
+    #[error(
+        "{}",
+        format_contextual_error("decoding error", .message, .offset, .path.as_deref())
+    )]
     Decoding {
         /// Description of the decoding error.
         message: String,
@@ -54,7 +57,10 @@ pub enum MaxMindDbError {
     /// invalid. Schema-specific limits reported by a custom Serde visitor use
     /// [`MaxMindDbError::Decoding`] instead. Applications may choose a narrower
     /// schema or reject the database as untrusted input.
-    #[error("{}", format_resource_limit(.message, .offset, .path.as_deref()))]
+    #[error(
+        "{}",
+        format_contextual_error("resource limit exceeded", .message, .offset, .path.as_deref())
+    )]
     ResourceLimit {
         /// Description of the limit that was exceeded.
         message: String,
@@ -88,23 +94,17 @@ fn format_invalid_database(message: &str, offset: &Option<usize>) -> String {
     }
 }
 
-fn format_decoding_error(message: &str, offset: &Option<usize>, path: Option<&str>) -> String {
+fn format_contextual_error(
+    prefix: &str,
+    message: &str,
+    offset: &Option<usize>,
+    path: Option<&str>,
+) -> String {
     match (offset, path) {
-        (Some(off), Some(p)) => format!("decoding error at offset {off} (path: {p}): {message}"),
-        (Some(off), None) => format!("decoding error at offset {off}: {message}"),
-        (None, Some(p)) => format!("decoding error (path: {p}): {message}"),
-        (None, None) => format!("decoding error: {message}"),
-    }
-}
-
-fn format_resource_limit(message: &str, offset: &Option<usize>, path: Option<&str>) -> String {
-    match (offset, path) {
-        (Some(off), Some(p)) => {
-            format!("resource limit exceeded at offset {off} (path: {p}): {message}")
-        }
-        (Some(off), None) => format!("resource limit exceeded at offset {off}: {message}"),
-        (None, Some(p)) => format!("resource limit exceeded (path: {p}): {message}"),
-        (None, None) => format!("resource limit exceeded: {message}"),
+        (Some(off), Some(p)) => format!("{prefix} at offset {off} (path: {p}): {message}"),
+        (Some(off), None) => format!("{prefix} at offset {off}: {message}"),
+        (None, Some(p)) => format!("{prefix} (path: {p}): {message}"),
+        (None, None) => format!("{prefix}: {message}"),
     }
 }
 
