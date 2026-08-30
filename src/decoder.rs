@@ -60,9 +60,9 @@ const MAXIMUM_DATA_STRUCTURE_BYTES: usize = 2 << 20;
 const MAXIMUM_UNCHARGED_IDENTIFIER_BYTES: usize =
     MAXIMUM_DATA_STRUCTURE_BYTES / MAXIMUM_DATA_STRUCTURE_VALUES as usize;
 
-// Depth, the logical-value count, and the budget flags share one word. Keeping
-// the payload allowance separate avoids extracting and replacing it for every
-// string while preserving Decoder's existing size.
+// Depth, the logical-value count, and the budget flags share one word,
+// preserving Decoder's existing size on 64-bit targets. Keeping the payload
+// allowance separate avoids extracting and replacing it for every string.
 const DEPTH_MASK: u32 = (1 << 10) - 1;
 const BUDGET_VALUES_SHIFT: u32 = 10;
 const BUDGET_VALUES_MASK: u32 = ((1 << 17) - 1) << BUDGET_VALUES_SHIFT;

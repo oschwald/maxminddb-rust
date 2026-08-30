@@ -1708,12 +1708,13 @@ fn test_pointer_fan_out_is_rejected() {
 
     // A data section of nested arrays, each holding two pointers to the node
     // below, would cost 2**depth decode operations. The decoder bounds the
-    // number of values it decodes for a single record and rejects the database.
+    // number of values it decodes for a single record and rejects decoding the
+    // record.
     let reader = open_test_data_reader("MaxMind-DB-test-pointer-decoder-dos.mmdb");
     let ip = "1.2.3.4".parse().unwrap();
     let result: Result<Option<serde_json::Value>, _> = reader.lookup(ip).unwrap().decode();
     match result {
-        Ok(_) => panic!("expected the fan-out database to be rejected"),
+        Ok(_) => panic!("expected the fan-out record decode to be rejected"),
         Err(e) => assert!(
             matches!(&e, MaxMindDbError::ResourceLimit { message, .. }
                 if message.contains("maximum number of data structure values")),
