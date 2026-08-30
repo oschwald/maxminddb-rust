@@ -39,6 +39,19 @@ fi
 grep -Fq 'Not every maxminddb dependency example' "$release_test_dir/unsupported.err" ||
     fail "unsupported dependency form did not produce an actionable error"
 
+mixed_readme="$release_test_dir/mixed.md"
+printf '%s\n' \
+    'maxminddb = "0.29"' \
+    'maxminddb = { path = "../maxminddb" }' \
+    >"$mixed_readme"
+cp "$mixed_readme" "$release_test_dir/mixed.before"
+if (update_readme_dependency_versions "$mixed_readme" "0.31") \
+    2>"$release_test_dir/mixed.err"; then
+    fail "mixed supported and unsupported dependency forms were accepted"
+fi
+cmp -s "$release_test_dir/mixed.before" "$mixed_readme" ||
+    fail "a failed update partially modified the README"
+
 missing_readme="$release_test_dir/missing.md"
 printf '%s\n' 'other = "1.0"' >"$missing_readme"
 if (update_readme_dependency_versions "$missing_readme" "0.31") \
