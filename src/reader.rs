@@ -135,7 +135,8 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let data_section_end = metadata_marker_start(metadata_start)?;
         let metadata_bytes = &buf.as_ref()[metadata_start..];
         let mut type_decoder = decoder::Decoder::new(metadata_bytes, 0);
-        let metadata = Metadata::deserialize(&mut type_decoder)?;
+        let metadata = Metadata::deserialize(&mut type_decoder)
+            .map_err(|error| error.with_invalid_database_offset_base(metadata_start))?;
         validate_metadata_for_reader(&metadata)?;
 
         let search_tree_size =
@@ -634,7 +635,9 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         // an unknown field cannot hide behind the cached typed representation.
         let metadata_bytes = &self.buf.as_ref()[metadata_start..];
         let mut decoder = decoder::Decoder::new(metadata_bytes, 0);
-        decoder.skip_value_for_verification(&mut decoder::VerificationState::default())?;
+        decoder
+            .skip_value_for_verification(&mut decoder::VerificationState::default())
+            .map_err(|error| error.with_invalid_database_offset_base(metadata_start))?;
 
         let m = &self.metadata;
 
@@ -726,18 +729,15 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
                         data_section.len()
                     ),
                     offset,
-                ));
+                )
+                .with_invalid_database_offset_base(self.pointer_base));
             }
 
             let mut dec = decoder::Decoder::new(data_section, offset);
 
             // Try to skip/decode the value to verify it's valid
-            if let Err(e) = dec.skip_value_for_verification(&mut verification_state) {
-                return Err(MaxMindDbError::invalid_database_at(
-                    format!("decoding error: {e}"),
-                    offset,
-                ));
-            }
+            dec.skip_value_for_verification(&mut verification_state)
+                .map_err(|error| error.with_invalid_database_offset_base(self.pointer_base))?;
         }
 
         Ok(())

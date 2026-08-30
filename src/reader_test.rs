@@ -1225,7 +1225,13 @@ fn test_verify_rejects_invalid_pointer_in_unknown_metadata_field() {
     let reader = Reader::from_source(bytes).unwrap();
     let err = reader.verify().unwrap_err();
 
-    assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+    assert!(matches!(
+        err,
+        MaxMindDbError::InvalidDatabase {
+            offset: Some(offset),
+            ..
+        } if offset == metadata_start + 255
+    ));
 }
 
 /// Test that verify() returns errors on broken databases (matching Go's TestVerifyOnBrokenDatabases)
@@ -1339,7 +1345,13 @@ fn test_verify_rejects_truncated_scalar_value() {
     let reader = Reader::from_source(bytes).unwrap();
     let result = reader.verify();
     assert!(
-        matches!(result, Err(MaxMindDbError::InvalidDatabase { .. })),
+        matches!(
+            result,
+            Err(MaxMindDbError::InvalidDatabase {
+                offset: Some(offset),
+                ..
+            }) if offset == string_ctrl_offset + 1
+        ),
         "Expected InvalidDatabase error for truncated scalar payload, got {:?}",
         result
     );
@@ -1378,7 +1390,13 @@ fn test_decode_rejects_truncated_ignored_scalar_value() {
     let lookup = reader.lookup("1.1.1.32".parse().unwrap()).unwrap();
     let err = lookup.decode::<Empty>().unwrap_err();
 
-    assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+    assert!(matches!(
+        err,
+        MaxMindDbError::InvalidDatabase {
+            offset: Some(offset),
+            ..
+        } if offset == string_ctrl_offset + 1
+    ));
 }
 
 #[test]

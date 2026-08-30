@@ -232,7 +232,9 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
         };
 
         let mut decoder = self.decoder(offset);
-        T::deserialize(&mut decoder).map(Some)
+        T::deserialize(&mut decoder)
+            .map(Some)
+            .map_err(|error| error.with_invalid_database_offset_base(self.reader.pointer_base))
     }
 
     /// Decodes a value at a specific path within the record.
@@ -276,6 +278,15 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     ///     .unwrap();
     /// ```
     pub fn decode_path<T>(&self, path: &[PathElement<'_>]) -> Result<Option<T>, MaxMindDbError>
+    where
+        T: Deserialize<'a>,
+    {
+        self.decode_path_relative(path)
+            .map_err(|error| error.with_invalid_database_offset_base(self.reader.pointer_base))
+    }
+
+    #[inline]
+    fn decode_path_relative<T>(&self, path: &[PathElement<'_>]) -> Result<Option<T>, MaxMindDbError>
     where
         T: Deserialize<'a>,
     {
@@ -359,7 +370,7 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
         // Decode the value at the current position
         T::deserialize(&mut decoder)
             .map(Some)
-            .map_err(|e| add_path_context(e, path))
+            .map_err(|error| add_path_context(error, path))
     }
 }
 

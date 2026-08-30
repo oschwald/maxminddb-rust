@@ -16,7 +16,9 @@ pub enum MaxMindDbError {
     InvalidDatabase {
         /// Description of what is invalid.
         message: String,
-        /// Byte offset in the database where the error was detected.
+        /// Byte offset where the error was detected. Reader operations report
+        /// an absolute database-file offset; decoding a standalone section
+        /// reports an offset relative to that input.
         offset: Option<usize>,
     },
 
@@ -160,6 +162,22 @@ impl MaxMindDbError {
             message: message.into(),
             offset: Some(offset),
             path: None,
+        }
+    }
+
+    /// Translate a decoder-originated invalid-database offset from a section
+    /// into the containing database. Other error variants intentionally retain
+    /// their documented section-relative offsets.
+    pub(crate) fn with_invalid_database_offset_base(self, base: usize) -> Self {
+        match self {
+            MaxMindDbError::InvalidDatabase {
+                message,
+                offset: Some(offset),
+            } => MaxMindDbError::InvalidDatabase {
+                message,
+                offset: offset.checked_add(base),
+            },
+            _ => self,
         }
     }
 
