@@ -39,6 +39,35 @@ const RAW_STRINGS_NEWTYPE: &str = "$maxminddb::raw_strings";
 /// This matches the value used in libmaxminddb and the Go reader.
 const MAXIMUM_DATA_STRUCTURE_DEPTH: u16 = 512;
 
+/// Maximum number of logical values decoded in one container-shaped operation.
+/// A container reserves all of its children before the visitor enters it, so a
+/// pointer fan-out exhausts the budget without a counter update on every scalar
+/// header. A pointer and the value it resolves to are one logical occurrence.
+const MAXIMUM_DATA_STRUCTURE_VALUES: u32 = 1 << 16;
+
+/// Maximum total string and bytes payload delivered through budgeted decode
+/// paths. Re-decoding a shared target recharges its payload. Payload reached
+/// only through `skip_value`, including an unknown or `IgnoredAny` value, is not
+/// materialized or charged. Keys exposed to a dynamically shaped map visitor
+/// are conservatively precharged before the visitor's key seed runs, even when
+/// that seed ignores them.
+const MAXIMUM_DATA_STRUCTURE_BYTES: usize = 2 << 20;
+
+/// Identifier bytes covered by the logical-value budget rather than the
+/// payload counter. At most one identifier occurs per reserved logical value,
+/// so this allowance can add no more than another 2 MiB per operation while
+/// keeping ordinary short schema keys off the payload-accounting hot path.
+const MAXIMUM_UNCHARGED_IDENTIFIER_BYTES: usize =
+    MAXIMUM_DATA_STRUCTURE_BYTES / MAXIMUM_DATA_STRUCTURE_VALUES as usize;
+
+// Depth, the logical-value count, and the budget flags share one word,
+// preserving Decoder's existing size on 64-bit targets. Keeping the payload
+// allowance separate avoids extracting and replacing it for every string.
+const DEPTH_MASK: u32 = (1 << 10) - 1;
+const BUDGET_VALUES_SHIFT: u32 = 10;
+const BUDGET_VALUES_MASK: u32 = ((1 << 17) - 1) << BUDGET_VALUES_SHIFT;
+const BUDGET_ACTIVE_MASK: u32 = 1 << 27;
+
 /// Lower limit for values skipped through unknown fields or IgnoredAny.
 /// Skipping is recursive and can be reached by corrupt data that callers did
 /// not explicitly request, so keep the limit below small default thread stacks.
@@ -90,6 +119,21 @@ macro_rules! deserialize_direct_scalar {
     };
 }
 
+macro_rules! deserialize_direct_payload {
+    ($name:ident, $expected_type:expr, $label:literal, $visit:ident, $decode:ident) => {
+        fn $name<V>(self, visitor: V) -> DecodeResult<V::Value>
+        where
+            V: Visitor<'de>,
+        {
+            let (size, type_num) = self.size_and_type()?;
+            self.decode_direct(size, type_num, $expected_type, $label, |de, size| {
+                de.count_payload(size)?;
+                visitor.$visit(de.$decode(size)?)
+            })
+        }
+    };
+}
+
 enum Value<'a, 'de> {
     Any { prev_ptr: usize },
     Bytes(&'de [u8]),
@@ -103,7 +147,7 @@ enum Value<'a, 'de> {
     U128(u128),
     F64(f64),
     F32(f32),
-    Map(MapAccessor<'a, 'de>),
+    Map(MapAccessor<'a, 'de, true>),
     Array(ArrayAccess<'a, 'de>),
 }
 
@@ -116,7 +160,8 @@ pub(crate) struct Decoder<'de> {
     buf: &'de [u8],
     limit: usize,
     current_ptr: usize,
-    depth: u16,
+    state: u32,
+    payload_remaining: u32,
 }
 
 /// Tracks data values visited by a single database verification pass.
@@ -137,26 +182,132 @@ impl<'de> Decoder<'de> {
             buf,
             limit,
             current_ptr: start_ptr,
-            depth: 0,
+            state: 0,
+            payload_remaining: MAXIMUM_DATA_STRUCTURE_BYTES as u32,
+        }
+    }
+
+    #[inline(always)]
+    fn activate_budget(&mut self) {
+        if self.state & BUDGET_ACTIVE_MASK == 0 {
+            // The value that caused activation is the top-level budgeted value.
+            self.state |= BUDGET_ACTIVE_MASK | (1 << BUDGET_VALUES_SHIFT);
         }
     }
 
     /// Check and increment depth, returning error if limit exceeded.
     #[inline]
     fn enter_nested(&mut self) -> DecodeResult<()> {
-        if self.depth >= MAXIMUM_DATA_STRUCTURE_DEPTH {
+        if self.state & DEPTH_MASK >= u32::from(MAXIMUM_DATA_STRUCTURE_DEPTH) {
             return Err(self.invalid_db_error(
                 "exceeded maximum data structure depth; database is likely corrupt",
             ));
         }
-        self.depth += 1;
+        self.state += 1;
         Ok(())
     }
 
     /// Decrement depth when exiting a nested structure.
     #[inline]
     fn exit_nested(&mut self) {
-        self.depth = self.depth.saturating_sub(1);
+        if self.state & DEPTH_MASK != 0 {
+            self.state -= 1;
+        }
+    }
+
+    /// Reserve logical child values before entering a container. Charging the
+    /// complete child count up front bounds both flat containers and pointer
+    /// fan-out without touching the scalar decode hot path.
+    #[inline(always)]
+    fn reserve_values(&mut self, count: usize) -> DecodeResult<()> {
+        if self.state & BUDGET_ACTIVE_MASK == 0 {
+            return Ok(());
+        }
+        let values_used = ((self.state & BUDGET_VALUES_MASK) >> BUDGET_VALUES_SHIFT) as usize;
+        if count > MAXIMUM_DATA_STRUCTURE_VALUES as usize - values_used {
+            return Err(
+                self.resource_limit_error("exceeded maximum number of data structure values")
+            );
+        }
+        self.state += (count as u32) << BUDGET_VALUES_SHIFT;
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn reserve_container_values(&mut self, size: usize, type_num: usize) -> DecodeResult<()> {
+        // A scalar decoded on its own cannot fan out. The first map or array is
+        // the point at which one encoded value can produce unbounded work, so
+        // activate the shared operation budget here for every Serde shape.
+        self.activate_budget();
+        let count = if type_num == TYPE_MAP {
+            size.saturating_mul(2)
+        } else {
+            debug_assert_eq!(type_num, TYPE_ARRAY);
+            size
+        };
+        self.reserve_values(count)
+    }
+
+    /// Charge a string or bytes payload against the per-decode byte budget,
+    /// returning an error once the total exceeds the limit. This bounds a
+    /// payload amplification: many pointers to one large value each recharge the
+    /// budget, so the decoder will not repeatedly deliver more payload than the
+    /// limit no matter how heavily a target is shared. A custom visitor may
+    /// still allocate a representation larger than the borrowed input. Small
+    /// fixed-width scalars are not charged.
+    #[inline(always)]
+    fn count_payload(&mut self, size: usize) -> DecodeResult<()> {
+        if self.state & BUDGET_ACTIVE_MASK == 0 {
+            return Ok(());
+        }
+        if size > self.payload_remaining as usize {
+            return Err(self.resource_limit_error(
+                "exceeded maximum size of data structure string and bytes values",
+            ));
+        }
+        self.payload_remaining -= size as u32;
+        Ok(())
+    }
+
+    /// Charge identifier payload beyond the portion already covered by the
+    /// logical-value budget. Ordinary short schema keys remain free from
+    /// payload-counter updates.
+    #[inline(always)]
+    fn count_identifier_payload(&mut self, size: usize) -> DecodeResult<()> {
+        if size <= MAXIMUM_UNCHARGED_IDENTIFIER_BYTES {
+            return Ok(());
+        }
+        self.count_long_identifier_payload(size)
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn count_long_identifier_payload(&mut self, size: usize) -> DecodeResult<()> {
+        self.count_payload(size - MAXIMUM_UNCHARGED_IDENTIFIER_BYTES)
+    }
+
+    /// Charges a string or bytes value at the current position without
+    /// consuming it. Dynamically shaped maps use this for keys because a raw
+    /// identifier visitor may copy them without requesting a string decode.
+    fn count_payload_at_current(&mut self) -> DecodeResult<bool> {
+        let saved_ptr = self.current_ptr;
+        let result = (|| {
+            let (mut size, mut type_num) = self.size_and_type()?;
+            if type_num == TYPE_POINTER {
+                self.current_ptr = self.decode_pointer(size);
+                (size, type_num) = self.size_and_type()?;
+                if type_num == TYPE_POINTER {
+                    return Err(self.invalid_db_error("pointer points to another pointer"));
+                }
+            }
+            if type_num == TYPE_STRING || type_num == TYPE_BYTES {
+                self.count_payload(size)?;
+                return Ok(true);
+            }
+            Ok(false)
+        })();
+        self.current_ptr = saved_ptr;
+        result
     }
 
     /// Create an InvalidDatabase error with current offset context.
@@ -169,6 +320,13 @@ impl<'de> Decoder<'de> {
     #[inline]
     fn decode_error(&self, msg: &str) -> MaxMindDbError {
         MaxMindDbError::decoding_at(msg, self.current_ptr)
+    }
+
+    /// Create a ResourceLimit error with current offset context.
+    #[cold]
+    #[inline(never)]
+    fn resource_limit_error(&self, msg: &str) -> MaxMindDbError {
+        MaxMindDbError::resource_limit_at(msg, self.current_ptr)
     }
 
     #[inline(always)]
@@ -261,11 +419,12 @@ impl<'de> Decoder<'de> {
             // Widen before adding so malformed bytes cannot overflow.
             type_num = usize::from(self.eat_byte()?) + TYPE_MAP;
         }
-        let size = self.size_from_ctrl_byte(ctrl_byte, type_num)?;
-        Ok((size, type_num))
+        self.size_from_ctrl_byte(ctrl_byte, type_num)
+            .map(|size| (size, type_num))
     }
 
     fn decode_any<V: Visitor<'de>>(&mut self, visitor: V) -> DecodeResult<V::Value> {
+        self.activate_budget();
         self.decode_any_impl::<false, V>(visitor)
     }
 
@@ -321,6 +480,7 @@ impl<'de> Decoder<'de> {
                 )));
             }
 
+            de.reserve_container_values(size, TYPE_ARRAY)?;
             de.enter_nested()?;
             let res = visitor.visit_seq(ArrayAccess { de, count: size });
             de.exit_nested();
@@ -340,13 +500,23 @@ impl<'de> Decoder<'de> {
 
                 Value::Any { prev_ptr }
             }
-            TYPE_STRING if RAW_STRINGS => Value::RawString(self.read_string_bytes(size)?),
-            TYPE_STRING => Value::String(self.decode_string(size)?),
+            TYPE_STRING if RAW_STRINGS => {
+                self.count_payload(size)?;
+                Value::RawString(self.read_string_bytes(size)?)
+            }
+            TYPE_STRING => {
+                self.count_payload(size)?;
+                Value::String(self.decode_string(size)?)
+            }
             TYPE_DOUBLE => Value::F64(self.decode_double(size)?),
-            TYPE_BYTES => Value::Bytes(self.decode_bytes(size)?),
+            TYPE_BYTES => {
+                self.count_payload(size)?;
+                Value::Bytes(self.decode_bytes(size)?)
+            }
             TYPE_UINT16 => Value::U16(self.decode_uint16(size)?),
             TYPE_UINT32 => Value::U32(self.decode_uint32(size)?),
             TYPE_MAP => {
+                self.reserve_container_values(size, TYPE_MAP)?;
                 self.enter_nested()?;
                 self.decode_map(size)
             }
@@ -354,6 +524,7 @@ impl<'de> Decoder<'de> {
             TYPE_UINT64 => Value::U64(self.decode_uint64(size)?),
             TYPE_UINT128 => Value::U128(self.decode_uint128(size)?),
             TYPE_ARRAY => {
+                self.reserve_container_values(size, TYPE_ARRAY)?;
                 self.enter_nested()?;
                 self.decode_array(size)
             }
@@ -557,7 +728,11 @@ impl<'de> Decoder<'de> {
 
     /// Consumes a map or array header in one pass, following a pointer if needed.
     pub(crate) fn consume_container_header(&mut self) -> DecodeResult<(usize, usize)> {
-        self.size_and_type_following_pointers()
+        let (size, type_num) = self.size_and_type_following_pointers()?;
+        if type_num == TYPE_MAP || type_num == TYPE_ARRAY {
+            self.reserve_container_values(size, type_num)?;
+        }
+        Ok((size, type_num))
     }
 
     /// Gets size and type, following any pointers.
@@ -640,14 +815,18 @@ impl<'de> Decoder<'de> {
                 let result = if type_num == TYPE_POINTER {
                     Err(self.invalid_db_error("pointer points to another pointer"))
                 } else if type_num == TYPE_STRING {
-                    self.read_string_bytes(size)
+                    self.count_payload(size)
+                        .and_then(|()| self.read_string_bytes(size))
                 } else {
                     Err(self.invalid_db_error(&format!("expected string, got type {type_num}")))
                 };
                 self.current_ptr = saved_ptr;
                 result
             }
-            TYPE_STRING => self.read_string_bytes(size),
+            TYPE_STRING => {
+                self.count_payload(size)?;
+                self.read_string_bytes(size)
+            }
             _ => Err(self.invalid_db_error(&format!("expected string, got type {type_num}"))),
         }
     }
@@ -656,11 +835,15 @@ impl<'de> Decoder<'de> {
     /// - Returns `Ok(Some(bytes))` and consumes the identifier when it is a string.
     /// - Returns `Ok(None)` and restores `current_ptr` when the next value is not a string.
     /// - Returns `Err` for malformed pointer chains or invalid string lengths.
+    #[inline(always)]
     fn try_read_identifier_bytes(&mut self) -> DecodeResult<Option<&'de [u8]>> {
         let saved_ptr = self.current_ptr;
         let (size, type_num) = self.size_and_type()?;
         match type_num {
-            TYPE_STRING => self.read_string_bytes(size).map(Some),
+            TYPE_STRING => {
+                self.count_identifier_payload(size)?;
+                self.read_string_bytes(size).map(Some)
+            }
             TYPE_POINTER => {
                 let new_ptr = self.decode_pointer(size);
                 let after_pointer = self.current_ptr;
@@ -669,7 +852,11 @@ impl<'de> Decoder<'de> {
                 let result = if inner_type == TYPE_POINTER {
                     Err(self.invalid_db_error("pointer points to another pointer"))
                 } else if inner_type == TYPE_STRING {
-                    self.read_string_bytes(inner_size).map(Some)
+                    let payload_result = self.count_identifier_payload(inner_size);
+                    match payload_result {
+                        Ok(()) => self.read_string_bytes(inner_size).map(Some),
+                        Err(error) => Err(error),
+                    }
                 } else {
                     Ok(None)
                 };
@@ -692,7 +879,7 @@ impl<'de> Decoder<'de> {
         }
     }
 
-    /// Skips the current value, following pointers.
+    /// Skips the current encoded value without expanding pointer targets.
     pub(crate) fn skip_value(&mut self) -> DecodeResult<()> {
         let (size, type_num) = self.size_and_type()?;
         self.skip_value_inner(size, type_num, 0)
@@ -760,15 +947,14 @@ impl<'de> Decoder<'de> {
         // cursor remains within the decoder limit.
         match type_num {
             TYPE_POINTER => {
-                let new_ptr = self.decode_pointer(size);
-                let saved_ptr = self.current_ptr;
-                self.current_ptr = new_ptr;
-                let result = match self.check_skip_depth(skip_depth) {
-                    Ok(child_depth) => self.skip_value_with_depth(child_depth),
-                    Err(err) => Err(err),
-                };
-                self.current_ptr = saved_ptr;
-                result
+                // The pointer token is the complete skipped value. Its target
+                // is not materialized, so following it would only amplify work
+                // the destination did not request. Full database verification
+                // still validates referenced targets.
+                let pointer_size = ((size >> 3) & 0x3) + 1;
+                self.checked_offset(pointer_size, "pointer")?;
+                self.decode_pointer(size);
+                Ok(())
             }
             TYPE_STRING | TYPE_BYTES => {
                 // String or Bytes - skip size bytes
@@ -821,6 +1007,7 @@ impl<'de> Decoder<'de> {
             }
             TYPE_MAP => {
                 // Map - skip size key-value pairs
+                self.reserve_container_values(size, TYPE_MAP)?;
                 let child_depth = self.check_skip_depth(skip_depth)?;
                 for _ in 0..size {
                     // key
@@ -832,6 +1019,7 @@ impl<'de> Decoder<'de> {
             }
             TYPE_ARRAY => {
                 // Array - skip size elements
+                self.reserve_container_values(size, TYPE_ARRAY)?;
                 let child_depth = self.check_skip_depth(skip_depth)?;
                 for _ in 0..size {
                     self.skip_value_with_depth(child_depth)?;
@@ -941,7 +1129,8 @@ pub type DecodeResult<T> = Result<T, MaxMindDbError>;
 /// [`Deserializer::deserialize_bytes`] is the conventional choice. Genuine
 /// MMDB byte values continue to be delivered directly to
 /// [`Visitor::visit_borrowed_bytes`], so callers can distinguish the two
-/// types.
+/// types. Values decoded through this helper share the operation's expansion
+/// budget.
 ///
 /// Callers decoding nested maps or arrays should invoke this helper again from
 /// the [`DeserializeSeed`] used for each nested value. Map keys can be read as
@@ -1037,7 +1226,7 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
         decode_double
     );
 
-    deserialize_direct_scalar!(
+    deserialize_direct_payload!(
         deserialize_str,
         TYPE_STRING,
         "string",
@@ -1052,7 +1241,7 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
         self.deserialize_str(visitor)
     }
 
-    deserialize_direct_scalar!(
+    deserialize_direct_payload!(
         deserialize_bytes,
         TYPE_BYTES,
         "bytes",
@@ -1073,6 +1262,7 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
     {
         let (size, type_num) = self.size_and_type()?;
         self.decode_direct(size, type_num, TYPE_ARRAY, "array", |de, size| {
+            de.reserve_container_values(size, TYPE_ARRAY)?;
             de.enter_nested()?;
             let res = visitor.visit_seq(ArrayAccess { de, count: size });
             de.exit_nested();
@@ -1103,16 +1293,7 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
     where
         V: Visitor<'de>,
     {
-        let (size, type_num) = self.size_and_type()?;
-        self.decode_direct(size, type_num, TYPE_MAP, "map", |de, size| {
-            de.enter_nested()?;
-            let res = visitor.visit_map(MapAccessor {
-                de,
-                count: size * 2,
-            });
-            de.exit_nested();
-            res
-        })
+        self.deserialize_map_impl(visitor)
     }
 
     fn deserialize_struct<V>(
@@ -1124,7 +1305,7 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
     where
         V: Visitor<'de>,
     {
-        self.deserialize_map(visitor)
+        self.deserialize_map_impl(visitor)
     }
 
     fn is_human_readable(&self) -> bool {
@@ -1148,6 +1329,7 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
     where
         V: Visitor<'de>,
     {
+        self.activate_budget();
         visitor.visit_enum(EnumAccessor { de: self })
     }
 
@@ -1166,6 +1348,7 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
         V: Visitor<'de>,
     {
         if name == RAW_STRINGS_NEWTYPE {
+            self.activate_budget();
             self.decode_any_impl::<true, V>(visitor)
         } else {
             self.decode_any(visitor)
@@ -1174,6 +1357,25 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
 
     forward_to_deserialize_any! {
         i8 i16 i64 i128 u8 char unit unit_struct
+    }
+}
+
+impl<'de> Decoder<'de> {
+    fn deserialize_map_impl<V>(&mut self, visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        let (size, type_num) = self.size_and_type()?;
+        self.decode_direct(size, type_num, TYPE_MAP, "map", |de, size| {
+            de.reserve_container_values(size, TYPE_MAP)?;
+            de.enter_nested()?;
+            let res = visitor.visit_map(MapAccessor::<false> {
+                de,
+                count: size * 2,
+            });
+            de.exit_nested();
+            res
+        })
     }
 }
 
@@ -1216,14 +1418,14 @@ impl<'de> SeqAccess<'de> for ArrayAccess<'_, 'de> {
     }
 }
 
-struct MapAccessor<'a, 'de: 'a> {
+struct MapAccessor<'a, 'de: 'a, const BUDGETED: bool = false> {
     de: &'a mut Decoder<'de>,
     count: usize,
 }
 
 // `MapAccess` is provided to the `Visitor` to give it the ability to iterate
 // through entries of the map.
-impl<'de> MapAccess<'de> for MapAccessor<'_, 'de> {
+impl<'de, const BUDGETED: bool> MapAccess<'de> for MapAccessor<'_, 'de, BUDGETED> {
     type Error = MaxMindDbError;
 
     #[inline(always)]
@@ -1248,6 +1450,23 @@ impl<'de> MapAccess<'de> for MapAccessor<'_, 'de> {
             return Ok(None);
         }
         self.count -= 1;
+
+        if BUDGETED {
+            let payload_remaining_before = self.de.payload_remaining;
+            let payload_precharged = self.de.count_payload_at_current()?;
+            let payload_remaining_after = self.de.payload_remaining;
+
+            // Let the seed perform its ordinary payload charge, while retaining
+            // the precharge if an identifier visitor does not request one. This
+            // avoids disabling a budget that deserialize_any can reactivate and
+            // keeps the ordinary payload counter free of a map-key-only branch.
+            self.de.payload_remaining = payload_remaining_before;
+            let result = seed.deserialize(&mut *self.de).map(Some);
+            if payload_precharged {
+                self.de.payload_remaining = self.de.payload_remaining.min(payload_remaining_after);
+            }
+            return result;
+        }
 
         // Deserialize a map key.
         seed.deserialize(&mut *self.de).map(Some)
@@ -1297,7 +1516,11 @@ impl<'de> de::VariantAccess<'de> for EnumAccessor<'_, 'de> {
     where
         T: DeserializeSeed<'de>,
     {
-        seed.deserialize(&mut *self.de)
+        self.de.reserve_values(1)?;
+        self.de.enter_nested()?;
+        let result = seed.deserialize(&mut *self.de);
+        self.de.exit_nested();
+        result
     }
 
     fn tuple_variant<V>(self, len: usize, visitor: V) -> DecodeResult<V::Value>
@@ -1482,6 +1705,103 @@ mod tests {
 
         fn visit_borrowed_bytes<E>(self, bytes: &'de [u8]) -> Result<Self::Value, E> {
             Ok(bytes.to_vec())
+        }
+    }
+
+    struct AnyIdentifierSeed;
+
+    impl<'de> DeserializeSeed<'de> for AnyIdentifierSeed {
+        type Value = usize;
+
+        fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_any(AnyIdentifierVisitor)
+        }
+    }
+
+    struct AnyIdentifierVisitor;
+
+    impl<'de> Visitor<'de> for AnyIdentifierVisitor {
+        type Value = usize;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("an MMDB map key")
+        }
+
+        fn visit_borrowed_str<E>(self, value: &'de str) -> Result<Self::Value, E> {
+            Ok(value.len())
+        }
+
+        fn visit_borrowed_bytes<E>(self, value: &'de [u8]) -> Result<Self::Value, E> {
+            Ok(value.len())
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct AnyKeyMap(usize);
+
+    impl<'de> Deserialize<'de> for AnyKeyMap {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_map(AnyKeyMapVisitor)
+        }
+    }
+
+    struct AnyKeyMapVisitor;
+
+    impl<'de> Visitor<'de> for AnyKeyMapVisitor {
+        type Value = AnyKeyMap;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("an MMDB map")
+        }
+
+        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where
+            A: MapAccess<'de>,
+        {
+            let mut count = 0;
+            while let Some(key_size) = map.next_key_seed(AnyIdentifierSeed)? {
+                assert_eq!(key_size, 4096);
+                map.next_value::<serde::de::IgnoredAny>()?;
+                count += 1;
+            }
+            Ok(AnyKeyMap(count))
+        }
+    }
+
+    #[allow(dead_code)]
+    #[derive(Debug)]
+    struct OwnedBytes(Vec<u8>);
+
+    impl<'de> Deserialize<'de> for OwnedBytes {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_byte_buf(OwnedBytesVisitor)
+        }
+    }
+
+    struct OwnedBytesVisitor;
+
+    impl<'de> Visitor<'de> for OwnedBytesVisitor {
+        type Value = OwnedBytes;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("an MMDB byte value")
+        }
+
+        fn visit_borrowed_bytes<E>(self, value: &'de [u8]) -> Result<Self::Value, E> {
+            Ok(OwnedBytes(value.to_vec()))
+        }
+
+        fn visit_byte_buf<E>(self, value: Vec<u8>) -> Result<Self::Value, E> {
+            Ok(OwnedBytes(value))
         }
     }
 
@@ -1851,6 +2171,27 @@ mod tests {
     }
 
     #[test]
+    fn ignored_any_skips_pointer_targets_but_verification_follows_them() {
+        // A complete pointer token whose target is outside this buffer. An
+        // ignored value need only consume the token; verification must still
+        // reject the invalid referenced value.
+        let encoded = [0x20, 0xff];
+        let mut decoder = Decoder::new(&encoded, 0);
+        serde::de::IgnoredAny::deserialize(&mut decoder).unwrap();
+
+        let mut decoder = Decoder::new(&encoded, 0);
+        let err = decoder
+            .skip_value_for_verification(&mut VerificationState::default())
+            .unwrap_err();
+        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+
+        // The pointer token itself is still bounds-checked while skipping.
+        let mut decoder = Decoder::new(&[0x20], 0);
+        let err = serde::de::IgnoredAny::deserialize(&mut decoder).unwrap_err();
+        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+    }
+
+    #[test]
     fn test_decoder_caps_impossible_container_size_hint() {
         // Extended array with 284 declared elements and no element payload.
         let mut decoder = Decoder::new(&[0x1d, 0x04, 0xff], 0);
@@ -1858,6 +2199,431 @@ mod tests {
 
         assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
         assert!(err.to_string().contains("unexpected end of buffer"));
+    }
+
+    #[test]
+    fn ignored_any_rejects_excessive_inline_container_work() {
+        // Extended array with 65,536 declared elements and no payload. An
+        // ignored inline container still requires one loop iteration per
+        // child, so it shares the logical-value operation budget.
+        let mut decoder = Decoder::new(&[0x1e, 0x04, 0xfe, 0xe3], 0);
+        let err = serde::de::IgnoredAny::deserialize(&mut decoder).unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("maximum number of data structure values"));
+    }
+
+    #[test]
+    fn ignored_any_rejects_excessive_inline_map_work() {
+        // A 32,768-entry map contains 65,536 children in addition to the map
+        // itself, so it cannot fit within the logical-value operation budget.
+        let mut decoder = Decoder::new(&[0xfe, 0x7e, 0xe3], 0);
+        let err = serde::de::IgnoredAny::deserialize(&mut decoder).unwrap_err();
+
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(err
+            .to_string()
+            .contains("maximum number of data structure values"));
+    }
+
+    #[test]
+    fn navigation_rejects_excessive_declared_container_work() {
+        let mut decoder = Decoder::new(&[0x1e, 0x04, 0xfe, 0xe3], 0);
+        let err = decoder.consume_container_header().unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("maximum number of data structure values"));
+    }
+
+    #[test]
+    fn city_subdivisions_reject_declared_size_before_allocating() {
+        // Extended array with 65,536 elements and no payload. Concrete Vec
+        // decoding must reject its declared children before Serde sees the
+        // size hint and can allocate for them.
+        let mut decoder = Decoder::new(&[0x1e, 0x04, 0xfe, 0xe3], 0);
+        let err =
+            Vec::<crate::geoip2::city::Subdivision<'_>>::deserialize(&mut decoder).unwrap_err();
+
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(err
+            .to_string()
+            .contains("maximum number of data structure values"));
+    }
+
+    #[test]
+    fn concrete_map_rejects_declared_size_before_allocating() {
+        // Extended map with 32,768 entries and no payload. Map children include
+        // both keys and values, so this exceeds the 65,536-value operation
+        // budget once the top-level map itself is included. The rejection must
+        // happen before HashMap receives a size hint and can allocate.
+        let mut decoder = Decoder::new(&[0xfe, 0x7e, 0xe3], 0);
+        let err =
+            std::collections::HashMap::<String, serde::de::IgnoredAny>::deserialize(&mut decoder)
+                .unwrap_err();
+
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(err
+            .to_string()
+            .contains("maximum number of data structure values"));
+    }
+
+    #[test]
+    fn concrete_sequence_charges_repeated_shared_struct_maps() {
+        #[derive(Debug, Deserialize)]
+        struct EmptyRecord {}
+
+        // A shared 200-entry map followed by an array of 300 pointers to that
+        // map. Every map entry is unknown to EmptyRecord. Ignoring its value is
+        // cheap, but the requested struct still has to examine every key each
+        // time the pointer target is decoded. Aggregate container reservation
+        // rejects that fan-out after bounded work.
+        let mut buf = vec![0xfd, 171]; // map size: 29 + 171 = 200
+        for _ in 0..200 {
+            buf.extend_from_slice(&[0x40, 0xe0]); // empty string => empty map
+        }
+        let array_offset = buf.len();
+        buf.extend_from_slice(&[0x1e, 0x04, 0x00, 0x0f]); // array size: 300
+        for _ in 0..300 {
+            append_pointer(&mut buf, 0);
+        }
+
+        let mut decoder = Decoder::new(&buf, array_offset);
+        let err = Vec::<EmptyRecord>::deserialize(&mut decoder).unwrap_err();
+
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(err
+            .to_string()
+            .contains("maximum number of data structure values"));
+    }
+
+    #[test]
+    fn concrete_sequence_charges_repeated_string_payloads() {
+        // One 4 KiB string followed by an array of 600 pointers to it. The
+        // array activates the operation budget, and direct &str decoding must
+        // recharge the shared payload for every logical occurrence.
+        let mut buf = vec![0x5e, 0x0e, 0xe3]; // string size: 285 + 3,811 = 4,096
+        buf.resize(buf.len() + 4096, b'a');
+        let array_offset = buf.len();
+        buf.extend_from_slice(&[0x1e, 0x04, 0x01, 0x3b]); // array size: 600
+        for _ in 0..600 {
+            append_pointer(&mut buf, 0);
+        }
+
+        let mut decoder = Decoder::new(&buf, array_offset);
+        let err = Vec::<&str>::deserialize(&mut decoder).unwrap_err();
+
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(err
+            .to_string()
+            .contains("maximum size of data structure string and bytes"));
+    }
+
+    #[test]
+    fn direct_byte_buf_decoding_charges_repeated_payloads() {
+        let (buf, array_offset) = repeated_4k_payload_array(0x9e, 600);
+        let mut decoder = Decoder::new(&buf, array_offset);
+        let err = Vec::<OwnedBytes>::deserialize(&mut decoder).unwrap_err();
+
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(err
+            .to_string()
+            .contains("maximum size of data structure string and bytes"));
+    }
+
+    #[test]
+    fn raw_string_decoding_charges_repeated_payloads() {
+        let (buf, array_offset) = repeated_4k_payload_array(0x5e, 600);
+        let mut decoder = Decoder::new(&buf, array_offset);
+        let err = RawValueSeed.deserialize(&mut decoder).unwrap_err();
+
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(err
+            .to_string()
+            .contains("maximum size of data structure string and bytes"));
+    }
+
+    #[allow(dead_code)]
+    #[derive(Debug, Deserialize)]
+    enum StandaloneScalarEnum {
+        Known,
+    }
+
+    fn large_string(size: usize) -> Vec<u8> {
+        assert!((65_821..=65_821 + 0xff_ff_ff).contains(&size));
+        let encoded_size = (size - 65_821) as u32;
+        let mut buf = vec![0x5f]; // string with a three-byte extended size
+        buf.extend_from_slice(&encoded_size.to_be_bytes()[1..]);
+        buf.resize(buf.len() + size, b'a');
+        buf
+    }
+
+    #[test]
+    fn partial_struct_skips_unknown_inline_payload_over_budget() {
+        #[derive(Deserialize)]
+        struct PartialRecord {
+            known: bool,
+        }
+
+        let payload_size = super::MAXIMUM_DATA_STRUCTURE_BYTES + 1;
+        for control in [0x5f, 0x9f] {
+            let mut payload = large_string(payload_size);
+            payload[0] = control; // string or bytes with a three-byte extended size
+
+            let mut buf = vec![0xe2, 0x47]; // two-entry map, seven-byte key
+            buf.extend_from_slice(b"unknown");
+            buf.extend_from_slice(&payload);
+            buf.extend_from_slice(&[0x45]); // five-byte key
+            buf.extend_from_slice(b"known");
+            buf.extend_from_slice(&[0x01, 0x07]); // true
+
+            let mut decoder = Decoder::new(&buf, 0);
+            let decoded = PartialRecord::deserialize(&mut decoder).unwrap();
+            assert!(decoded.known);
+        }
+    }
+
+    #[test]
+    fn budgeted_standalone_scalar_entry_points_enforce_payload_limit() {
+        // The enum identifier receives the 32-byte allowance, so exceed both
+        // that allowance and the ordinary 2 MiB payload budget by one byte.
+        let size =
+            super::MAXIMUM_DATA_STRUCTURE_BYTES + super::MAXIMUM_UNCHARGED_IDENTIFIER_BYTES + 1;
+        let buf = large_string(size);
+
+        let mut decoder = Decoder::new(&buf, 0);
+        let err = serde_json::Value::deserialize(&mut decoder).unwrap_err();
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+
+        let mut decoder = Decoder::new(&buf, 0);
+        let err = RawValueSeed.deserialize(&mut decoder).unwrap_err();
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+
+        let mut decoder = Decoder::new(&buf, 0);
+        let err = StandaloneScalarEnum::deserialize(&mut decoder).unwrap_err();
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+
+        // A directly requested typed scalar intentionally retains its
+        // unbudgeted fast path because one scalar cannot amplify through
+        // container or pointer fan-out.
+        let mut decoder = Decoder::new(&buf, 0);
+        let decoded = <&str>::deserialize(&mut decoder).unwrap();
+        assert_eq!(decoded.len(), size);
+    }
+
+    #[test]
+    fn standalone_scalar_retains_unbudgeted_fast_path() {
+        let size = super::MAXIMUM_DATA_STRUCTURE_BYTES + 1;
+        let buf = large_string(size);
+
+        let mut decoder = Decoder::new(&buf, 0);
+        let decoded = <&str>::deserialize(&mut decoder).unwrap();
+        assert_eq!(decoded.len(), size);
+    }
+
+    fn repeated_4k_payload_array(control: u8, element_count: usize) -> (Vec<u8>, usize) {
+        // A shared 4 KiB string or bytes value followed by an array of pointers
+        // to it. Both payload types use the same extended-size representation.
+        assert!(matches!(control, 0x5e | 0x9e));
+        let mut buf = vec![control, 0x0e, 0xe3]; // size: 285 + 3,811 = 4,096
+        buf.resize(buf.len() + 4096, b'a');
+        let array_offset = buf.len();
+
+        assert!((285..=u16::MAX as usize + 285).contains(&element_count));
+        buf.extend_from_slice(&[0x1e, 0x04]); // array with a two-byte extended size
+        buf.extend_from_slice(&((element_count - 285) as u16).to_be_bytes());
+        for _ in 0..element_count {
+            append_pointer(&mut buf, 0);
+        }
+
+        (buf, array_offset)
+    }
+
+    fn pointer_key_map(entry_count: usize) -> (Vec<u8>, usize) {
+        // A shared 4 KiB string followed by a map whose keys all point to it.
+        let mut buf = vec![0x5e, 0x0e, 0xe3]; // string size: 285 + 3,811 = 4,096
+        buf.resize(buf.len() + 4096, b'k');
+        let map_offset = buf.len();
+
+        assert!((285..=u16::MAX as usize + 285).contains(&entry_count));
+        buf.push(0xfe); // map with a two-byte extended size
+        buf.extend_from_slice(&((entry_count - 285) as u16).to_be_bytes());
+        for _ in 0..entry_count {
+            append_pointer(&mut buf, 0);
+            buf.extend_from_slice(&[0x00, 0x07]); // false
+        }
+
+        (buf, map_offset)
+    }
+
+    fn repeated_inline_key_map_array(element_count: usize) -> (Vec<u8>, usize) {
+        // A one-entry map with a 4 KiB inline key, followed by an array of
+        // pointers that repeatedly expands that map.
+        let mut buf = vec![0xe1, 0x5e, 0x0e, 0xe3]; // map(1), string(4,096)
+        buf.resize(buf.len() + 4096, b'k');
+        buf.extend_from_slice(&[0x00, 0x07]); // false
+        let array_offset = buf.len();
+
+        assert!((285..=u16::MAX as usize + 285).contains(&element_count));
+        buf.extend_from_slice(&[0x1e, 0x04]); // array with a two-byte extended size
+        buf.extend_from_slice(&((element_count - 285) as u16).to_be_bytes());
+        for _ in 0..element_count {
+            append_pointer(&mut buf, 0);
+        }
+
+        (buf, array_offset)
+    }
+
+    #[test]
+    fn dynamic_map_keys_are_charged_once() {
+        // 512 copies of a 4 KiB key exactly fill the 2 MiB payload budget.
+        // Dynamic maps precharge keys before invoking an identifier visitor;
+        // the visitor must not charge the same payload a second time.
+        let (buf, map_offset) = pointer_key_map(512);
+        let mut decoder = Decoder::new(&buf, map_offset);
+        let value = RawValueSeed.deserialize(&mut decoder).unwrap();
+
+        let RawValue::Map(entries) = value else {
+            panic!("expected map");
+        };
+        assert_eq!(entries.len(), 512);
+    }
+
+    #[test]
+    fn dynamic_any_map_keys_are_charged_once() {
+        // deserialize_any activates the budget itself. The map accessor's
+        // precharge must still suppress exactly one payload charge rather than
+        // charging each 4 KiB key twice.
+        let (buf, map_offset) = pointer_key_map(512);
+        let mut decoder = Decoder::new(&buf, map_offset);
+        assert_eq!(
+            AnyKeyMap::deserialize(&mut decoder).unwrap(),
+            AnyKeyMap(512)
+        );
+
+        // The precharge remains effective: one additional key exceeds 2 MiB.
+        let (buf, map_offset) = pointer_key_map(513);
+        let mut decoder = Decoder::new(&buf, map_offset);
+        let err = AnyKeyMap::deserialize(&mut decoder).unwrap_err();
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(err
+            .to_string()
+            .contains("maximum size of data structure string and bytes"));
+    }
+
+    #[test]
+    fn navigation_charges_repeated_pointer_keys() {
+        let (buf, map_offset) = pointer_key_map(513);
+        let mut decoder = Decoder::new(&buf, map_offset);
+        let (size, type_num) = decoder.consume_container_header().unwrap();
+        assert_eq!((size, type_num), (513, super::TYPE_MAP));
+
+        for _ in 0..512 {
+            assert_eq!(decoder.read_str_as_bytes().unwrap().len(), 4096);
+            decoder.skip_value().unwrap();
+        }
+        let err = decoder.read_str_as_bytes().unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("maximum size of data structure string and bytes"));
+    }
+
+    #[test]
+    fn flattened_pointer_keys_cannot_bypass_payload_budget() {
+        #[derive(Debug, Deserialize)]
+        struct Flattened {
+            #[serde(flatten)]
+            fields: std::collections::HashMap<String, serde::de::IgnoredAny>,
+        }
+
+        // Each key charges 4,096 - 32 = 4,064 bytes after the per-identifier
+        // allowance. 516 copies leave 128 bytes in the 2 MiB payload budget.
+        let (buf, map_offset) = pointer_key_map(516);
+        let mut decoder = Decoder::new(&buf, map_offset);
+        let decoded = Flattened::deserialize(&mut decoder).unwrap();
+        assert_eq!(decoded.fields.len(), 1);
+
+        // The 517th copy exceeds that budget. Serde buffers flattened keys, so
+        // concrete struct identifier decoding must charge long keys while
+        // ordinary short City keys stay on the uncharged fast path.
+        let (buf, map_offset) = pointer_key_map(517);
+        let mut decoder = Decoder::new(&buf, map_offset);
+        let err = Flattened::deserialize(&mut decoder).unwrap_err();
+
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(err
+            .to_string()
+            .contains("maximum size of data structure string and bytes"));
+    }
+
+    #[test]
+    fn repeated_maps_with_inline_keys_cannot_bypass_payload_budget() {
+        #[derive(Debug, Deserialize)]
+        struct Flattened {
+            #[serde(flatten)]
+            fields: std::collections::HashMap<String, serde::de::IgnoredAny>,
+        }
+
+        // The inline path has the same exact boundary as pointer-backed keys.
+        let (buf, array_offset) = repeated_inline_key_map_array(516);
+        let mut decoder = Decoder::new(&buf, array_offset);
+        let decoded = Vec::<Flattened>::deserialize(&mut decoder).unwrap();
+        assert_eq!(decoded.len(), 516);
+        assert!(decoded.iter().all(|value| value.fields.len() == 1));
+
+        // One additional expansion exceeds the aggregate identifier budget.
+        let (buf, array_offset) = repeated_inline_key_map_array(517);
+        let mut decoder = Decoder::new(&buf, array_offset);
+        let err = Vec::<Flattened>::deserialize(&mut decoder).unwrap_err();
+
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(err
+            .to_string()
+            .contains("maximum size of data structure string and bytes"));
+    }
+
+    #[allow(dead_code)]
+    #[derive(Debug, Deserialize)]
+    enum RecursiveEnum {
+        Next(Box<RecursiveEnum>),
+        End,
+    }
+
+    fn recursive_enum_chain(in_array: bool) -> (Vec<u8>, usize) {
+        let mut buf = vec![0x44, b'N', b'e', b'x', b't'];
+        let start = buf.len();
+        if in_array {
+            buf.extend_from_slice(&[0x01, 0x04]); // one-element array
+        }
+        for _ in 0..=super::MAXIMUM_DATA_STRUCTURE_DEPTH {
+            append_pointer(&mut buf, 0);
+        }
+        buf.extend_from_slice(&[0x43, b'E', b'n', b'd']);
+        (buf, start)
+    }
+
+    #[test]
+    fn recursive_newtype_enum_is_depth_bounded() {
+        let (buf, start) = recursive_enum_chain(false);
+        let mut decoder = Decoder::new(&buf, start);
+        let err = RecursiveEnum::deserialize(&mut decoder).unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("exceeded maximum data structure depth"));
+    }
+
+    #[test]
+    fn recursive_newtype_enum_inside_array_is_depth_bounded() {
+        let (buf, start) = recursive_enum_chain(true);
+        let mut decoder = Decoder::new(&buf, start);
+        let err = Vec::<RecursiveEnum>::deserialize(&mut decoder).unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("exceeded maximum data structure depth"));
     }
 
     #[test]

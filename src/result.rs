@@ -175,6 +175,39 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// - `Ok(None)` if the IP was not found in the database
     /// - `Err(...)` if decoding fails
     ///
+    /// Any operation that enters an MMDB map or array has an expansion budget
+    /// of 65,536 logical values and 2 MiB of string and bytes payload. Dynamic
+    /// `deserialize_any`, enum, and raw-string-helper entry points activate the
+    /// budget before the value's type is known. Only scalar values requested
+    /// directly through a typed scalar entry point avoid this bookkeeping. The
+    /// decoder reserves a container's declared children before Serde can
+    /// allocate for them, repeated pointer targets are charged on every
+    /// expansion, and ignored fields do not expand pointer targets. Exceeding
+    /// either decoder-wide operation limit returns
+    /// [`MaxMindDbError::ResourceLimit`] rather than treating the database as
+    /// necessarily corrupt.
+    ///
+    /// Concrete-schema identifiers get a 32-byte allowance per logical value
+    /// before using the 2 MiB payload counter, whether they are encoded inline
+    /// or behind a pointer. The logical-value limit bounds all such allowances
+    /// to another 2 MiB. Thus, after an operation activates its budget,
+    /// expanded string and byte payload remains bounded to at most 4 MiB even
+    /// for custom identifier visitors. A scalar-only typed decode remains
+    /// limited only by the MMDB format's maximum encoded payload size.
+    ///
+    /// These general limits do not replace tighter bounds implied by an
+    /// application's schema. A collection with a small semantic maximum should
+    /// enforce it in its `Deserialize` implementation or a Serde
+    /// `deserialize_with` visitor, before allocating or consuming its elements.
+    /// The built-in [`crate::geoip2::City`] and [`crate::geoip2::Enterprise`]
+    /// schemas cap their subdivision lists at
+    /// [`crate::geoip2::MAX_SUBDIVISIONS`] in every Serde format. An otherwise
+    /// valid oversized MMDB list that reaches the schema visitor returns
+    /// [`MaxMindDbError::Decoding`]; malformed data and decoder-wide limits may
+    /// fail earlier with their corresponding error variants.
+    /// Custom deserializers that bypass Serde's map and sequence entry points
+    /// remain responsible for bounding their own traversal over untrusted data.
+    ///
     /// # Example
     ///
     /// ```
@@ -199,7 +232,9 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
         };
 
         let mut decoder = self.decoder(offset);
-        T::deserialize(&mut decoder).map(Some)
+        T::deserialize(&mut decoder)
+            .map(Some)
+            .map_err(|error| error.with_invalid_database_offset_base(self.reader.pointer_base))
     }
 
     /// Decodes a value at a specific path within the record.
@@ -210,6 +245,10 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// - `Err(...)` if there's a type mismatch during navigation (e.g., `Key` on an array)
     ///
     /// If `has_data() == false`, returns `Ok(None)`.
+    /// Path traversal does not expand skipped pointer targets. Navigation and
+    /// the selected value share the container and payload budgets described by
+    /// [`decode()`](Self::decode); resource-limit errors include the path reached
+    /// when the limit was detected.
     ///
     /// # Path Elements
     ///
@@ -239,6 +278,15 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     ///     .unwrap();
     /// ```
     pub fn decode_path<T>(&self, path: &[PathElement<'_>]) -> Result<Option<T>, MaxMindDbError>
+    where
+        T: Deserialize<'a>,
+    {
+        self.decode_path_relative(path)
+            .map_err(|error| error.with_invalid_database_offset_base(self.reader.pointer_base))
+    }
+
+    #[inline]
+    fn decode_path_relative<T>(&self, path: &[PathElement<'_>]) -> Result<Option<T>, MaxMindDbError>
     where
         T: Deserialize<'a>,
     {
@@ -322,7 +370,7 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
         // Decode the value at the current position
         T::deserialize(&mut decoder)
             .map(Some)
-            .map_err(|e| add_path_context(e, path))
+            .map_err(|error| add_path_context(error, path))
     }
 }
 
@@ -340,7 +388,8 @@ fn container_type_mismatch(
     }
 }
 
-/// Adds path context to a Decoding error if it doesn't already have one.
+/// Adds path context to a decoding or resource-limit error if it does not
+/// already have one.
 fn add_path_context(err: MaxMindDbError, path: &[PathElement<'_>]) -> MaxMindDbError {
     match err {
         MaxMindDbError::Decoding {
@@ -348,6 +397,15 @@ fn add_path_context(err: MaxMindDbError, path: &[PathElement<'_>]) -> MaxMindDbE
             offset,
             path: None,
         } => MaxMindDbError::Decoding {
+            message,
+            offset,
+            path: Some(render_path(path)),
+        },
+        MaxMindDbError::ResourceLimit {
+            message,
+            offset,
+            path: None,
+        } => MaxMindDbError::ResourceLimit {
             message,
             offset,
             path: Some(render_path(path)),
@@ -741,5 +799,21 @@ mod tests {
 
         assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
         assert!(err.to_string().contains("unknown data type: 256"));
+    }
+
+    #[test]
+    fn test_resource_limit_error_includes_path() {
+        let err = add_path_context(
+            MaxMindDbError::resource_limit_at("too many values", 7),
+            &[PathElement::Key("subdivisions")],
+        );
+
+        assert!(matches!(
+            err,
+            MaxMindDbError::ResourceLimit {
+                path: Some(ref path),
+                ..
+            } if path == "/subdivisions"
+        ));
     }
 }

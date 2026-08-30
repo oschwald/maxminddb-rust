@@ -1,5 +1,34 @@
 # Change Log
 
+## 0.31.0
+
+- Fixed a denial-of-service issue in record and metadata decoding. A crafted
+  database could nest pointers to shared targets so that decoding one value
+  cost exponential time and memory, point many times at one large payload, or
+  declare a concrete collection large enough to cause excessive allocation.
+  Operations that enter any MMDB map or array now have per-operation limits of
+  65,536 logical values and 2 MiB of string/bytes payload. Dynamic and enum
+  entry points activate the limits before the value's type is known. Containers
+  reserve their declared children before Serde can allocate, repeated pointer
+  targets are recharged, and skipped unknown values consume pointer tokens
+  without expanding their unrequested targets. Ignored inline containers
+  consume the logical-value budget without charging skipped payload, while
+  selective path navigation shares both budgets with the selected value. Direct
+  typed scalar decodes retain their unbudgeted fast path. Exceeding the
+  logical-value or payload operation budget is reported as the distinct
+  `MaxMindDbError::ResourceLimit` variant; depth and structural validation
+  failures remain `MaxMindDbError::InvalidDatabase`.
+  The built-in City and Enterprise schemas reject subdivision lists above 32
+  during deserialization through any Serde format. An otherwise valid
+  oversized MMDB list produces a schema-level decoding error; malformed data or
+  a decoder-wide limit may fail first. Custom schemas should apply similarly
+  narrow semantic collection limits where possible. Full verification now also
+  validates pointer targets in unknown metadata fields. Short concrete-schema
+  identifiers are covered by a 32-byte-per-value allowance; together with the
+  value and payload budgets, this bounds pointer-expanded payload to at most
+  4 MiB after activation without charging ordinary City keys. See
+  GHSA-5mfc-p3f9-5php.
+
 ## 0.30.3 - 2026-08-23
 
 - Fixed typed decoding of malformed overflowing extended types to consistently

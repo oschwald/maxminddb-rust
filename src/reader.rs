@@ -133,8 +133,10 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         // find_metadata_start returns the offset after the marker; the marker
         // bytes are not part of the data section and must stay out of limits.
         let data_section_end = metadata_marker_start(metadata_start)?;
-        let mut type_decoder = decoder::Decoder::new(&buf.as_ref()[metadata_start..], 0);
-        let metadata = Metadata::deserialize(&mut type_decoder)?;
+        let metadata_bytes = &buf.as_ref()[metadata_start..];
+        let mut type_decoder = decoder::Decoder::new(metadata_bytes, 0);
+        let metadata = Metadata::deserialize(&mut type_decoder)
+            .map_err(|error| error.with_invalid_database_offset_base(metadata_start))?;
         validate_metadata_for_reader(&metadata)?;
 
         let search_tree_size =
@@ -603,7 +605,10 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// Note: Verification traverses the entire database and retains visited data
     /// offsets for the duration of the call. It may be slow and use memory
     /// proportional to the number of distinct referenced values on large files.
-    /// The method is thread-safe and can be called on an active Reader.
+    /// Verification validates each shared target once. Later deserialization
+    /// independently applies the per-operation container and payload limits
+    /// documented on [`crate::LookupResult::decode()`]. The method is
+    /// thread-safe and can be called on an active Reader.
     ///
     /// # Example
     ///
@@ -616,11 +621,24 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     pub fn verify(&self) -> Result<(), MaxMindDbError> {
         let metadata_start = find_metadata_start(self.buf.as_ref())?;
         let data_section_end = metadata_marker_start(metadata_start)?;
-        self.verify_metadata(data_section_end)?;
+        self.verify_metadata(metadata_start, data_section_end)?;
         self.verify_database(data_section_end)
     }
 
-    fn verify_metadata(&self, data_section_end: usize) -> Result<(), MaxMindDbError> {
+    fn verify_metadata(
+        &self,
+        metadata_start: usize,
+        data_section_end: usize,
+    ) -> Result<(), MaxMindDbError> {
+        // Metadata deserialization intentionally ignores unknown fields. Verify
+        // the original value graph as well so an invalid or cyclic pointer in
+        // an unknown field cannot hide behind the cached typed representation.
+        let metadata_bytes = &self.buf.as_ref()[metadata_start..];
+        let mut decoder = decoder::Decoder::new(metadata_bytes, 0);
+        decoder
+            .skip_value_for_verification(&mut decoder::VerificationState::default())
+            .map_err(|error| error.with_invalid_database_offset_base(metadata_start))?;
+
         let m = &self.metadata;
 
         validate_metadata_for_reader(m)?;
@@ -711,18 +729,15 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
                         data_section.len()
                     ),
                     offset,
-                ));
+                )
+                .with_invalid_database_offset_base(self.pointer_base));
             }
 
             let mut dec = decoder::Decoder::new(data_section, offset);
 
             // Try to skip/decode the value to verify it's valid
-            if let Err(e) = dec.skip_value_for_verification(&mut verification_state) {
-                return Err(MaxMindDbError::invalid_database_at(
-                    format!("decoding error: {e}"),
-                    offset,
-                ));
-            }
+            dec.skip_value_for_verification(&mut verification_state)
+                .map_err(|error| error.with_invalid_database_offset_base(self.pointer_base))?;
         }
 
         Ok(())

@@ -16,7 +16,9 @@ pub enum MaxMindDbError {
     InvalidDatabase {
         /// Description of what is invalid.
         message: String,
-        /// Byte offset in the database where the error was detected.
+        /// Byte offset where the error was detected. Reader operations report
+        /// an absolute database-file offset; decoding a standalone section
+        /// reports an offset relative to that input.
         offset: Option<usize>,
     },
 
@@ -34,13 +36,38 @@ pub enum MaxMindDbError {
     Mmap(#[source] io::Error),
 
     /// Error decoding data from the database.
-    #[error("{}", format_decoding_error(.message, .offset, .path.as_deref()))]
+    #[error(
+        "{}",
+        format_contextual_error("decoding error", .message, .offset, .path.as_deref())
+    )]
     Decoding {
         /// Description of the decoding error.
         message: String,
-        /// Byte offset in the data section where the error occurred.
+        /// Byte offset relative to the section being decoded: the data section
+        /// for records, or the metadata value after its marker for metadata.
         offset: Option<usize>,
         /// JSON-pointer-like path to the field (e.g., "/city/names/en").
+        path: Option<String>,
+    },
+
+    /// Decoding stopped because the requested value exceeded a decoder-wide
+    /// expansion safety limit.
+    ///
+    /// This does not necessarily mean that the database is structurally
+    /// invalid. Schema-specific limits reported by a custom Serde visitor use
+    /// [`MaxMindDbError::Decoding`] instead. Applications may choose a narrower
+    /// schema or reject the database as untrusted input.
+    #[error(
+        "{}",
+        format_contextual_error("resource limit exceeded", .message, .offset, .path.as_deref())
+    )]
+    ResourceLimit {
+        /// Description of the limit that was exceeded.
+        message: String,
+        /// Byte offset relative to the section being decoded: the data section
+        /// for records, or the metadata value after its marker for metadata.
+        offset: Option<usize>,
+        /// JSON-pointer-like path to the field (e.g., "/subdivisions").
         path: Option<String>,
     },
 
@@ -67,12 +94,17 @@ fn format_invalid_database(message: &str, offset: &Option<usize>) -> String {
     }
 }
 
-fn format_decoding_error(message: &str, offset: &Option<usize>, path: Option<&str>) -> String {
+fn format_contextual_error(
+    prefix: &str,
+    message: &str,
+    offset: &Option<usize>,
+    path: Option<&str>,
+) -> String {
     match (offset, path) {
-        (Some(off), Some(p)) => format!("decoding error at offset {off} (path: {p}): {message}"),
-        (Some(off), None) => format!("decoding error at offset {off}: {message}"),
-        (None, Some(p)) => format!("decoding error (path: {p}): {message}"),
-        (None, None) => format!("decoding error: {message}"),
+        (Some(off), Some(p)) => format!("{prefix} at offset {off} (path: {p}): {message}"),
+        (Some(off), None) => format!("{prefix} at offset {off}: {message}"),
+        (None, Some(p)) => format!("{prefix} (path: {p}): {message}"),
+        (None, None) => format!("{prefix}: {message}"),
     }
 }
 
@@ -121,6 +153,31 @@ impl MaxMindDbError {
             message: message.into(),
             offset: Some(offset),
             path: Some(path.into()),
+        }
+    }
+
+    /// Creates a ResourceLimit error with a message and offset.
+    pub fn resource_limit_at(message: impl Into<String>, offset: usize) -> Self {
+        MaxMindDbError::ResourceLimit {
+            message: message.into(),
+            offset: Some(offset),
+            path: None,
+        }
+    }
+
+    /// Translate a decoder-originated invalid-database offset from a section
+    /// into the containing database. Other error variants intentionally retain
+    /// their documented section-relative offsets.
+    pub(crate) fn with_invalid_database_offset_base(self, base: usize) -> Self {
+        match self {
+            MaxMindDbError::InvalidDatabase {
+                message,
+                offset: Some(offset),
+            } => MaxMindDbError::InvalidDatabase {
+                message,
+                offset: offset.checked_add(base),
+            },
+            _ => self,
         }
     }
 
@@ -193,6 +250,14 @@ mod tests {
                 MaxMindDbError::decoding_at_path("unexpected type", 100, "/city/names/en")
             ),
             "decoding error at offset 100 (path: /city/names/en): unexpected type".to_owned(),
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                MaxMindDbError::resource_limit_at("too many values", 100)
+            ),
+            "resource limit exceeded at offset 100: too many values".to_owned(),
         );
 
         let net_err = IpNetworkError::InvalidPrefix;
