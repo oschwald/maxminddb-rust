@@ -7,6 +7,8 @@
   CPU and memory use. Decoding now limits the number of values and the amount
   of string and byte data expanded in a single operation. Operations that
   exceed these limits return `MaxMindDbError::ResourceLimit`.
+- Limited subdivision lists in the built-in City and Enterprise types to 32
+  entries to prevent excessive allocation from untrusted data.
 
 ## 0.30.3 - 2026-08-23
 

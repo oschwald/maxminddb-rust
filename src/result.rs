@@ -199,6 +199,12 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// application's schema. A collection with a small semantic maximum should
     /// enforce it in its `Deserialize` implementation or a Serde
     /// `deserialize_with` visitor, before allocating or consuming its elements.
+    /// The built-in [`crate::geoip2::City`] and [`crate::geoip2::Enterprise`]
+    /// schemas cap their subdivision lists at
+    /// [`crate::geoip2::MAX_SUBDIVISIONS`] in every Serde format. An otherwise
+    /// valid oversized MMDB list that reaches the schema visitor returns
+    /// [`MaxMindDbError::Decoding`]; malformed data and decoder-wide limits may
+    /// fail earlier with their corresponding error variants.
     /// Custom deserializers that bypass Serde's map and sequence entry points
     /// remain responsible for bounding their own traversal over untrusted data.
     ///

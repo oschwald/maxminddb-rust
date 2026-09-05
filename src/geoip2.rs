@@ -55,7 +55,94 @@
 //! # }
 //! ```
 
-use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::marker::PhantomData;
+
+use serde::de::{IgnoredAny, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
+
+/// Maximum number of subdivisions accepted while deserializing the built-in
+/// City and Enterprise schemas.
+///
+/// Geographic records ordinarily contain only a small administrative
+/// hierarchy. This input constraint applies to every Serde format, not only
+/// MaxMind DB. The record fields remain public `Vec`s, so callers may still
+/// construct and serialize a value above the limit; deserializing it again will
+/// fail. Custom schemas should likewise apply a semantic limit to collection
+/// fields when decoding data that is not trusted.
+///
+/// An otherwise valid oversized MMDB list that reaches this visitor is reported
+/// as [`crate::MaxMindDbError::Decoding`]. Malformed input may instead produce
+/// [`crate::MaxMindDbError::InvalidDatabase`], and decoder-wide limits reported
+/// as [`crate::MaxMindDbError::ResourceLimit`] take precedence. Other Serde
+/// formats report their own deserializer error type.
+pub const MAX_SUBDIVISIONS: usize = 32;
+
+#[cold]
+fn subdivisions_too_long<E>() -> E
+where
+    E: serde::de::Error,
+{
+    E::custom(format_args!(
+        "subdivisions exceeds maximum length of {MAX_SUBDIVISIONS}"
+    ))
+}
+
+#[inline(always)]
+fn deserialize_subdivisions<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    struct SubdivisionsVisitor<T>(PhantomData<T>);
+
+    impl<'de, T> Visitor<'de> for SubdivisionsVisitor<T>
+    where
+        T: Deserialize<'de>,
+    {
+        type Value = Vec<T>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            write!(
+                formatter,
+                "an array containing at most {MAX_SUBDIVISIONS} subdivisions"
+            )
+        }
+
+        #[inline(always)]
+        fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            if let Some(size) = sequence.size_hint() {
+                if size > MAX_SUBDIVISIONS {
+                    return Err(subdivisions_too_long());
+                }
+
+                let mut subdivisions = Vec::with_capacity(size);
+                while let Some(subdivision) = sequence.next_element()? {
+                    subdivisions.push(subdivision);
+                }
+                return Ok(subdivisions);
+            }
+
+            let mut subdivisions = Vec::new();
+            while subdivisions.len() < MAX_SUBDIVISIONS {
+                let Some(subdivision) = sequence.next_element()? else {
+                    return Ok(subdivisions);
+                };
+                subdivisions.push(subdivision);
+            }
+
+            if sequence.next_element::<IgnoredAny>()?.is_some() {
+                return Err(subdivisions_too_long());
+            }
+            Ok(subdivisions)
+        }
+    }
+
+    deserializer.deserialize_seq(SubdivisionsVisitor(PhantomData))
+}
 
 /// Localized names for geographic entities.
 ///
@@ -198,7 +285,14 @@ pub struct City<'a> {
     pub represented_country: city::RepresentedCountry<'a>,
     /// Subdivisions (states, provinces, etc.) ordered from largest to smallest.
     /// For example, Oxford, UK would have England first, then Oxfordshire.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Deserialization through any Serde format accepts at most
+    /// [`MAX_SUBDIVISIONS`] entries.
+    #[serde(
+        borrow,
+        default,
+        deserialize_with = "deserialize_subdivisions",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub subdivisions: Vec<city::Subdivision<'a>>,
     /// Various traits associated with the IP address.
     #[serde(default, skip_serializing_if = "city::Traits::is_empty")]
@@ -237,7 +331,14 @@ pub struct Enterprise<'a> {
     )]
     pub represented_country: enterprise::RepresentedCountry<'a>,
     /// Subdivisions with confidence scores, ordered from largest to smallest.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Deserialization through any Serde format accepts at most
+    /// [`MAX_SUBDIVISIONS`] entries.
+    #[serde(
+        borrow,
+        default,
+        deserialize_with = "deserialize_subdivisions",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub subdivisions: Vec<enterprise::Subdivision<'a>>,
     /// Extended traits including ISP, organization, and connection information.
     #[serde(default, skip_serializing_if = "enterprise::Traits::is_empty")]
@@ -693,4 +794,126 @@ pub mod enterprise {
     }
 
     impl_is_empty_via_default!(Traits<'_>);
+}
+
+#[cfg(test)]
+mod tests {
+    use serde::de::value::{Error as ValueError, SeqDeserializer, U8Deserializer};
+    use serde::Deserialize;
+
+    use super::{deserialize_subdivisions, City, Enterprise, MAX_SUBDIVISIONS};
+    use crate::{decoder::Decoder, MaxMindDbError};
+
+    fn record_with_declared_subdivisions(declared_count: usize, encoded_count: usize) -> Vec<u8> {
+        assert!((29..=284).contains(&declared_count));
+        assert!(encoded_count <= declared_count);
+
+        let mut encoded = vec![0xe1, 0x4c]; // one-entry map, 12-byte key
+        encoded.extend_from_slice(b"subdivisions");
+        encoded.extend_from_slice(&[0x1d, 0x04, (declared_count - 29) as u8]);
+        encoded.resize(encoded.len() + encoded_count, 0xe0); // empty subdivision maps
+        encoded
+    }
+
+    fn record_with_subdivisions(count: usize) -> Vec<u8> {
+        record_with_declared_subdivisions(count, count)
+    }
+
+    struct UnknownSize<I>(I);
+
+    impl<I> Iterator for UnknownSize<I>
+    where
+        I: Iterator,
+    {
+        type Item = I::Item;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            self.0.next()
+        }
+
+        fn size_hint(&self) -> (usize, Option<usize>) {
+            (0, None)
+        }
+    }
+
+    fn subdivisions_without_size_hint(count: usize) -> Result<Vec<u8>, ValueError> {
+        let values = (0..count).map(|_| U8Deserializer::<ValueError>::new(0));
+        deserialize_subdivisions(SeqDeserializer::new(UnknownSize(values)))
+    }
+
+    #[test]
+    fn city_accepts_maximum_subdivisions() {
+        let encoded = record_with_subdivisions(MAX_SUBDIVISIONS);
+        let city = City::deserialize(&mut Decoder::new(&encoded, 0)).unwrap();
+
+        assert_eq!(city.subdivisions.len(), MAX_SUBDIVISIONS);
+    }
+
+    #[test]
+    fn city_rejects_excessive_subdivisions() {
+        let encoded = record_with_subdivisions(MAX_SUBDIVISIONS + 1);
+        let err = City::deserialize(&mut Decoder::new(&encoded, 0)).unwrap_err();
+
+        assert!(matches!(err, MaxMindDbError::Decoding { .. }));
+        assert!(err
+            .to_string()
+            .contains("subdivisions exceeds maximum length of 32"));
+    }
+
+    #[test]
+    fn enterprise_rejects_excessive_subdivisions() {
+        let encoded = record_with_subdivisions(MAX_SUBDIVISIONS + 1);
+        let err = Enterprise::deserialize(&mut Decoder::new(&encoded, 0)).unwrap_err();
+
+        assert!(matches!(err, MaxMindDbError::Decoding { .. }));
+        assert!(err
+            .to_string()
+            .contains("subdivisions exceeds maximum length of 32"));
+    }
+
+    #[test]
+    fn subdivision_limit_does_not_depend_on_a_size_hint() {
+        let subdivisions = subdivisions_without_size_hint(MAX_SUBDIVISIONS).unwrap();
+        assert_eq!(subdivisions.len(), MAX_SUBDIVISIONS);
+
+        let err = subdivisions_without_size_hint(MAX_SUBDIVISIONS + 1).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("subdivisions exceeds maximum length of 32"));
+    }
+
+    #[test]
+    fn city_json_deserialization_enforces_subdivision_limit() {
+        let mut city = City::default();
+        city.subdivisions
+            .resize_with(MAX_SUBDIVISIONS, Default::default);
+        let json = serde_json::to_string(&city).unwrap();
+        let decoded = serde_json::from_str::<City<'_>>(&json).unwrap();
+        assert_eq!(decoded.subdivisions.len(), MAX_SUBDIVISIONS);
+
+        city.subdivisions.push(Default::default());
+        let json = serde_json::to_string(&city).unwrap();
+        let err = serde_json::from_str::<City<'_>>(&json).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("subdivisions exceeds maximum length of 32"));
+    }
+
+    #[test]
+    fn city_rejects_truncated_oversized_subdivisions() {
+        let encoded = record_with_declared_subdivisions(MAX_SUBDIVISIONS + 1, 1);
+        let err = City::deserialize(&mut Decoder::new(&encoded, 0)).unwrap_err();
+
+        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+        assert!(err.to_string().contains("unexpected end of buffer"));
+    }
+
+    #[test]
+    fn enterprise_rejects_truncated_oversized_subdivisions() {
+        let encoded = record_with_declared_subdivisions(MAX_SUBDIVISIONS + 1, 1);
+        let err = Enterprise::deserialize(&mut Decoder::new(&encoded, 0)).unwrap_err();
+
+        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+        assert!(err.to_string().contains("unexpected end of buffer"));
+    }
 }
