@@ -1207,6 +1207,27 @@ fn test_verify_good_databases() {
     }
 }
 
+#[test]
+fn test_verify_rejects_invalid_pointer_in_unknown_metadata_field() {
+    let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
+    let original = Reader::open_readfile(source_path).unwrap();
+    let metadata_start = original.metadata_start;
+    let mut bytes = std::fs::read(source_path).unwrap();
+
+    assert_eq!(bytes[metadata_start], 0xe9, "unexpected metadata map size");
+    bytes[metadata_start] = 0xea; // add one map entry
+    bytes.push(0x47); // seven-byte string key
+    bytes.extend_from_slice(b"unknown");
+    bytes.extend_from_slice(&[0x20, 0xff]); // pointer beyond the metadata buffer
+
+    // Typed metadata parsing skips the unknown value without following its
+    // pointer, so normal reader construction remains lazy.
+    let reader = Reader::from_source(bytes).unwrap();
+    let err = reader.verify().unwrap_err();
+
+    assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+}
+
 /// Test that verify() returns errors on broken databases (matching Go's TestVerifyOnBrokenDatabases)
 #[test]
 fn test_verify_broken_double_format() {
