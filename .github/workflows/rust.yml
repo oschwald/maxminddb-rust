@@ -97,3 +97,6 @@ jobs:
 
       - name: Run cargo clippy
         run: cargo clippy --all-targets --features mmap,simdutf8 -- -D warnings
+
+      - name: Test release helpers
+        run: bash dev-bin/release-lib-test.sh
