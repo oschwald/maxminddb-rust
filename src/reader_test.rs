@@ -21,6 +21,42 @@ fn open_test_data_reader(database: &str) -> Reader<Vec<u8>> {
         .unwrap_or_else(|e| panic!("failed to open test database '{database}': {e}"))
 }
 
+#[derive(Debug)]
+struct OwnedBytes(Vec<u8>);
+
+impl<'de> Deserialize<'de> for OwnedBytes {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct OwnedBytesVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for OwnedBytesVisitor {
+            type Value = OwnedBytes;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a bytes value")
+            }
+
+            fn visit_borrowed_bytes<E>(self, value: &'de [u8]) -> Result<Self::Value, E> {
+                Ok(OwnedBytes(value.to_vec()))
+            }
+
+            fn visit_bytes<E>(self, value: &[u8]) -> Result<Self::Value, E> {
+                Ok(OwnedBytes(value.to_vec()))
+            }
+
+            fn visit_byte_buf<E>(self, value: Vec<u8>) -> Result<Self::Value, E> {
+                Ok(OwnedBytes(value))
+            }
+        }
+
+        // Enter through `deserialize_any`, which is the dynamically shaped
+        // boundary protected by the decoder's expansion budget.
+        deserializer.deserialize_any(OwnedBytesVisitor)
+    }
+}
+
 fn collect_networks<S: AsRef<[u8]>>(iter: Within<'_, S>) -> Vec<String> {
     iter.map(|result| {
         result
@@ -1549,4 +1585,197 @@ fn test_verify_follows_and_rejects_invalid_data_pointers() {
     let err = reader.verify().unwrap_err();
     assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
     assert!(err.to_string().contains("unexpected end of buffer"));
+}
+
+#[test]
+fn test_pointer_fan_out_is_rejected() {
+    init_logger();
+
+    // A data section of nested arrays, each holding two pointers to the node
+    // below, would cost 2**depth decode operations. The decoder bounds the
+    // number of values it decodes for a single record and rejects decoding the
+    // record.
+    let reader = open_test_data_reader("MaxMind-DB-test-pointer-decoder-dos.mmdb");
+    let ip = "1.2.3.4".parse().unwrap();
+    let result: Result<Option<serde_json::Value>, _> = reader.lookup(ip).unwrap().decode();
+    match result {
+        Ok(_) => panic!("expected the fan-out record decode to be rejected"),
+        Err(e) => assert!(
+            matches!(&e, MaxMindDbError::ResourceLimit { message, .. }
+                if message.contains("maximum number of data structure values")),
+            "unexpected error: {e}"
+        ),
+    }
+}
+
+#[test]
+fn test_payload_amplification_is_rejected() {
+    init_logger();
+
+    // Each bytes fixture aims many pointers at one large value. `OwnedBytes`
+    // enters through deserialize_any before copying, so materializing the
+    // pointed-to bytes must trip the dynamic payload budget well before the
+    // value-count budget.
+    for database in [
+        "MaxMind-DB-test-payload-amplification-dos.mmdb",
+        "MaxMind-DB-test-payload-amplification-dos-worst-case.mmdb",
+    ] {
+        let reader = open_test_data_reader(database);
+        let ip = "1.2.3.4".parse().unwrap();
+        let result: Result<Option<Vec<OwnedBytes>>, _> = reader.lookup(ip).unwrap().decode();
+        assert!(
+            matches!(&result, Err(MaxMindDbError::ResourceLimit { message, .. })
+                if message.contains("maximum size of data structure string and bytes")),
+            "unexpected result for {database}: {result:?}"
+        );
+    }
+
+    // The UTF-8 string variant also trips the budget when materialized into an
+    // owned dynamic value, the shape a real consumer copies into.
+    let reader = open_test_data_reader("MaxMind-DB-test-payload-amplification-dos-string.mmdb");
+    let ip = "1.2.3.4".parse().unwrap();
+    let result: Result<Option<serde_json::Value>, _> = reader.lookup(ip).unwrap().decode();
+    assert!(
+        matches!(&result, Err(MaxMindDbError::ResourceLimit { message, .. })
+            if message.contains("maximum size of data structure string and bytes")),
+        "unexpected result for string fixture into Value: {result:?}"
+    );
+
+    // Concrete collection decoding enters through deserialize_seq rather than
+    // deserialize_any and receives the same aggregate payload protection.
+    let result: Result<Option<Vec<String>>, _> = reader.lookup(ip).unwrap().decode();
+    assert!(
+        matches!(&result, Err(MaxMindDbError::ResourceLimit { message, .. })
+            if message.contains("maximum size of data structure string and bytes")),
+        "unexpected result for string fixture into Vec<String>: {result:?}"
+    );
+
+    // A normal record still decodes into a generic value.
+    let reader = open_test_data_reader("GeoIP2-City-Test.mmdb");
+    let ip = "89.160.20.128".parse().unwrap();
+    let value: Option<serde_json::Value> = reader
+        .lookup(ip)
+        .unwrap()
+        .decode()
+        .expect("normal record should decode");
+    assert!(value.is_some(), "expected a record for the test address");
+}
+
+#[test]
+fn test_decoder_resource_limit_boundaries() {
+    let ip = "1.2.3.4".parse().unwrap();
+
+    for database in [
+        "MaxMind-DB-test-decoder-value-limit.mmdb",
+        "MaxMind-DB-test-decoder-value-limit-pointer-heavy.mmdb",
+    ] {
+        let reader = open_test_data_reader(database);
+        let result: Result<Option<serde_json::Value>, _> = reader.lookup(ip).unwrap().decode();
+        assert!(
+            result.is_ok(),
+            "expected {database} to be accepted: {result:?}"
+        );
+    }
+
+    let reader = open_test_data_reader("MaxMind-DB-test-decoder-value-limit-over.mmdb");
+    let lookup = reader.lookup(ip).unwrap();
+    let result: Result<Option<serde_json::Value>, _> = lookup.decode();
+    assert!(
+        matches!(&result, Err(MaxMindDbError::ResourceLimit { message, .. })
+            if message.contains("maximum number of data structure values")),
+        "unexpected result above the value limit: {result:?}"
+    );
+
+    let path_result: Result<Option<serde_json::Value>, _> = lookup.decode_path(&[]);
+    assert!(
+        matches!(&path_result, Err(MaxMindDbError::ResourceLimit { message, .. })
+            if message.contains("maximum number of data structure values")),
+        "unexpected decode_path result above the value limit: {path_result:?}"
+    );
+
+    let reader = open_test_data_reader("MaxMind-DB-test-decoder-payload-limit.mmdb");
+    let result: Result<Option<Vec<OwnedBytes>>, _> = reader.lookup(ip).unwrap().decode();
+    let values = result
+        .expect("expected exact payload limit to be accepted")
+        .expect("expected a record at the test address");
+    assert_eq!(
+        values.iter().map(|value| value.0.len()).sum::<usize>(),
+        2 << 20
+    );
+
+    let reader = open_test_data_reader("MaxMind-DB-test-decoder-payload-limit-over.mmdb");
+    let result: Result<Option<Vec<OwnedBytes>>, _> = reader.lookup(ip).unwrap().decode();
+    assert!(
+        matches!(&result, Err(MaxMindDbError::ResourceLimit { message, .. })
+            if message.contains("maximum size of data structure string and bytes")),
+        "unexpected result above the payload limit: {result:?}"
+    );
+}
+
+#[test]
+fn test_decode_path_navigation_and_value_share_payload_budget() {
+    let reader = open_test_data_reader("MaxMind-DB-test-decode-path-shared-budget.mmdb");
+    let lookup = reader.lookup("1.2.3.4".parse().unwrap()).unwrap();
+    let err = lookup
+        .decode_path::<String>(&[crate::PathElement::Key("target")])
+        .unwrap_err();
+
+    assert!(
+        matches!(
+            &err,
+            MaxMindDbError::ResourceLimit {
+                message,
+                path: Some(path),
+                ..
+            } if message.contains("maximum size of data structure string and bytes")
+                && path == "/target"
+        ),
+        "unexpected cumulative decode_path result: {err}"
+    );
+}
+
+#[test]
+fn test_decode_path_navigation_shares_logical_value_budget_across_hops() {
+    let mut reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
+    let ip = "1.1.1.1".parse().unwrap();
+    let data_offset = reader.lookup(ip).unwrap().offset().unwrap();
+    let record_start = reader.pointer_base + data_offset;
+
+    // Replace the record with two nested arrays that each declare 32,768
+    // children. Either declaration fits independently, but their cumulative
+    // reservations plus the top-level value exceed the 65,536-value budget by
+    // one. The second header is reached through a real, nonempty path.
+    let array_header = [0x1e, 0x04, 0x7e, 0xe3];
+    reader.buf[record_start..record_start + 4].copy_from_slice(&array_header);
+    reader.buf[record_start + 4..record_start + 8].copy_from_slice(&array_header);
+
+    let err = reader
+        .lookup(ip)
+        .unwrap()
+        .decode_path::<u16>(&[crate::PathElement::Index(0), crate::PathElement::Index(0)])
+        .unwrap_err();
+
+    assert!(
+        matches!(
+            &err,
+            MaxMindDbError::ResourceLimit {
+                message,
+                path: Some(path),
+                ..
+            } if message.contains("maximum number of data structure values")
+                && path == "/0/0"
+        ),
+        "unexpected cumulative decode_path result: {err}"
+    );
+}
+
+#[test]
+fn test_metadata_payload_amplification_is_rejected() {
+    let result =
+        Reader::open_readfile("test-data/test-data/MaxMind-DB-test-metadata-payload-limit.mmdb");
+    assert!(
+        matches!(&result, Err(MaxMindDbError::ResourceLimit { message, .. })
+            if message.contains("maximum size of data structure string and bytes")),
+        "unexpected metadata amplification result: {result:?}"
+    );
 }

@@ -1,5 +1,13 @@
 # Change Log
 
+## 0.31.0
+
+- Fixed a denial-of-service issue when decoding records or metadata. A
+  crafted database could repeatedly reference shared data, causing excessive
+  CPU and memory use. Decoding now limits the number of values and the amount
+  of string and byte data expanded in a single operation. Operations that
+  exceed these limits return `MaxMindDbError::ResourceLimit`.
+
 ## 0.30.3 - 2026-08-23
 
 - Fixed typed decoding of malformed overflowing extended types to consistently
