@@ -80,6 +80,25 @@ fn to_usize(base: u8, bytes: &[u8]) -> usize {
         .fold(base as usize, |acc, &b| (acc << 8) | b as usize)
 }
 
+#[cfg(not(feature = "unsafe-str-decode"))]
+#[inline]
+fn is_ascii(bytes: &[u8]) -> bool {
+    // Overlapping word reads cover short strings without a byte-by-byte tail.
+    match bytes.len() {
+        4..=7 => {
+            let first = u32::from_ne_bytes(bytes[..4].try_into().unwrap());
+            let last = u32::from_ne_bytes(bytes[bytes.len() - 4..].try_into().unwrap());
+            (first | last) & 0x8080_8080 == 0
+        }
+        8..=16 => {
+            let first = u64::from_ne_bytes(bytes[..8].try_into().unwrap());
+            let last = u64::from_ne_bytes(bytes[bytes.len() - 8..].try_into().unwrap());
+            (first | last) & 0x8080_8080_8080_8080 == 0
+        }
+        _ => bytes.is_ascii(),
+    }
+}
+
 macro_rules! decode_int_like {
     ($name:ident, $ty:ty, $max_size:expr, $label:literal, $zero:expr) => {
         fn $name(&mut self, size: usize) -> DecodeResult<$ty> {
@@ -677,6 +696,7 @@ impl<'de> Decoder<'de> {
     }
 
     #[cfg(feature = "unsafe-str-decode")]
+    #[inline(always)]
     fn decode_string(&mut self, size: usize) -> DecodeResult<&'de str> {
         use std::str::from_utf8_unchecked;
 
@@ -693,6 +713,7 @@ impl<'de> Decoder<'de> {
     }
 
     #[cfg(not(feature = "unsafe-str-decode"))]
+    #[inline(always)]
     fn decode_string(&mut self, size: usize) -> DecodeResult<&'de str> {
         #[cfg(feature = "simdutf8")]
         use simdutf8::basic::from_utf8;
@@ -703,7 +724,7 @@ impl<'de> Decoder<'de> {
         let new_offset = self.checked_offset(size, "string")?;
         let bytes = self.slice(self.current_ptr, new_offset);
         self.current_ptr = new_offset;
-        if bytes.is_ascii() {
+        if is_ascii(bytes) {
             // ASCII is valid UTF-8, so this avoids the full validator fast path.
             // SAFETY: `is_ascii()` guarantees UTF-8 validity.
             let v = unsafe { from_utf8_unchecked(bytes) };
@@ -2159,6 +2180,28 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+    }
+
+    #[cfg(not(feature = "unsafe-str-decode"))]
+    #[test]
+    fn ascii_check_covers_every_byte_at_word_boundaries() {
+        for len in 0..=80 {
+            let mut storage = vec![0x7f; len + 7];
+            for offset in 0..8 {
+                let bytes = &mut storage[offset..offset + len];
+                assert!(super::is_ascii(bytes));
+                for index in 0..len {
+                    for byte in 0x80..=0xff {
+                        bytes[index] = byte;
+                        assert!(
+                            !super::is_ascii(bytes),
+                            "accepted non-ASCII byte {byte} at index {index}, length {len}, offset {offset}"
+                        );
+                    }
+                    bytes[index] = 0x7f;
+                }
+            }
+        }
     }
 
     #[test]

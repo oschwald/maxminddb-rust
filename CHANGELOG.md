@@ -10,6 +10,8 @@
 - Limited subdivision lists in the built-in City and Enterprise types to 32
   entries to prevent excessive allocation from untrusted data.
 - `Reader::verify()` now checks data referenced by unknown metadata fields.
+- Improved record decoding performance by accelerating short ASCII string
+  validation and inlining decoding entry points.
 
 ## 0.30.3 - 2026-08-23
 

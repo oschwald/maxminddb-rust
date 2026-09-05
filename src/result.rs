@@ -223,6 +223,7 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// }
     /// # Ok::<(), maxminddb::MaxMindDbError>(())
     /// ```
+    #[inline]
     pub fn decode<T>(&self) -> Result<Option<T>, MaxMindDbError>
     where
         T: Deserialize<'a>,
