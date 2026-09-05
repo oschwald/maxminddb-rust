@@ -605,7 +605,11 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// Note: Verification traverses the entire database and retains visited data
     /// offsets for the duration of the call. It may be slow and use memory
     /// proportional to the number of distinct referenced values on large files.
-    /// Verification validates each shared target once. Later deserialization
+    /// Verification validates each shared target once. For each metadata or
+    /// data section, it permits up to eight times the section's byte length in
+    /// work units: one per visited value and one per string byte validated.
+    /// Exceeding this allowance returns [`MaxMindDbError::ResourceLimit`],
+    /// bounding repeated scans of overlapping payloads. Later deserialization
     /// independently applies the per-operation container and payload limits
     /// documented on [`crate::LookupResult::decode()`]. The method is
     /// thread-safe and can be called on an active Reader.
@@ -636,7 +640,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let metadata_bytes = &self.buf.as_ref()[metadata_start..];
         let mut decoder = decoder::Decoder::new(metadata_bytes, 0);
         decoder
-            .skip_value_for_verification(&mut decoder::VerificationState::default())
+            .skip_value_for_verification(&mut decoder::VerificationState::new(metadata_bytes.len()))
             .map_err(|error| error.with_invalid_database_offset_base(metadata_start))?;
 
         let m = &self.metadata;
@@ -718,7 +722,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         data_section_end: usize,
     ) -> Result<(), MaxMindDbError> {
         let data_section = &self.buf.as_ref()[self.pointer_base..data_section_end];
-        let mut verification_state = decoder::VerificationState::default();
+        let mut verification_state = decoder::VerificationState::new(data_section.len());
 
         // Verify each offset from the search tree points to valid, decodable data
         for &offset in &offsets {

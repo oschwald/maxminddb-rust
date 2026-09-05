@@ -10,6 +10,9 @@
 - Limited subdivision lists in the built-in City and Enterprise types to 32
   entries to prevent excessive allocation from untrusted data.
 - `Reader::verify()` now checks data referenced by unknown metadata fields.
+- Limited the work performed by `Reader::verify()` to prevent excessive CPU
+  use from databases with overlapping string payloads. Verification returns
+  `MaxMindDbError::ResourceLimit` when this limit is exceeded.
 - Improved record decoding performance by accelerating short ASCII string
   validation and inlining decoding entry points.
 

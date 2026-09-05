@@ -1273,6 +1273,89 @@ fn test_verify_rejects_invalid_pointer_in_unknown_metadata_field() {
 }
 
 #[test]
+fn test_verify_bounds_overlapping_strings_in_unknown_metadata() {
+    let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
+    let original = Reader::open_readfile(source_path).unwrap();
+    let metadata_start = original.metadata_start;
+    let mut bytes = std::fs::read(source_path).unwrap();
+    assert_eq!(bytes[metadata_start], 0xe9);
+    bytes[metadata_start] = 0xea;
+    bytes.push(0x47);
+    bytes.extend_from_slice(b"unknown");
+    bytes.extend_from_slice(&four_byte_pointer(bytes.len() + 5 - metadata_start));
+
+    const COUNT: usize = 64;
+    bytes.extend_from_slice(&[0x1d, 0x04, (COUNT - 29) as u8]);
+    let strings_offset = bytes.len() + COUNT * 5 - metadata_start;
+    for index in 0..COUNT {
+        bytes.extend_from_slice(&four_byte_pointer(strings_offset + index * 4));
+    }
+    // String headers are valid ASCII within the overlapping payloads. A
+    // roughly 133 KiB file would otherwise require over 8 MiB of UTF-8 scans.
+    for _ in 0..COUNT {
+        bytes.extend_from_slice(&[0x5f, 0x01, 0x00, 0x00]);
+    }
+    bytes.resize(bytes.len() + 65_821 + 65_536, b'a');
+
+    let reader = Reader::from_source(bytes).unwrap();
+    let err = reader.verify().unwrap_err();
+    assert!(matches!(
+        err,
+        MaxMindDbError::ResourceLimit { message, offset: Some(offset), path: None }
+            if message == "exceeded maximum verification work"
+                && offset == strings_offset + 8 * 4 + 4
+    ));
+}
+
+#[test]
+fn test_verify_shares_work_allowance_across_data_roots() {
+    let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
+    let source = std::fs::read(source_path).unwrap();
+    let original = Reader::from_source(source.as_slice()).unwrap();
+    assert_eq!(original.metadata().record_size, 24);
+    let node_count = original.metadata().node_count as usize;
+
+    const ROOT_COUNT: usize = 16;
+    let make_reader = |distinct_roots: usize| {
+        let mut bytes = source[..original.pointer_base].to_vec();
+        let mut leaf_count = 0;
+        for record in bytes[..node_count * 6].as_chunks_mut::<3>().0 {
+            let pointer = u32::from_be_bytes([0, record[0], record[1], record[2]]) as usize;
+            if pointer >= node_count {
+                // Preserve the tree, redirecting both empty and data leaves
+                // to the overlapping string headers in the new data section.
+                let offset = (leaf_count % distinct_roots) * 4;
+                let target = u32::try_from(node_count + 16 + offset).unwrap();
+                assert!(target <= 0x00ff_ffff);
+                record.copy_from_slice(&target.to_be_bytes()[1..]);
+                leaf_count += 1;
+            }
+        }
+        assert!(leaf_count >= ROOT_COUNT);
+
+        // Each string has a 131,357-byte payload, and its header is valid
+        // ASCII inside earlier strings. Nine scans exceed the allowance for
+        // this data section, including all headers and the trailing payload.
+        for _ in 0..ROOT_COUNT {
+            bytes.extend_from_slice(&[0x5f, 0x01, 0x00, 0x00]);
+        }
+        bytes.resize(bytes.len() + 65_821 + 65_536, b'a');
+        bytes.extend_from_slice(&source[original.pointer_base + original.data_section_len..]);
+        Reader::from_source(bytes).unwrap()
+    };
+
+    // Repeated references to one root fit because verification caches it.
+    make_reader(1).verify().unwrap();
+    let err = make_reader(ROOT_COUNT).verify().unwrap_err();
+    // Root iteration uses a HashSet, so the failing offset is unspecified.
+    assert!(matches!(
+        err,
+        MaxMindDbError::ResourceLimit { message, .. }
+            if message == "exceeded maximum verification work"
+    ));
+}
+
+#[test]
 fn test_from_source_reports_absolute_metadata_offset() {
     let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
     let original = Reader::open_readfile(source_path).unwrap();

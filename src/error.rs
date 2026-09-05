@@ -50,8 +50,8 @@ pub enum MaxMindDbError {
         path: Option<String>,
     },
 
-    /// Decoding stopped because the requested value exceeded a decoder-wide
-    /// expansion safety limit.
+    /// Decoding or verification stopped because it exceeded an expansion or
+    /// work safety limit.
     ///
     /// This does not necessarily mean that the database is structurally
     /// invalid. Schema-specific limits reported by a custom Serde visitor use

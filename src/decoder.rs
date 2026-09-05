@@ -12,10 +12,12 @@ use serde::de::{
     Visitor,
 };
 use serde::forward_to_deserialize_any;
-use std::collections::HashSet;
 use std::convert::TryInto;
 
 use crate::error::MaxMindDbError;
+
+mod verification;
+pub(crate) use verification::VerificationState;
 
 // MaxMind DB type constants
 const TYPE_EXTENDED: usize = 0;
@@ -181,13 +183,6 @@ pub(crate) struct Decoder<'de> {
     current_ptr: usize,
     state: u32,
     payload_remaining: u32,
-}
-
-/// Tracks data values visited by a single database verification pass.
-#[derive(Debug, Default)]
-pub(crate) struct VerificationState {
-    validated: HashSet<usize>,
-    active: HashSet<usize>,
 }
 
 impl<'de> Decoder<'de> {
@@ -1064,9 +1059,13 @@ impl<'de> Decoder<'de> {
         skip_depth: u16,
         state: &mut VerificationState,
     ) -> DecodeResult<()> {
+        // Charge every visited value, including inline children and pointers
+        // to cached targets, before traversal. Headers take constant work.
+        state.charge(1, self.current_ptr)?;
         match type_num {
             TYPE_STRING => {
                 let end = self.checked_offset(size, "string")?;
+                state.charge(size, self.current_ptr)?;
                 let bytes = self.slice(self.current_ptr, end);
                 self.current_ptr = end;
                 std::str::from_utf8(bytes)
@@ -2176,7 +2175,7 @@ mod tests {
     fn test_skip_value_for_verification_rejects_truncated_pointer_payload() {
         let mut decoder = Decoder::new(&[0x28], 0);
         let err = decoder
-            .skip_value_for_verification(&mut VerificationState::default())
+            .skip_value_for_verification(&mut VerificationState::new(decoder.limit))
             .unwrap_err();
 
         assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
@@ -2221,7 +2220,7 @@ mod tests {
 
             let mut decoder = Decoder::new(&encoded, 0);
             let err = decoder
-                .skip_value_for_verification(&mut VerificationState::default())
+                .skip_value_for_verification(&mut VerificationState::new(decoder.limit))
                 .unwrap_err();
             assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
 
@@ -2733,11 +2732,85 @@ mod tests {
     }
 
     #[test]
+    fn verification_bounds_overlapping_string_scans() {
+        // Each header is also valid ASCII inside preceding string payloads.
+        // Distinct target offsets defeat the exact-target cache.
+        let size = 65_821 + 65_536;
+        let mut buf = [0x5f, 0x01, 0x00, 0x00].repeat(64);
+        buf.resize(buf.len() + size, b'a');
+        let mut state = VerificationState::new(buf.len());
+        let allowance = state.work_remaining;
+        for index in 0..8 {
+            Decoder::new(&buf, index * 4)
+                .skip_value_for_verification(&mut state)
+                .unwrap();
+        }
+        assert_eq!(state.work_remaining, allowance - 8 * (size + 1));
+
+        let mut decoder = Decoder::new(&buf, 8 * 4);
+        let err = decoder.skip_value_for_verification(&mut state).unwrap_err();
+        assert!(matches!(
+            err,
+            MaxMindDbError::ResourceLimit {
+                offset: Some(36),
+                ..
+            }
+        ));
+        // The rejected string was neither scanned nor cached; only its visit
+        // was charged, and its cursor still points to the start of the payload.
+        assert_eq!(state.work_remaining, allowance - 8 * (size + 1) - 1);
+        assert_eq!(decoder.offset(), 36);
+        assert_eq!(state.validated.len(), 8);
+        assert!(state.active.is_empty());
+    }
+
+    #[test]
+    fn verification_bounds_repeated_inline_traversal_across_roots() {
+        let mut buf = [0x01, 0x04].repeat(64); // nested one-element arrays
+        buf.extend_from_slice(&[0x00, 0x07]); // false
+        let mut state = VerificationState::new(buf.len());
+        // Successive roots start inside earlier arrays. Inline children aren't
+        // cached, so even without string scans their repeated visits need a cap.
+        let err = (0..64)
+            .try_for_each(|index| {
+                Decoder::new(&buf, index * 2).skip_value_for_verification(&mut state)
+            })
+            .unwrap_err();
+        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert_eq!(state.work_remaining, 0);
+        assert!(state.active.is_empty());
+    }
+
+    #[test]
+    fn verification_allows_large_nonoverlapping_payloads() {
+        let size = super::MAXIMUM_DATA_STRUCTURE_BYTES + 1;
+        let mut buf = vec![0x5f];
+        buf.extend_from_slice(&((size - 65_821) as u32).to_be_bytes()[1..]);
+        buf.resize(buf.len() + size, b'a');
+        let mut state = VerificationState::new(buf.len());
+        Decoder::new(&buf, 0)
+            .skip_value_for_verification(&mut state)
+            .unwrap();
+    }
+
+    #[test]
+    fn verification_work_allowance_does_not_overflow() {
+        let mut state = VerificationState::new(usize::MAX);
+        assert_eq!(state.work_remaining, usize::MAX);
+        state.charge(usize::MAX, 0).unwrap();
+        assert!(matches!(
+            state.charge(1, 0),
+            Err(MaxMindDbError::ResourceLimit { .. })
+        ));
+        assert_eq!(state.work_remaining, 0);
+    }
+
+    #[test]
     fn test_verification_rejects_invalid_bool_size() {
         // Extended bool type with an invalid size value of two.
         let mut decoder = Decoder::new(&[0x02, 0x07], 0);
         let err = decoder
-            .skip_value_for_verification(&mut VerificationState::default())
+            .skip_value_for_verification(&mut VerificationState::new(decoder.limit))
             .unwrap_err();
 
         assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
@@ -2746,7 +2819,7 @@ mod tests {
     #[test]
     fn test_verification_rejects_and_does_not_cache_invalid_utf8() {
         let buf = [0x41, 0xff];
-        let mut state = VerificationState::default();
+        let mut state = VerificationState::new(buf.len());
 
         for _ in 0..2 {
             let mut decoder = Decoder::new(&buf, 0);
@@ -2790,7 +2863,7 @@ mod tests {
         }
 
         let mut decoder = Decoder::new(&buf, target);
-        let mut state = VerificationState::default();
+        let mut state = VerificationState::new(buf.len());
         decoder.skip_value_for_verification(&mut state).unwrap();
 
         assert_eq!(state.validated.len(), LEVELS + 1);
@@ -2807,7 +2880,7 @@ mod tests {
 
         let mut decoder = Decoder::new(&buf, 0);
         let err = decoder
-            .skip_value_for_verification(&mut VerificationState::default())
+            .skip_value_for_verification(&mut VerificationState::new(decoder.limit))
             .unwrap_err();
 
         assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
