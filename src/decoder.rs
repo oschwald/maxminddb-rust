@@ -142,6 +142,7 @@ macro_rules! deserialize_direct_scalar {
 
 macro_rules! deserialize_direct_payload {
     ($name:ident, $expected_type:expr, $label:literal, $visit:ident, $decode:ident) => {
+        #[cfg_attr(feature = "unsafe-str-decode", inline(always))]
         fn $name<V>(self, visitor: V) -> DecodeResult<V::Value>
         where
             V: Visitor<'de>,
@@ -776,29 +777,41 @@ impl<'de> Decoder<'de> {
     where
         F: FnOnce(&mut Self, usize) -> DecodeResult<T>,
     {
-        match type_num {
+        let (size, continuation) = match type_num {
             TYPE_POINTER => {
                 let new_ptr = self.decode_pointer(size);
                 let saved_ptr = self.current_ptr;
                 self.current_ptr = new_ptr;
                 self.enter_nested()?;
-                let result = (|| {
-                    let (size, type_num) = self.size_and_type()?;
+                let header = self.size_and_type().and_then(|(size, type_num)| {
                     if type_num == TYPE_POINTER {
-                        return Err(self.invalid_db_error("pointer points to another pointer"));
+                        Err(self.invalid_db_error("pointer points to another pointer"))
+                    } else if type_num != expected_type {
+                        Err(self.type_mismatch(label, type_num))
+                    } else {
+                        Ok(size)
                     }
-                    if type_num != expected_type {
-                        return Err(self.type_mismatch(label, type_num));
+                });
+                match header {
+                    Ok(size) => (size, Some(saved_ptr)),
+                    Err(error) => {
+                        self.exit_nested();
+                        self.current_ptr = saved_ptr;
+                        return Err(error);
                     }
-                    decode(self, size)
-                })();
-                self.exit_nested();
-                self.current_ptr = saved_ptr;
-                result
+                }
             }
-            t if t == expected_type => decode(self, size),
-            _ => Err(self.type_mismatch(label, type_num)),
+            t if t == expected_type => (size, None),
+            _ => return Err(self.type_mismatch(label, type_num)),
+        };
+        // One payload call lets visitor code inline without duplicating it
+        // for pointers and inline values.
+        let result = decode(self, size);
+        if let Some(saved_ptr) = continuation {
+            self.exit_nested();
+            self.current_ptr = saved_ptr;
         }
+        result
     }
 
     #[inline(always)]
@@ -2180,6 +2193,32 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(*err, MaxMindDbError::InvalidDatabase { .. }));
+    }
+
+    #[test]
+    fn typed_pointer_errors_restore_continuation_and_depth() {
+        let targets: &[&[u8]] = &[
+            &[],           // Missing target header.
+            &[0x5d],       // Truncated extended string length.
+            &[0xc0],       // Wrong type: uint32 instead of string.
+            &[0x20, 0],    // Pointer to another pointer.
+            &[0x41],       // Truncated string payload.
+            &[0x41, b'x'], // Valid string.
+        ];
+        for &target in targets {
+            let mut buf = vec![0x20, 4, 0xa1, 42];
+            buf.extend_from_slice(target);
+            let mut decoder = Decoder::new(&buf, 0);
+            let result = <&str>::deserialize(&mut decoder);
+            if target == [0x41, b'x'] {
+                assert_eq!(result.unwrap(), "x");
+            } else {
+                assert!(result.is_err());
+            }
+            assert_eq!(decoder.offset(), 2);
+            assert_eq!(decoder.state & super::DEPTH_MASK, 0);
+            assert_eq!(u16::deserialize(&mut decoder).unwrap(), 42);
+        }
     }
 
     #[cfg(not(feature = "unsafe-str-decode"))]
