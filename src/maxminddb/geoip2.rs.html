@@ -854,7 +854,7 @@
 <a href=#854 id=854 data-nosnippet>854</a>        <span class="kw">let </span>encoded = record_with_subdivisions(MAX_SUBDIVISIONS + <span class="number">1</span>);
 <a href=#855 id=855 data-nosnippet>855</a>        <span class="kw">let </span>err = City::deserialize(<span class="kw-2">&amp;mut </span>Decoder::new(<span class="kw-2">&amp;</span>encoded, <span class="number">0</span>)).unwrap_err();
 <a href=#856 id=856 data-nosnippet>856</a>
-<a href=#857 id=857 data-nosnippet>857</a>        <span class="macro">assert!</span>(<span class="macro">matches!</span>(err, MaxMindDbError::Decoding { .. }));
+<a href=#857 id=857 data-nosnippet>857</a>        <span class="macro">assert!</span>(<span class="macro">matches!</span>(<span class="kw-2">*</span>err, MaxMindDbError::Decoding { .. }));
 <a href=#858 id=858 data-nosnippet>858</a>        <span class="macro">assert!</span>(err
 <a href=#859 id=859 data-nosnippet>859</a>            .to_string()
 <a href=#860 id=860 data-nosnippet>860</a>            .contains(<span class="string">"subdivisions exceeds maximum length of 32"</span>));
@@ -865,7 +865,7 @@
 <a href=#865 id=865 data-nosnippet>865</a>        <span class="kw">let </span>encoded = record_with_subdivisions(MAX_SUBDIVISIONS + <span class="number">1</span>);
 <a href=#866 id=866 data-nosnippet>866</a>        <span class="kw">let </span>err = Enterprise::deserialize(<span class="kw-2">&amp;mut </span>Decoder::new(<span class="kw-2">&amp;</span>encoded, <span class="number">0</span>)).unwrap_err();
 <a href=#867 id=867 data-nosnippet>867</a>
-<a href=#868 id=868 data-nosnippet>868</a>        <span class="macro">assert!</span>(<span class="macro">matches!</span>(err, MaxMindDbError::Decoding { .. }));
+<a href=#868 id=868 data-nosnippet>868</a>        <span class="macro">assert!</span>(<span class="macro">matches!</span>(<span class="kw-2">*</span>err, MaxMindDbError::Decoding { .. }));
 <a href=#869 id=869 data-nosnippet>869</a>        <span class="macro">assert!</span>(err
 <a href=#870 id=870 data-nosnippet>870</a>            .to_string()
 <a href=#871 id=871 data-nosnippet>871</a>            .contains(<span class="string">"subdivisions exceeds maximum length of 32"</span>));
@@ -904,7 +904,7 @@
 <a href=#904 id=904 data-nosnippet>904</a>        <span class="kw">let </span>encoded = record_with_declared_subdivisions(MAX_SUBDIVISIONS + <span class="number">1</span>, <span class="number">1</span>);
 <a href=#905 id=905 data-nosnippet>905</a>        <span class="kw">let </span>err = City::deserialize(<span class="kw-2">&amp;mut </span>Decoder::new(<span class="kw-2">&amp;</span>encoded, <span class="number">0</span>)).unwrap_err();
 <a href=#906 id=906 data-nosnippet>906</a>
-<a href=#907 id=907 data-nosnippet>907</a>        <span class="macro">assert!</span>(<span class="macro">matches!</span>(err, MaxMindDbError::InvalidDatabase { .. }));
+<a href=#907 id=907 data-nosnippet>907</a>        <span class="macro">assert!</span>(<span class="macro">matches!</span>(<span class="kw-2">*</span>err, MaxMindDbError::InvalidDatabase { .. }));
 <a href=#908 id=908 data-nosnippet>908</a>        <span class="macro">assert!</span>(err.to_string().contains(<span class="string">"unexpected end of buffer"</span>));
 <a href=#909 id=909 data-nosnippet>909</a>    }
 <a href=#910 id=910 data-nosnippet>910</a>
@@ -913,7 +913,7 @@
 <a href=#913 id=913 data-nosnippet>913</a>        <span class="kw">let </span>encoded = record_with_declared_subdivisions(MAX_SUBDIVISIONS + <span class="number">1</span>, <span class="number">1</span>);
 <a href=#914 id=914 data-nosnippet>914</a>        <span class="kw">let </span>err = Enterprise::deserialize(<span class="kw-2">&amp;mut </span>Decoder::new(<span class="kw-2">&amp;</span>encoded, <span class="number">0</span>)).unwrap_err();
 <a href=#915 id=915 data-nosnippet>915</a>
-<a href=#916 id=916 data-nosnippet>916</a>        <span class="macro">assert!</span>(<span class="macro">matches!</span>(err, MaxMindDbError::InvalidDatabase { .. }));
+<a href=#916 id=916 data-nosnippet>916</a>        <span class="macro">assert!</span>(<span class="macro">matches!</span>(<span class="kw-2">*</span>err, MaxMindDbError::InvalidDatabase { .. }));
 <a href=#917 id=917 data-nosnippet>917</a>        <span class="macro">assert!</span>(err.to_string().contains(<span class="string">"unexpected end of buffer"</span>));
 <a href=#918 id=918 data-nosnippet>918</a>    }
 <a href=#919 id=919 data-nosnippet>919</a>}
