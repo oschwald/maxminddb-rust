@@ -788,7 +788,10 @@ impl<'de> Decoder<'de> {
                 let new_ptr = self.decode_pointer(size);
                 let saved_ptr = self.current_ptr;
                 self.current_ptr = new_ptr;
-                self.enter_nested()?;
+                if let Err(error) = self.enter_nested() {
+                    self.current_ptr = saved_ptr;
+                    return Err(error);
+                }
                 let header = self.size_and_type().and_then(|(size, type_num)| {
                     if type_num == TYPE_POINTER {
                         Err(self.invalid_db_error("pointer points to another pointer"))
@@ -2257,6 +2260,33 @@ mod tests {
             assert_eq!(decoder.state & super::DEPTH_MASK, 0);
             assert_eq!(u16::deserialize(&mut decoder).unwrap(), 42);
         }
+    }
+
+    #[test]
+    fn typed_pointer_depth_limit_restores_continuation() {
+        let buf = [0x20, 4, 0xa1, 42, 0x41, b'x'];
+        let mut decoder = Decoder::new(&buf, 0);
+        for _ in 0..super::MAXIMUM_DATA_STRUCTURE_DEPTH {
+            decoder.enter_nested().unwrap();
+        }
+
+        let error = <&str>::deserialize(&mut decoder).unwrap_err();
+        assert!(matches!(
+            *error,
+            MaxMindDbError::InvalidDatabase {
+                offset: Some(4),
+                ..
+            }
+        ));
+        assert!(error
+            .to_string()
+            .contains("exceeded maximum data structure depth"));
+        assert_eq!(decoder.offset(), 2);
+        assert_eq!(
+            decoder.state & super::DEPTH_MASK,
+            u32::from(super::MAXIMUM_DATA_STRUCTURE_DEPTH)
+        );
+        assert_eq!(u16::deserialize(&mut decoder).unwrap(), 42);
     }
 
     #[cfg(not(feature = "unsafe-str-decode"))]

@@ -9,6 +9,8 @@
 - Improved record decoding performance by reducing internal error storage
   and streamlining pointer and payload decoding. Public error types and
   validation limits are unchanged.
+- Fixed decoder cursor restoration when a typed pointer exceeds the nesting
+  limit.
 
 ## 0.31.0 - 2026-09-07
 
