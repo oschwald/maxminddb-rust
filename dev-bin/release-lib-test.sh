@@ -17,7 +17,7 @@ supported_readme="$release_test_dir/supported.md"
 printf '%s\n' \
     'maxminddb = "0.29"' \
     'maxminddb = { version = "0.30", features = ["mmap"] }' \
-    'maxminddb = { features = ["simdutf8"], version = "0.28" }' \
+    'maxminddb = { features = ["mmap"], version = "0.28" }' \
     'other = { version = "9.99" }' \
     >"$supported_readme"
 

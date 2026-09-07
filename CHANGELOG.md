@@ -1,5 +1,17 @@
 # Change Log
 
+## Unreleased
+
+- Breaking: Removed the `simdutf8` feature and its optional dependency. It did
+  not improve lookup performance in benchmarks using production GeoIP2 City
+  and Country databases. Remove `simdutf8` from dependency feature lists when
+  upgrading.
+- Improved record decoding performance by reducing internal error storage
+  and streamlining pointer and payload decoding. Public error types and
+  validation limits are unchanged.
+- Fixed decoder cursor restoration when a typed pointer exceeds the nesting
+  limit.
+
 ## 0.31.0 - 2026-09-07
 
 - Fixed a denial-of-service issue when decoding records or metadata. A

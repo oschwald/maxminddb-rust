@@ -9,15 +9,11 @@
 //!
 //! - **`mmap`** (default: disabled): Enable memory-mapped file access for
 //!   better performance in long-running applications
-//! - **`simdutf8`** (default: disabled): Use SIMD instructions for faster
-//!   UTF-8 validation during string decoding
 //! - **`unsafe-str-decode`** (default: disabled): Skip UTF-8 validation
 //!   when deserializing trusted database strings into Rust `str` or `String`
 //!   values. Cross-runtime format adapters should prefer
 //!   [`deserialize_any_with_raw_strings()`] and validate while constructing
 //!   the target runtime's string type.
-//!
-//! **Note**: `simdutf8` and `unsafe-str-decode` are mutually exclusive.
 //!
 //! ## Database Compatibility
 //!
@@ -74,9 +70,6 @@
 //! println!("Country: {:?}", country_code);
 //! ```
 
-#[cfg(all(feature = "simdutf8", feature = "unsafe-str-decode"))]
-compile_error!("features `simdutf8` and `unsafe-str-decode` are mutually exclusive");
-
 mod decoder;
 mod error;
 pub mod geoip2;
@@ -110,12 +103,14 @@ pub mod fuzzing {
     where
         T: Deserialize<'de>,
     {
-        T::deserialize(&mut Decoder::new(data, 0))
+        T::deserialize(&mut Decoder::new(data, 0)).map_err(Into::into)
     }
 
     /// Validate one data-section value through the verification decoder.
     pub fn verify(data: &[u8]) -> Result<(), MaxMindDbError> {
-        Decoder::new(data, 0).skip_value_for_verification(&mut VerificationState::new(data.len()))
+        Decoder::new(data, 0)
+            .skip_value_for_verification(&mut VerificationState::new(data.len()))
+            .map_err(Into::into)
     }
 }
 

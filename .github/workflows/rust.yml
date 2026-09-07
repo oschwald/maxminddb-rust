@@ -27,7 +27,7 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
 
       - name: Run cargo check
-        run: cargo check --features mmap,simdutf8
+        run: cargo check --features mmap
 
   test:
     name: Test Suite
@@ -58,8 +58,6 @@ jobs:
         include:
           - platform: ubuntu-latest
             features: mmap
-          - platform: ubuntu-latest
-            features: mmap,simdutf8
           - platform: ubuntu-latest
             features: unsafe-str-decode
           - platform: ubuntu-latest
@@ -96,7 +94,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run cargo clippy
-        run: cargo clippy --all-targets --features mmap,simdutf8 -- -D warnings
+        run: cargo clippy --all-targets --features mmap -- -D warnings
 
       - name: Test release helpers
         run: bash dev-bin/release-lib-test.sh

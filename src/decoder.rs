@@ -75,13 +75,6 @@ const BUDGET_ACTIVE_MASK: u32 = 1 << 27;
 /// not explicitly request, so keep the limit below small default thread stacks.
 const MAXIMUM_SKIPPED_DATA_STRUCTURE_DEPTH: u16 = 128;
 
-#[inline(always)]
-fn to_usize(base: u8, bytes: &[u8]) -> usize {
-    bytes
-        .iter()
-        .fold(base as usize, |acc, &b| (acc << 8) | b as usize)
-}
-
 #[cfg(not(feature = "unsafe-str-decode"))]
 #[inline]
 fn is_ascii(bytes: &[u8]) -> bool {
@@ -142,6 +135,7 @@ macro_rules! deserialize_direct_scalar {
 
 macro_rules! deserialize_direct_payload {
     ($name:ident, $expected_type:expr, $label:literal, $visit:ident, $decode:ident) => {
+        #[cfg_attr(feature = "unsafe-str-decode", inline(always))]
         fn $name<V>(self, visitor: V) -> DecodeResult<V::Value>
         where
             V: Visitor<'de>,
@@ -326,25 +320,25 @@ impl<'de> Decoder<'de> {
 
     /// Create an InvalidDatabase error with current offset context.
     #[inline]
-    fn invalid_db_error(&self, msg: &str) -> MaxMindDbError {
-        MaxMindDbError::invalid_database_at(msg, self.current_ptr)
+    fn invalid_db_error(&self, msg: &str) -> DecoderError {
+        MaxMindDbError::invalid_database_at(msg, self.current_ptr).into()
     }
 
     /// Create a Decoding error with current offset context.
     #[inline]
-    fn decode_error(&self, msg: &str) -> MaxMindDbError {
-        MaxMindDbError::decoding_at(msg, self.current_ptr)
+    fn decode_error(&self, msg: &str) -> DecoderError {
+        MaxMindDbError::decoding_at(msg, self.current_ptr).into()
     }
 
     /// Create a ResourceLimit error with current offset context.
     #[cold]
     #[inline(never)]
-    fn resource_limit_error(&self, msg: &str) -> MaxMindDbError {
-        MaxMindDbError::resource_limit_at(msg, self.current_ptr)
+    fn resource_limit_error(&self, msg: &str) -> DecoderError {
+        MaxMindDbError::resource_limit_at(msg, self.current_ptr).into()
     }
 
     #[inline(always)]
-    fn type_mismatch(&self, label: &str, type_num: usize) -> MaxMindDbError {
+    fn type_mismatch(&self, label: &str, type_num: usize) -> DecoderError {
         if type_num > usize::from(u8::MAX) {
             self.invalid_db_error(&format!("unknown data type: {type_num}"))
         } else {
@@ -459,7 +453,7 @@ impl<'de> Decoder<'de> {
             Value::Bytes(x) => visitor.visit_borrowed_bytes(x),
             Value::String(x) => visitor.visit_borrowed_str(x),
             Value::RawString(x) => {
-                visitor.visit_newtype_struct(BorrowedBytesDeserializer::<MaxMindDbError>::new(x))
+                visitor.visit_newtype_struct(BorrowedBytesDeserializer::<DecoderError>::new(x))
             }
             Value::I32(x) => visitor.visit_i32(x),
             Value::U16(x) => visitor.visit_u16(x),
@@ -664,7 +658,6 @@ impl<'de> Decoder<'de> {
 
     #[inline(always)]
     fn decode_pointer(&mut self, size: usize) -> usize {
-        let pointer_value_offset = [0, 0, 2048, 526_336, 0];
         let pointer_size = ((size >> 3) & 0x3) + 1;
         let p = self.current_ptr;
         let limit = self.limit;
@@ -680,14 +673,28 @@ impl<'de> Decoder<'de> {
         let pointer_bytes = self.slice(p, new_offset);
         self.current_ptr = new_offset;
 
-        let base = if pointer_size == 4 {
-            0
-        } else {
-            (size & 0x7) as u8
-        };
-        let unpacked = to_usize(base, pointer_bytes);
-
-        unpacked + pointer_value_offset[pointer_size]
+        match pointer_size {
+            1 => ((size & 0x7) << 8) | usize::from(pointer_bytes[0]),
+            2 => {
+                (((size & 0x7) << 16)
+                    | (usize::from(pointer_bytes[0]) << 8)
+                    | usize::from(pointer_bytes[1]))
+                    + 2048
+            }
+            3 => {
+                (((size & 0x7) << 24)
+                    | (usize::from(pointer_bytes[0]) << 16)
+                    | (usize::from(pointer_bytes[1]) << 8)
+                    | usize::from(pointer_bytes[2]))
+                    + 526_336
+            }
+            _ => {
+                (usize::from(pointer_bytes[0]) << 24)
+                    | (usize::from(pointer_bytes[1]) << 16)
+                    | (usize::from(pointer_bytes[2]) << 8)
+                    | usize::from(pointer_bytes[3])
+            }
+        }
     }
 
     #[cfg(feature = "unsafe-str-decode")]
@@ -710,9 +717,6 @@ impl<'de> Decoder<'de> {
     #[cfg(not(feature = "unsafe-str-decode"))]
     #[inline(always)]
     fn decode_string(&mut self, size: usize) -> DecodeResult<&'de str> {
-        #[cfg(feature = "simdutf8")]
-        use simdutf8::basic::from_utf8;
-        #[cfg(not(feature = "simdutf8"))]
         use std::str::from_utf8;
         use std::str::from_utf8_unchecked;
 
@@ -779,29 +783,44 @@ impl<'de> Decoder<'de> {
     where
         F: FnOnce(&mut Self, usize) -> DecodeResult<T>,
     {
-        match type_num {
+        let (size, continuation) = match type_num {
             TYPE_POINTER => {
                 let new_ptr = self.decode_pointer(size);
                 let saved_ptr = self.current_ptr;
                 self.current_ptr = new_ptr;
-                self.enter_nested()?;
-                let result = (|| {
-                    let (size, type_num) = self.size_and_type()?;
+                if let Err(error) = self.enter_nested() {
+                    self.current_ptr = saved_ptr;
+                    return Err(error);
+                }
+                let header = self.size_and_type().and_then(|(size, type_num)| {
                     if type_num == TYPE_POINTER {
-                        return Err(self.invalid_db_error("pointer points to another pointer"));
+                        Err(self.invalid_db_error("pointer points to another pointer"))
+                    } else if type_num != expected_type {
+                        Err(self.type_mismatch(label, type_num))
+                    } else {
+                        Ok(size)
                     }
-                    if type_num != expected_type {
-                        return Err(self.type_mismatch(label, type_num));
+                });
+                match header {
+                    Ok(size) => (size, Some(saved_ptr)),
+                    Err(error) => {
+                        self.exit_nested();
+                        self.current_ptr = saved_ptr;
+                        return Err(error);
                     }
-                    decode(self, size)
-                })();
-                self.exit_nested();
-                self.current_ptr = saved_ptr;
-                result
+                }
             }
-            t if t == expected_type => decode(self, size),
-            _ => Err(self.type_mismatch(label, type_num)),
+            t if t == expected_type => (size, None),
+            _ => return Err(self.type_mismatch(label, type_num)),
+        };
+        // One payload call lets visitor code inline without duplicating it
+        // for pointers and inline values.
+        let result = decode(self, size);
+        if let Some(saved_ptr) = continuation {
+            self.exit_nested();
+            self.current_ptr = saved_ptr;
         }
+        result
     }
 
     #[inline(always)]
@@ -1137,7 +1156,11 @@ impl<'de> Decoder<'de> {
     }
 }
 
-pub type DecodeResult<T> = Result<T, MaxMindDbError>;
+// Keep successful scalar and visitor results small by boxing the error.
+// Public reader methods return the original error after decoding finishes.
+pub(crate) type DecoderError = Box<MaxMindDbError>;
+
+pub type DecodeResult<T> = Result<T, DecoderError>;
 
 /// Deserializes any MaxMind DB value while exposing strings as raw bytes.
 ///
@@ -1178,7 +1201,7 @@ where
 }
 
 impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
-    type Error = MaxMindDbError;
+    type Error = DecoderError;
 
     fn deserialize_any<V>(self, visitor: V) -> DecodeResult<V::Value>
     where
@@ -1407,7 +1430,7 @@ struct ArrayAccess<'a, 'de: 'a> {
 // `SeqAccess` is provided to the `Visitor` to give it the ability to iterate
 // through elements of the sequence.
 impl<'de> SeqAccess<'de> for ArrayAccess<'_, 'de> {
-    type Error = MaxMindDbError;
+    type Error = DecoderError;
 
     #[inline(always)]
     fn size_hint(&self) -> Option<usize> {
@@ -1446,7 +1469,7 @@ struct MapAccessor<'a, 'de: 'a, const BUDGETED: bool = false> {
 // `MapAccess` is provided to the `Visitor` to give it the ability to iterate
 // through entries of the map.
 impl<'de, const BUDGETED: bool> MapAccess<'de> for MapAccessor<'_, 'de, BUDGETED> {
-    type Error = MaxMindDbError;
+    type Error = DecoderError;
 
     #[inline(always)]
     fn size_hint(&self) -> Option<usize> {
@@ -1512,7 +1535,7 @@ struct EnumAccessor<'a, 'de: 'a> {
 }
 
 impl<'de> de::EnumAccess<'de> for EnumAccessor<'_, 'de> {
-    type Error = MaxMindDbError;
+    type Error = DecoderError;
     type Variant = Self;
 
     fn variant_seed<V>(self, seed: V) -> DecodeResult<(V::Value, Self::Variant)>
@@ -1526,7 +1549,7 @@ impl<'de> de::EnumAccess<'de> for EnumAccessor<'_, 'de> {
 }
 
 impl<'de> de::VariantAccess<'de> for EnumAccessor<'_, 'de> {
-    type Error = MaxMindDbError;
+    type Error = DecoderError;
 
     fn unit_variant(self) -> DecodeResult<()> {
         Ok(())
@@ -1961,7 +1984,7 @@ mod tests {
             let mut decoder = Decoder::new(&encoded, 0);
             let error = RawValueSeed.deserialize(&mut decoder).unwrap_err();
 
-            assert!(matches!(error, MaxMindDbError::InvalidDatabase { .. }));
+            assert!(matches!(*error, MaxMindDbError::InvalidDatabase { .. }));
             assert!(error.to_string().contains(&format!(
                 "unknown data type: {}",
                 u16::from(extended_type) + 7
@@ -1971,7 +1994,7 @@ mod tests {
             let typed_error =
                 <u32 as serde::Deserialize>::deserialize(&mut typed_decoder).unwrap_err();
             assert!(matches!(
-                typed_error,
+                *typed_error,
                 MaxMindDbError::InvalidDatabase { .. }
             ));
         }
@@ -2178,7 +2201,92 @@ mod tests {
             .skip_value_for_verification(&mut VerificationState::new(decoder.limit))
             .unwrap_err();
 
-        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+        assert!(matches!(*err, MaxMindDbError::InvalidDatabase { .. }));
+    }
+
+    #[test]
+    fn pointer_widths_preserve_offsets_and_decoder_limits() {
+        let cases: &[(usize, &[u8], usize)] = &[
+            (0x00, &[0x00], 0),
+            (0x07, &[0xff], 2_047),
+            (0x08, &[0x00, 0x00], 2_048),
+            (0x0f, &[0xff, 0xff], 526_335),
+            (0x10, &[0x00, 0x00, 0x00], 526_336),
+            (0x10, &[0x01, 0x02, 0x03], 592_387),
+            (0x17, &[0xff, 0xff, 0xff], 134_744_063),
+            (0x18, &[0x00, 0x00, 0x00, 0x00], 0),
+            (0x1f, &[0xff, 0xff, 0xff, 0xff], 4_294_967_295),
+        ];
+        for &(size, payload, target) in cases {
+            let mut buf = vec![0];
+            buf.extend_from_slice(payload);
+            let continuation = buf.len();
+            buf.extend([0xa1, 42]);
+            let mut decoder = Decoder::new(&buf, 1);
+            assert_eq!(decoder.decode_pointer(size), target);
+            assert_eq!(decoder.offset(), continuation);
+            assert_eq!(u16::deserialize(&mut decoder).unwrap(), 42);
+
+            for limit in 1..continuation {
+                let mut decoder = Decoder::new_with_limit(&buf, 1, limit);
+                assert_eq!(decoder.decode_pointer(size), limit);
+                assert_eq!(decoder.offset(), limit);
+                assert!(u16::deserialize(&mut decoder).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn typed_pointer_errors_restore_continuation_and_depth() {
+        let targets: &[&[u8]] = &[
+            &[],           // Missing target header.
+            &[0x5d],       // Truncated extended string length.
+            &[0xc0],       // Wrong type: uint32 instead of string.
+            &[0x20, 0],    // Pointer to another pointer.
+            &[0x41],       // Truncated string payload.
+            &[0x41, b'x'], // Valid string.
+        ];
+        for &target in targets {
+            let mut buf = vec![0x20, 4, 0xa1, 42];
+            buf.extend_from_slice(target);
+            let mut decoder = Decoder::new(&buf, 0);
+            let result = <&str>::deserialize(&mut decoder);
+            if target == [0x41, b'x'] {
+                assert_eq!(result.unwrap(), "x");
+            } else {
+                assert!(result.is_err());
+            }
+            assert_eq!(decoder.offset(), 2);
+            assert_eq!(decoder.state & super::DEPTH_MASK, 0);
+            assert_eq!(u16::deserialize(&mut decoder).unwrap(), 42);
+        }
+    }
+
+    #[test]
+    fn typed_pointer_depth_limit_restores_continuation() {
+        let buf = [0x20, 4, 0xa1, 42, 0x41, b'x'];
+        let mut decoder = Decoder::new(&buf, 0);
+        for _ in 0..super::MAXIMUM_DATA_STRUCTURE_DEPTH {
+            decoder.enter_nested().unwrap();
+        }
+
+        let error = <&str>::deserialize(&mut decoder).unwrap_err();
+        assert!(matches!(
+            *error,
+            MaxMindDbError::InvalidDatabase {
+                offset: Some(4),
+                ..
+            }
+        ));
+        assert!(error
+            .to_string()
+            .contains("exceeded maximum data structure depth"));
+        assert_eq!(decoder.offset(), 2);
+        assert_eq!(
+            decoder.state & super::DEPTH_MASK,
+            u32::from(super::MAXIMUM_DATA_STRUCTURE_DEPTH)
+        );
+        assert_eq!(u16::deserialize(&mut decoder).unwrap(), 42);
     }
 
     #[cfg(not(feature = "unsafe-str-decode"))]
@@ -2222,7 +2330,7 @@ mod tests {
             let err = decoder
                 .skip_value_for_verification(&mut VerificationState::new(decoder.limit))
                 .unwrap_err();
-            assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+            assert!(matches!(*err, MaxMindDbError::InvalidDatabase { .. }));
 
             // Every truncated payload must fail without advancing beyond the
             // header, even when bytes exist outside the decoder's limit.
@@ -2231,7 +2339,7 @@ mod tests {
                     let mut decoder = Decoder::new_with_limit(buf, 0, limit);
                     let err = serde::de::IgnoredAny::deserialize(&mut decoder).unwrap_err();
                     assert!(matches!(
-                        err,
+                        *err,
                         MaxMindDbError::InvalidDatabase { message, offset: Some(1) }
                             if message == format!("pointer of size {pointer_size}")
                     ));
@@ -2247,7 +2355,7 @@ mod tests {
         let mut decoder = Decoder::new(&[0x1d, 0x04, 0xff], 0);
         let err = Vec::<serde::de::IgnoredAny>::deserialize(&mut decoder).unwrap_err();
 
-        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+        assert!(matches!(*err, MaxMindDbError::InvalidDatabase { .. }));
         assert!(err.to_string().contains("unexpected end of buffer"));
     }
 
@@ -2271,7 +2379,7 @@ mod tests {
         let mut decoder = Decoder::new(&[0xfe, 0x7e, 0xe3], 0);
         let err = serde::de::IgnoredAny::deserialize(&mut decoder).unwrap_err();
 
-        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(matches!(*err, MaxMindDbError::ResourceLimit { .. }));
         assert!(err
             .to_string()
             .contains("maximum number of data structure values"));
@@ -2329,7 +2437,10 @@ mod tests {
                 } else {
                     decoder.deserialize_seq(visitor)
                 };
-                assert!(matches!(result, Err(MaxMindDbError::ResourceLimit { .. })));
+                assert!(matches!(
+                    result.map_err(|error| *error),
+                    Err(MaxMindDbError::ResourceLimit { .. })
+                ));
                 assert!(
                     !entered.get(),
                     "visitor entered: map={is_map}, dynamic={dynamic}"
@@ -2347,7 +2458,7 @@ mod tests {
         let err =
             Vec::<crate::geoip2::city::Subdivision<'_>>::deserialize(&mut decoder).unwrap_err();
 
-        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(matches!(*err, MaxMindDbError::ResourceLimit { .. }));
         assert!(err
             .to_string()
             .contains("maximum number of data structure values"));
@@ -2364,7 +2475,7 @@ mod tests {
             std::collections::HashMap::<String, serde::de::IgnoredAny>::deserialize(&mut decoder)
                 .unwrap_err();
 
-        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(matches!(*err, MaxMindDbError::ResourceLimit { .. }));
         assert!(err
             .to_string()
             .contains("maximum number of data structure values"));
@@ -2393,7 +2504,7 @@ mod tests {
         let mut decoder = Decoder::new(&buf, array_offset);
         let err = Vec::<EmptyRecord>::deserialize(&mut decoder).unwrap_err();
 
-        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(matches!(*err, MaxMindDbError::ResourceLimit { .. }));
         assert!(err
             .to_string()
             .contains("maximum number of data structure values"));
@@ -2409,7 +2520,7 @@ mod tests {
         let mut decoder = Decoder::new(&buf, array_offset);
         let err = Vec::<&str>::deserialize(&mut decoder).unwrap_err();
 
-        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(matches!(*err, MaxMindDbError::ResourceLimit { .. }));
         assert!(err
             .to_string()
             .contains("maximum size of data structure string and bytes"));
@@ -2421,7 +2532,7 @@ mod tests {
         let mut decoder = Decoder::new(&buf, array_offset);
         let err = Vec::<OwnedBytes>::deserialize(&mut decoder).unwrap_err();
 
-        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(matches!(*err, MaxMindDbError::ResourceLimit { .. }));
         assert!(err
             .to_string()
             .contains("maximum size of data structure string and bytes"));
@@ -2433,7 +2544,7 @@ mod tests {
         let mut decoder = Decoder::new(&buf, array_offset);
         let err = RawValueSeed.deserialize(&mut decoder).unwrap_err();
 
-        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(matches!(*err, MaxMindDbError::ResourceLimit { .. }));
         assert!(err
             .to_string()
             .contains("maximum size of data structure string and bytes"));
@@ -2489,15 +2600,15 @@ mod tests {
 
         let mut decoder = Decoder::new(&buf, 0);
         let err = serde_json::Value::deserialize(&mut decoder).unwrap_err();
-        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(matches!(*err, MaxMindDbError::ResourceLimit { .. }));
 
         let mut decoder = Decoder::new(&buf, 0);
         let err = RawValueSeed.deserialize(&mut decoder).unwrap_err();
-        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(matches!(*err, MaxMindDbError::ResourceLimit { .. }));
 
         let mut decoder = Decoder::new(&buf, 0);
         let err = StandaloneScalarEnum::deserialize(&mut decoder).unwrap_err();
-        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(matches!(*err, MaxMindDbError::ResourceLimit { .. }));
 
         // A directly requested typed scalar intentionally retains its
         // unbudgeted fast path because one scalar cannot amplify through
@@ -2589,7 +2700,7 @@ mod tests {
         let (buf, map_offset) = pointer_key_map(513);
         let mut decoder = Decoder::new(&buf, map_offset);
         let err = RawValueSeed.deserialize(&mut decoder).unwrap_err();
-        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(matches!(*err, MaxMindDbError::ResourceLimit { .. }));
         assert!(err
             .to_string()
             .contains("maximum size of data structure string and bytes"));
@@ -2611,7 +2722,7 @@ mod tests {
         let (buf, map_offset) = pointer_key_map(513);
         let mut decoder = Decoder::new(&buf, map_offset);
         let err = decoder.deserialize_any(AnyKeyMapVisitor).unwrap_err();
-        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(matches!(*err, MaxMindDbError::ResourceLimit { .. }));
         assert!(err
             .to_string()
             .contains("maximum size of data structure string and bytes"));
@@ -2657,7 +2768,7 @@ mod tests {
         let mut decoder = Decoder::new(&buf, map_offset);
         let err = Flattened::deserialize(&mut decoder).unwrap_err();
 
-        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(matches!(*err, MaxMindDbError::ResourceLimit { .. }));
         assert!(err
             .to_string()
             .contains("maximum size of data structure string and bytes"));
@@ -2683,7 +2794,7 @@ mod tests {
         let mut decoder = Decoder::new(&buf, array_offset);
         let err = Vec::<Flattened>::deserialize(&mut decoder).unwrap_err();
 
-        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(matches!(*err, MaxMindDbError::ResourceLimit { .. }));
         assert!(err
             .to_string()
             .contains("maximum size of data structure string and bytes"));
@@ -2750,7 +2861,7 @@ mod tests {
         let mut decoder = Decoder::new(&buf, 8 * 4);
         let err = decoder.skip_value_for_verification(&mut state).unwrap_err();
         assert!(matches!(
-            err,
+            *err,
             MaxMindDbError::ResourceLimit {
                 offset: Some(36),
                 ..
@@ -2776,7 +2887,7 @@ mod tests {
                 Decoder::new(&buf, index * 2).skip_value_for_verification(&mut state)
             })
             .unwrap_err();
-        assert!(matches!(err, MaxMindDbError::ResourceLimit { .. }));
+        assert!(matches!(*err, MaxMindDbError::ResourceLimit { .. }));
         assert_eq!(state.work_remaining, 0);
         assert!(state.active.is_empty());
     }
@@ -2799,7 +2910,7 @@ mod tests {
         assert_eq!(state.work_remaining, usize::MAX);
         state.charge(usize::MAX, 0).unwrap();
         assert!(matches!(
-            state.charge(1, 0),
+            state.charge(1, 0).map_err(|error| *error),
             Err(MaxMindDbError::ResourceLimit { .. })
         ));
         assert_eq!(state.work_remaining, 0);
@@ -2813,7 +2924,7 @@ mod tests {
             .skip_value_for_verification(&mut VerificationState::new(decoder.limit))
             .unwrap_err();
 
-        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+        assert!(matches!(*err, MaxMindDbError::InvalidDatabase { .. }));
     }
 
     #[test]
@@ -2825,7 +2936,7 @@ mod tests {
             let mut decoder = Decoder::new(&buf, 0);
             let err = decoder.skip_value_for_verification(&mut state).unwrap_err();
 
-            assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+            assert!(matches!(*err, MaxMindDbError::InvalidDatabase { .. }));
             assert!(err.to_string().contains("invalid UTF-8"));
             assert!(state.validated.is_empty());
             assert!(state.active.is_empty());
@@ -2883,7 +2994,7 @@ mod tests {
             .skip_value_for_verification(&mut VerificationState::new(decoder.limit))
             .unwrap_err();
 
-        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+        assert!(matches!(*err, MaxMindDbError::InvalidDatabase { .. }));
         assert!(err.to_string().contains("cyclic data pointer"));
     }
 }

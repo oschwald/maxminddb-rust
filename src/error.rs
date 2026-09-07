@@ -195,6 +195,18 @@ impl de::Error for MaxMindDbError {
     }
 }
 
+impl From<Box<MaxMindDbError>> for MaxMindDbError {
+    fn from(error: Box<MaxMindDbError>) -> Self {
+        *error
+    }
+}
+
+impl de::Error for Box<MaxMindDbError> {
+    fn custom<T: Display>(msg: T) -> Self {
+        Box::new(MaxMindDbError::decoding(msg.to_string()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
