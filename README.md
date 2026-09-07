@@ -106,7 +106,6 @@ See the [examples](examples/) directory for runnable programs, including:
 Optional features:
 
 - **`mmap`**: Memory-mapped file access for long-running applications
-- **`simdutf8`**: SIMD-accelerated UTF-8 validation
 - **`unsafe-str-decode`**: Skip UTF-8 validation when deserializing trusted
   database strings into Rust `str` or `String` values. Cross-runtime format
   adapters should prefer `deserialize_any_with_raw_strings()` and validate
@@ -118,8 +117,6 @@ Enable in `Cargo.toml`:
 [dependencies]
 maxminddb = { version = "0.31", features = ["mmap"] }
 ```
-
-Note: `simdutf8` and `unsafe-str-decode` are mutually exclusive.
 
 ## Documentation
 

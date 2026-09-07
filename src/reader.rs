@@ -34,8 +34,6 @@ const METADATA_START_MARKER: &[u8] = b"\xab\xcd\xefMaxMind.com";
 /// # Features
 ///
 /// - **`mmap`**: Enable memory-mapped file access for better performance
-/// - **`simdutf8`**: Use SIMD-accelerated UTF-8 validation (faster string
-///   decoding)
 /// - **`unsafe-str-decode`**: Skip UTF-8 validation when deserializing trusted
 ///   database strings into Rust `str` or `String` values. Cross-runtime format
 ///   adapters should prefer [`crate::deserialize_any_with_raw_strings()`].

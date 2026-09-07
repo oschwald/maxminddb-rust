@@ -710,9 +710,6 @@ impl<'de> Decoder<'de> {
     #[cfg(not(feature = "unsafe-str-decode"))]
     #[inline(always)]
     fn decode_string(&mut self, size: usize) -> DecodeResult<&'de str> {
-        #[cfg(feature = "simdutf8")]
-        use simdutf8::basic::from_utf8;
-        #[cfg(not(feature = "simdutf8"))]
         use std::str::from_utf8;
         use std::str::from_utf8_unchecked;
 
