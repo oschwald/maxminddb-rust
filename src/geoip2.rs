@@ -854,7 +854,7 @@ mod tests {
         let encoded = record_with_subdivisions(MAX_SUBDIVISIONS + 1);
         let err = City::deserialize(&mut Decoder::new(&encoded, 0)).unwrap_err();
 
-        assert!(matches!(err, MaxMindDbError::Decoding { .. }));
+        assert!(matches!(*err, MaxMindDbError::Decoding { .. }));
         assert!(err
             .to_string()
             .contains("subdivisions exceeds maximum length of 32"));
@@ -865,7 +865,7 @@ mod tests {
         let encoded = record_with_subdivisions(MAX_SUBDIVISIONS + 1);
         let err = Enterprise::deserialize(&mut Decoder::new(&encoded, 0)).unwrap_err();
 
-        assert!(matches!(err, MaxMindDbError::Decoding { .. }));
+        assert!(matches!(*err, MaxMindDbError::Decoding { .. }));
         assert!(err
             .to_string()
             .contains("subdivisions exceeds maximum length of 32"));
@@ -904,7 +904,7 @@ mod tests {
         let encoded = record_with_declared_subdivisions(MAX_SUBDIVISIONS + 1, 1);
         let err = City::deserialize(&mut Decoder::new(&encoded, 0)).unwrap_err();
 
-        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+        assert!(matches!(*err, MaxMindDbError::InvalidDatabase { .. }));
         assert!(err.to_string().contains("unexpected end of buffer"));
     }
 
@@ -913,7 +913,7 @@ mod tests {
         let encoded = record_with_declared_subdivisions(MAX_SUBDIVISIONS + 1, 1);
         let err = Enterprise::deserialize(&mut Decoder::new(&encoded, 0)).unwrap_err();
 
-        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+        assert!(matches!(*err, MaxMindDbError::InvalidDatabase { .. }));
         assert!(err.to_string().contains("unexpected end of buffer"));
     }
 }

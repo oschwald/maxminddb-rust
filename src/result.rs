@@ -301,7 +301,8 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
         for (i, element) in path.iter().enumerate() {
             // Closure to add path context to errors during navigation.
             // Shows path up to and including the current element where the error occurred.
-            let with_path = |e| add_path_context(e, &path[..=i]);
+            let with_path =
+                |e: crate::decoder::DecoderError| add_path_context(e.into(), &path[..=i]);
 
             match *element {
                 PathElement::Key(key) => {
@@ -371,7 +372,7 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
         // Decode the value at the current position
         T::deserialize(&mut decoder)
             .map(Some)
-            .map_err(|error| add_path_context(error, path))
+            .map_err(|error| add_path_context(error.into(), path))
     }
 }
 

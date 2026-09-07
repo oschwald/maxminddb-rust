@@ -6,6 +6,8 @@
   not improve lookup performance in benchmarks using production GeoIP2 City
   and Country databases. Remove `simdutf8` from dependency feature lists when
   upgrading.
+- Improved record decoding performance by reducing internal error storage.
+  Public error types and validation limits are unchanged.
 
 ## 0.31.0 - 2026-09-07
 

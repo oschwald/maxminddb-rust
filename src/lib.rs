@@ -103,12 +103,14 @@ pub mod fuzzing {
     where
         T: Deserialize<'de>,
     {
-        T::deserialize(&mut Decoder::new(data, 0))
+        T::deserialize(&mut Decoder::new(data, 0)).map_err(Into::into)
     }
 
     /// Validate one data-section value through the verification decoder.
     pub fn verify(data: &[u8]) -> Result<(), MaxMindDbError> {
-        Decoder::new(data, 0).skip_value_for_verification(&mut VerificationState::new(data.len()))
+        Decoder::new(data, 0)
+            .skip_value_for_verification(&mut VerificationState::new(data.len()))
+            .map_err(Into::into)
     }
 }
 
