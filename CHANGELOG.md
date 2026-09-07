@@ -11,6 +11,8 @@
   validation limits are unchanged.
 - Fixed decoder cursor restoration when a typed pointer exceeds the nesting
   limit.
+- Improved search-tree lookup performance for 24-bit and 28-bit databases
+  by reading each child pointer from a single word within the node.
 
 ## 0.31.0 - 2026-09-07
 
