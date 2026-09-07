@@ -13,6 +13,8 @@
   limit.
 - Improved search-tree lookup performance for 24-bit and 28-bit databases
   by reading each child pointer from a single word within the node.
+- Improved `decode_path()` performance by specializing map-key header
+  decoding for inline strings and all pointer widths, including long keys.
 
 ## 0.31.0 - 2026-09-07
 
