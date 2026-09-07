@@ -75,13 +75,6 @@ const BUDGET_ACTIVE_MASK: u32 = 1 << 27;
 /// not explicitly request, so keep the limit below small default thread stacks.
 const MAXIMUM_SKIPPED_DATA_STRUCTURE_DEPTH: u16 = 128;
 
-#[inline(always)]
-fn to_usize(base: u8, bytes: &[u8]) -> usize {
-    bytes
-        .iter()
-        .fold(base as usize, |acc, &b| (acc << 8) | b as usize)
-}
-
 #[cfg(not(feature = "unsafe-str-decode"))]
 #[inline]
 fn is_ascii(bytes: &[u8]) -> bool {
@@ -665,7 +658,6 @@ impl<'de> Decoder<'de> {
 
     #[inline(always)]
     fn decode_pointer(&mut self, size: usize) -> usize {
-        let pointer_value_offset = [0, 0, 2048, 526_336, 0];
         let pointer_size = ((size >> 3) & 0x3) + 1;
         let p = self.current_ptr;
         let limit = self.limit;
@@ -681,14 +673,28 @@ impl<'de> Decoder<'de> {
         let pointer_bytes = self.slice(p, new_offset);
         self.current_ptr = new_offset;
 
-        let base = if pointer_size == 4 {
-            0
-        } else {
-            (size & 0x7) as u8
-        };
-        let unpacked = to_usize(base, pointer_bytes);
-
-        unpacked + pointer_value_offset[pointer_size]
+        match pointer_size {
+            1 => ((size & 0x7) << 8) | usize::from(pointer_bytes[0]),
+            2 => {
+                (((size & 0x7) << 16)
+                    | (usize::from(pointer_bytes[0]) << 8)
+                    | usize::from(pointer_bytes[1]))
+                    + 2048
+            }
+            3 => {
+                (((size & 0x7) << 24)
+                    | (usize::from(pointer_bytes[0]) << 16)
+                    | (usize::from(pointer_bytes[1]) << 8)
+                    | usize::from(pointer_bytes[2]))
+                    + 526_336
+            }
+            _ => {
+                (usize::from(pointer_bytes[0]) << 24)
+                    | (usize::from(pointer_bytes[1]) << 16)
+                    | (usize::from(pointer_bytes[2]) << 8)
+                    | usize::from(pointer_bytes[3])
+            }
+        }
     }
 
     #[cfg(feature = "unsafe-str-decode")]
@@ -2193,6 +2199,38 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(*err, MaxMindDbError::InvalidDatabase { .. }));
+    }
+
+    #[test]
+    fn pointer_widths_preserve_offsets_and_decoder_limits() {
+        let cases: &[(usize, &[u8], usize)] = &[
+            (0x00, &[0x00], 0),
+            (0x07, &[0xff], 2_047),
+            (0x08, &[0x00, 0x00], 2_048),
+            (0x0f, &[0xff, 0xff], 526_335),
+            (0x10, &[0x00, 0x00, 0x00], 526_336),
+            (0x10, &[0x01, 0x02, 0x03], 592_387),
+            (0x17, &[0xff, 0xff, 0xff], 134_744_063),
+            (0x18, &[0x00, 0x00, 0x00, 0x00], 0),
+            (0x1f, &[0xff, 0xff, 0xff, 0xff], 4_294_967_295),
+        ];
+        for &(size, payload, target) in cases {
+            let mut buf = vec![0];
+            buf.extend_from_slice(payload);
+            let continuation = buf.len();
+            buf.extend([0xa1, 42]);
+            let mut decoder = Decoder::new(&buf, 1);
+            assert_eq!(decoder.decode_pointer(size), target);
+            assert_eq!(decoder.offset(), continuation);
+            assert_eq!(u16::deserialize(&mut decoder).unwrap(), 42);
+
+            for limit in 1..continuation {
+                let mut decoder = Decoder::new_with_limit(&buf, 1, limit);
+                assert_eq!(decoder.decode_pointer(size), limit);
+                assert_eq!(decoder.offset(), limit);
+                assert!(u16::deserialize(&mut decoder).is_err());
+            }
+        }
     }
 
     #[test]

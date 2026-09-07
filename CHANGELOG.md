@@ -7,8 +7,8 @@
   and Country databases. Remove `simdutf8` from dependency feature lists when
   upgrading.
 - Improved record decoding performance by reducing internal error storage
-  and streamlining payload decoding. Public error types and validation limits
-  are unchanged.
+  and streamlining pointer and payload decoding. Public error types and
+  validation limits are unchanged.
 
 ## 0.31.0 - 2026-09-07
 
