@@ -1,6 +1,6 @@
 # Change Log
 
-## 0.31.0
+## 0.31.0 - 2026-09-07
 
 - Fixed a denial-of-service issue when decoding records or metadata. A
   crafted database could repeatedly reference shared data, causing excessive
