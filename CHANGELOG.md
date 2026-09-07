@@ -1,5 +1,21 @@
 # Change Log
 
+## 0.31.0
+
+- Fixed a denial-of-service issue when decoding records or metadata. A
+  crafted database could repeatedly reference shared data, causing excessive
+  CPU and memory use. Decoding now limits the number of values and the amount
+  of string and byte data expanded in a single operation. Operations that
+  exceed these limits return `MaxMindDbError::ResourceLimit`.
+- Limited subdivision lists in the built-in City and Enterprise types to 32
+  entries to prevent excessive allocation from untrusted data.
+- `Reader::verify()` now checks data referenced by unknown metadata fields.
+- Limited the work performed by `Reader::verify()` to prevent excessive CPU
+  use from databases with overlapping string payloads. Verification returns
+  `MaxMindDbError::ResourceLimit` when this limit is exceeded.
+- Improved record decoding performance by accelerating short ASCII string
+  validation and inlining decoding entry points.
+
 ## 0.30.3 - 2026-08-23
 
 - Fixed typed decoding of malformed overflowing extended types to consistently

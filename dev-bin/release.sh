@@ -2,6 +2,9 @@
 
 set -eu -o pipefail
 
+release_script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+source "$release_script_dir/release-lib.sh"
+
 # Check that we're not on the main branch
 current_branch=$(git branch --show-current)
 if [ "$current_branch" = "main" ]; then
@@ -50,6 +53,8 @@ if [ -n "$(git status --porcelain)" ]; then
     exit 1
 fi
 
+trap 'git restore --source=HEAD --staged --worktree -- Cargo.toml README.md' EXIT
+
 # Update version in Cargo.toml
 current_cargo_version=$(grep -E '^version = "[0-9]+\.[0-9]+\.[0-9]+"' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
 if [ "$current_cargo_version" != "$version" ]; then
@@ -57,14 +62,9 @@ if [ "$current_cargo_version" != "$version" ]; then
     sed -i "s/^version = \"$current_cargo_version\"/version = \"$version\"/" Cargo.toml
 fi
 
-# Update dependency versions in README.md
-current_readme_version=$(grep -E 'maxminddb = "[0-9]+\.[0-9]+"' README.md | head -1 | sed 's/.*"\([0-9]\+\.[0-9]\+\)"/\1/')
-if [ "$current_readme_version" != "$readme_version" ]; then
-    echo "Updating README.md version from $current_readme_version to $readme_version"
-    sed -i -E \
-        "s/maxminddb = \"${current_readme_version}\"/maxminddb = \"${readme_version}\"/g; s/version = \"${current_readme_version}\"/version = \"${readme_version}\"/g" \
-        README.md
-fi
+# Update every dependency example and verify none were missed.
+echo "Updating README.md dependency versions to $readme_version"
+update_readme_dependency_versions README.md "$readme_version"
 
 echo "Running tests..."
 cargo test
@@ -79,13 +79,13 @@ read -r -p "Commit changes and push to origin? [y/N] " should_push
 
 if [ "$should_push" != "y" ]; then
     echo "Aborting"
-    git checkout -- Cargo.toml README.md
     exit 1
 fi
 
 if [ -n "$(git status --porcelain)" ]; then
     git commit -m "Prepare $tag release" -a
 fi
+trap - EXIT
 
 git push
 

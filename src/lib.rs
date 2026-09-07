@@ -115,7 +115,7 @@ pub mod fuzzing {
 
     /// Validate one data-section value through the verification decoder.
     pub fn verify(data: &[u8]) -> Result<(), MaxMindDbError> {
-        Decoder::new(data, 0).skip_value_for_verification(&mut VerificationState::default())
+        Decoder::new(data, 0).skip_value_for_verification(&mut VerificationState::new(data.len()))
     }
 }
 

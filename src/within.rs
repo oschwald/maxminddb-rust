@@ -286,7 +286,9 @@ impl<'de, S: AsRef<[u8]>> Within<'de, S> {
         let buf = &self.reader.buf.as_ref()[self.reader.pointer_base..];
         let mut dec =
             decoder::Decoder::new_with_limit(buf, data_offset, self.reader.data_section_len);
-        let (size, type_num) = dec.peek_type()?;
+        let (size, type_num) = dec
+            .peek_type()
+            .map_err(|error| error.with_invalid_database_offset_base(self.reader.pointer_base))?;
         match type_num {
             decoder::TYPE_MAP | decoder::TYPE_ARRAY => Ok(size == 0),
             _ => Ok(false), // Non-container types are never "empty"
