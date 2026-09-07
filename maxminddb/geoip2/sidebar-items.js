@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["city","country","enterprise"],"struct":["AnonymousIp","Asn","City","ConnectionType","Country","DensityIncome","Domain","Enterprise","Isp","Names"]};
+window.SIDEBAR_ITEMS = {"constant":["MAX_SUBDIVISIONS"],"mod":["city","country","enterprise"],"struct":["AnonymousIp","Asn","City","ConnectionType","Country","DensityIncome","Domain","Enterprise","Isp","Names"]};
