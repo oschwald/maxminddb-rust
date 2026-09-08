@@ -129,7 +129,7 @@ The project includes benchmarks using [Criterion.rs](https://github.com/bheisler
 First you need to have a working copy of the GeoIP City database.
 You can fetch it from [here](https://dev.maxmind.com/geoip/geoip2/geolite2/).
 
-Place it in the root folder as `GeoIP2-City.mmdb`.
+Place it in the root folder as `GeoLite2-City.mmdb`.
 
 Once this is done, run
 
