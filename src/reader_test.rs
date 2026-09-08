@@ -12,9 +12,6 @@ use crate::{MaxMindDbError, Reader, Within, WithinOptions};
 const TEST_DATABASE_CONFIGS: &[(usize, usize)] =
     &[(24, 4), (28, 4), (32, 4), (24, 6), (28, 6), (32, 6)];
 const TEST_RECORD_SIZES: &[usize] = &[24, 28, 32];
-fn init_logger() {
-    let _ = env_logger::try_init();
-}
 
 fn open_test_data_reader(database: &str) -> Reader<Vec<u8>> {
     Reader::open_readfile(format!("test-data/test-data/{database}"))
@@ -77,8 +74,6 @@ fn four_byte_pointer(target: usize) -> [u8; 5] {
 #[allow(clippy::float_cmp)]
 #[test]
 fn test_decoder() {
-    init_logger();
-
     #[allow(non_snake_case)]
     #[derive(Deserialize, Debug, Eq, PartialEq)]
     struct MapXType {
@@ -147,8 +142,6 @@ fn test_decoder() {
 
 #[test]
 fn test_pointers_in_metadata() {
-    init_logger();
-
     let reader = open_test_data_reader("MaxMind-DB-test-metadata-pointers.mmdb");
 
     assert_eq!(
@@ -173,8 +166,6 @@ fn test_pointers_in_metadata() {
 
 #[test]
 fn test_broken_database() {
-    init_logger();
-
     let r = open_test_data_reader("GeoIP2-City-Test-Broken-Double-Format.mmdb");
     let ip: IpAddr = "2001:220::".parse().unwrap();
 
@@ -197,8 +188,6 @@ fn test_broken_database() {
 
 #[test]
 fn test_missing_database() {
-    init_logger();
-
     let r = Reader::open_readfile("file-does-not-exist.mmdb");
     match r {
         Ok(_) => panic!("Received Reader when opening non-existent file"),
@@ -208,8 +197,6 @@ fn test_missing_database() {
 
 #[test]
 fn test_non_database() {
-    init_logger();
-
     let r = Reader::open_readfile("README.md");
     match r {
         Ok(_) => panic!("Received Reader when opening a non-MMDB file"),
@@ -223,8 +210,6 @@ fn test_non_database() {
 
 #[test]
 fn test_invalid_node_count_database() {
-    init_logger();
-
     let r = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test-Invalid-Node-Count.mmdb");
     match r {
         Ok(_) => panic!("Received Reader when opening database with invalid node count"),
@@ -239,8 +224,6 @@ fn test_invalid_node_count_database() {
 /// Create Reader by explicitly reading the entire file into a buffer.
 #[test]
 fn test_reader_readfile() {
-    init_logger();
-
     for (record_size, ip_version) in TEST_DATABASE_CONFIGS {
         let reader = open_test_data_reader(&format!(
             "MaxMind-DB-test-ipv{ip_version}-{record_size}.mmdb"
@@ -254,8 +237,6 @@ fn test_reader_readfile() {
 #[test]
 #[cfg(feature = "mmap")]
 fn test_reader_mmap() {
-    init_logger();
-
     for (record_size, ip_version) in TEST_DATABASE_CONFIGS {
         let filename =
             format!("test-data/test-data/MaxMind-DB-test-ipv{ip_version}-{record_size}.mmdb");
@@ -269,8 +250,6 @@ fn test_reader_mmap() {
 
 #[test]
 fn test_lookup_city() {
-    init_logger();
-
     let reader = open_test_data_reader("GeoIP2-City-Test.mmdb");
 
     let ip: IpAddr = "89.160.20.112".parse().unwrap();
@@ -285,8 +264,6 @@ fn test_lookup_city() {
 
 #[test]
 fn test_lookup_country() {
-    init_logger();
-
     let reader = open_test_data_reader("GeoIP2-Country-Test.mmdb");
 
     let ip: IpAddr = "89.160.20.112".parse().unwrap();
@@ -300,8 +277,6 @@ fn test_lookup_country() {
 
 #[test]
 fn test_lookup_connection_type() {
-    init_logger();
-
     let reader = open_test_data_reader("GeoIP2-Connection-Type-Test.mmdb");
 
     let ip: IpAddr = "96.1.20.112".parse().unwrap();
@@ -314,8 +289,6 @@ fn test_lookup_connection_type() {
 
 #[test]
 fn test_lookup_annonymous_ip() {
-    init_logger();
-
     let reader = open_test_data_reader("GeoIP2-Anonymous-IP-Test.mmdb");
 
     let ip: IpAddr = "81.2.69.123".parse().unwrap();
@@ -332,8 +305,6 @@ fn test_lookup_annonymous_ip() {
 
 #[test]
 fn test_lookup_density_income() {
-    init_logger();
-
     let reader = open_test_data_reader("GeoIP2-DensityIncome-Test.mmdb");
 
     let ip: IpAddr = "5.83.124.123".parse().unwrap();
@@ -347,8 +318,6 @@ fn test_lookup_density_income() {
 
 #[test]
 fn test_lookup_domain() {
-    init_logger();
-
     let reader = open_test_data_reader("GeoIP2-Domain-Test.mmdb");
 
     let ip: IpAddr = "66.92.80.123".parse().unwrap();
@@ -361,8 +330,6 @@ fn test_lookup_domain() {
 
 #[test]
 fn test_lookup_isp() {
-    init_logger();
-
     let reader = open_test_data_reader("GeoIP2-ISP-Test.mmdb");
 
     let ip: IpAddr = "12.87.118.123".parse().unwrap();
@@ -377,8 +344,6 @@ fn test_lookup_isp() {
 
 #[test]
 fn test_lookup_asn() {
-    init_logger();
-
     let reader = open_test_data_reader("GeoLite2-ASN-Test.mmdb");
 
     let ip: IpAddr = "1.128.0.123".parse().unwrap();
@@ -392,7 +357,6 @@ fn test_lookup_asn() {
 
 #[test]
 fn test_lookup_network() {
-    init_logger();
     let reader = open_test_data_reader("GeoIP2-City-Test.mmdb");
 
     // --- IPv4 Check (Known) ---
@@ -439,8 +403,6 @@ fn test_lookup_network() {
 
 #[test]
 fn test_within_city() {
-    init_logger();
-
     let reader = open_test_data_reader("GeoIP2-City-Test.mmdb");
 
     // --- Test iteration over entire DB ("::/0") ---
@@ -539,8 +501,6 @@ fn check_metadata<S: AsRef<[u8]>>(reader: &Reader<S>, ip_version: usize, record_
 
 #[test]
 fn test_metadata_build_time_conversion() {
-    init_logger();
-
     let reader = open_test_data_reader("GeoIP2-City-Test.mmdb");
 
     assert_eq!(
@@ -551,8 +511,6 @@ fn test_metadata_build_time_conversion() {
 
 #[test]
 fn test_metadata_build_time_rejects_uint64_max_epoch() {
-    init_logger();
-
     let err =
         Reader::open_readfile("test-data/bad-data/libmaxminddb/libmaxminddb-uint64-max-epoch.mmdb")
             .unwrap_err();
@@ -570,8 +528,6 @@ fn test_metadata_build_time_rejects_uint64_max_epoch() {
 
 #[test]
 fn test_reader_metadata_accessor_returns_validated_metadata() {
-    init_logger();
-
     let reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
 
     assert_eq!(reader.metadata().record_size, 24);
@@ -581,8 +537,6 @@ fn test_reader_metadata_accessor_returns_validated_metadata() {
 
 #[test]
 fn test_metadata_validation_rejects_hard_invariants() {
-    init_logger();
-
     let reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
     let metadata = reader.metadata();
 
@@ -614,8 +568,6 @@ fn test_metadata_validation_rejects_hard_invariants() {
 
 #[test]
 fn test_resolve_data_pointer_rejects_small_pointer() {
-    init_logger();
-
     let reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
     let err = reader
         .resolve_data_pointer(reader.metadata().node_count as usize)
@@ -701,8 +653,6 @@ fn check_ip<S: AsRef<[u8]>>(reader: &Reader<S>, ip_version: usize) {
 
 #[test]
 fn test_json_serialize() {
-    init_logger();
-
     let reader = open_test_data_reader("GeoIP2-City-Test.mmdb");
 
     let ip: IpAddr = "89.160.20.112".parse().unwrap();
@@ -727,8 +677,6 @@ fn test_json_serialize() {
 /// Test networks() method iterates over entire database
 #[test]
 fn test_networks() {
-    init_logger();
-
     for (record_size, ip_version) in TEST_DATABASE_CONFIGS {
         let reader = open_test_data_reader(&format!(
             "MaxMind-DB-test-ipv{ip_version}-{record_size}.mmdb"
@@ -759,8 +707,6 @@ fn test_networks() {
 /// Test that default options skip aliased networks
 #[test]
 fn test_default_skips_aliases() {
-    init_logger();
-
     let reader = open_test_data_reader("MaxMind-DB-test-mixed-24.mmdb");
 
     // Without IncludeAliasedNetworks, iterating over ::/0 should yield IPv4 networks only once
@@ -788,8 +734,6 @@ fn test_default_skips_aliases() {
 /// Test IncludeAliasedNetworks option
 #[test]
 fn test_include_aliased_networks() {
-    init_logger();
-
     let reader = open_test_data_reader("MaxMind-DB-test-mixed-24.mmdb");
 
     let ip_net_all = IpNetwork::V6("::/0".parse().unwrap());
@@ -836,8 +780,6 @@ fn test_include_aliased_networks() {
 /// Test IncludeNetworksWithoutData option
 #[test]
 fn test_include_networks_without_data() {
-    init_logger();
-
     let reader = open_test_data_reader("MaxMind-DB-test-mixed-24.mmdb");
 
     // Using 1.0.0.0/8 like the Go tests
@@ -902,8 +844,6 @@ fn test_include_networks_without_data() {
 /// Test SkipEmptyValues option
 #[test]
 fn test_skip_empty_values() {
-    init_logger();
-
     let reader = open_test_data_reader("GeoIP2-Anonymous-IP-Test.mmdb");
 
     // Count networks without SkipEmptyValues
@@ -958,8 +898,6 @@ fn test_skip_empty_values() {
 /// Test SkipEmptyValues with other options combined
 #[test]
 fn test_skip_empty_values_with_other_options() {
-    init_logger();
-
     let reader = open_test_data_reader("GeoIP2-Anonymous-IP-Test.mmdb");
 
     // Test with IncludeNetworksWithoutData - should still skip empty maps
@@ -1020,8 +958,6 @@ fn test_skip_empty_values_reports_absolute_file_offset() {
 /// Test various NetworksWithin scenarios matching Go tests
 #[test]
 fn test_networks_within_scenarios() {
-    init_logger();
-
     struct TestCase {
         network: &'static str,
         database: &'static str,
@@ -1159,8 +1095,6 @@ fn test_networks_within_scenarios() {
 /// Test GeoIP database-specific NetworksWithin
 #[test]
 fn test_geoip_networks_within() {
-    init_logger();
-
     let reader = open_test_data_reader("GeoIP2-Country-Test.mmdb");
 
     let cidr: IpNetwork = "81.2.69.128/26".parse().unwrap();
@@ -1173,8 +1107,6 @@ fn test_geoip_networks_within() {
 
 #[test]
 fn test_within_rejects_ipv6_cidr_for_ipv4_database() {
-    init_logger();
-
     let reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
 
     for cidr in ["::/0", "::ffff:0.0.0.0/96", "2001::/16"] {
@@ -1195,8 +1127,6 @@ fn test_within_rejects_ipv6_cidr_for_ipv4_database() {
 
 #[test]
 fn test_within_no_ipv4_search_tree() {
-    init_logger();
-
     let reader = open_test_data_reader("MaxMind-DB-no-ipv4-search-tree.mmdb");
 
     for cidr in ["::/0", "::/64", "0.0.0.0/0", "200.0.2.1/32"] {
@@ -1210,8 +1140,6 @@ fn test_within_no_ipv4_search_tree() {
 /// Test that verify() succeeds on valid databases (matching Go's TestVerifyOnGoodDatabases)
 #[test]
 fn test_verify_good_databases() {
-    init_logger();
-
     let databases = [
         "GeoIP2-Anonymous-IP-Test.mmdb",
         "GeoIP2-City-Test.mmdb",
@@ -1385,8 +1313,6 @@ fn test_from_source_reports_absolute_metadata_offset() {
 /// Test that verify() returns errors on broken databases (matching Go's TestVerifyOnBrokenDatabases)
 #[test]
 fn test_verify_broken_double_format() {
-    init_logger();
-
     let reader = open_test_data_reader("GeoIP2-City-Test-Broken-Double-Format.mmdb");
 
     let result = reader.verify();
@@ -1398,8 +1324,6 @@ fn test_verify_broken_double_format() {
 
 #[test]
 fn test_verify_broken_pointers() {
-    init_logger();
-
     let reader = open_test_data_reader("MaxMind-DB-test-broken-pointers-24.mmdb");
 
     let result = reader.verify();
@@ -1416,8 +1340,6 @@ fn test_verify_broken_pointers() {
 
 #[test]
 fn test_rejects_data_pointer_to_metadata_marker() {
-    init_logger();
-
     let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
     let reader = Reader::open_readfile(source_path).unwrap();
     assert_eq!(reader.metadata().record_size, 24);
@@ -1449,8 +1371,6 @@ fn test_rejects_data_pointer_to_metadata_marker() {
 
 #[test]
 fn test_verify_broken_search_tree() {
-    init_logger();
-
     let reader = open_test_data_reader("MaxMind-DB-test-broken-search-tree-24.mmdb");
 
     let result = reader.verify();
@@ -1467,8 +1387,6 @@ fn test_verify_broken_search_tree() {
 
 #[test]
 fn test_verify_rejects_truncated_scalar_value() {
-    init_logger();
-
     let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
     let reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
     let lookup = reader.lookup("1.1.1.32".parse().unwrap()).unwrap();
@@ -1507,8 +1425,6 @@ fn test_verify_rejects_truncated_scalar_value() {
 
 #[test]
 fn test_decode_rejects_truncated_ignored_scalar_value() {
-    init_logger();
-
     let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
     let reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
     let lookup = reader.lookup("1.1.1.32".parse().unwrap()).unwrap();
@@ -1560,8 +1476,6 @@ fn test_decode_rejects_truncated_ignored_scalar_value() {
 
 #[test]
 fn test_decode_rejects_deep_nesting_in_ignored_values() {
-    init_logger();
-
     let reader =
         Reader::open_readfile("test-data/bad-data/libmaxminddb/libmaxminddb-deep-nesting.mmdb")
             .unwrap();
@@ -1580,8 +1494,6 @@ fn test_decode_rejects_deep_nesting_in_ignored_values() {
 fn test_size_hints() {
     use serde::de::{Deserializer, MapAccess, SeqAccess, Visitor};
     use std::fmt;
-
-    init_logger();
 
     // Wrapper that captures size_hint for sequences
     struct SeqSizeHint {
@@ -1669,8 +1581,6 @@ fn test_size_hints() {
 fn test_ignored_any() {
     use serde::de::IgnoredAny;
 
-    init_logger();
-
     // Struct that only reads some fields, ignoring others via IgnoredAny
     #[allow(dead_code)]
     #[derive(Deserialize, Debug)]
@@ -1694,8 +1604,6 @@ fn test_ignored_any() {
 /// Test that string values can be deserialized into enums
 #[test]
 fn test_enum_deserialization() {
-    init_logger();
-
     #[derive(Deserialize, Debug, PartialEq)]
     enum ConnType {
         #[serde(rename = "Cable/DSL")]
@@ -1723,8 +1631,6 @@ fn test_enum_deserialization() {
 #[test]
 fn test_serde_flatten() {
     use serde::de::IgnoredAny;
-
-    init_logger();
 
     #[derive(Deserialize, Debug)]
     struct PartialCountry {
@@ -1787,8 +1693,6 @@ fn test_verify_follows_and_rejects_invalid_data_pointers() {
 
 #[test]
 fn test_pointer_fan_out_is_rejected() {
-    init_logger();
-
     // A data section of nested arrays, each holding two pointers to the node
     // below, would cost 2**depth decode operations. The decoder bounds the
     // number of values it decodes for a single record and rejects decoding the
@@ -1808,8 +1712,6 @@ fn test_pointer_fan_out_is_rejected() {
 
 #[test]
 fn test_payload_amplification_is_rejected() {
-    init_logger();
-
     // Each bytes fixture aims many pointers at one large value. `OwnedBytes`
     // enters through deserialize_any before copying, so materializing the
     // pointed-to bytes must trip the dynamic payload budget well before the

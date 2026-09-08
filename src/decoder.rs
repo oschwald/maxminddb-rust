@@ -12,7 +12,6 @@ use serde::de::{
     Visitor,
 };
 use serde::forward_to_deserialize_any;
-use std::convert::TryInto;
 
 use crate::error::MaxMindDbError;
 

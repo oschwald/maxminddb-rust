@@ -31,13 +31,6 @@ Add this to your `Cargo.toml`:
 maxminddb = "0.31"
 ```
 
-Enable optional features as needed:
-
-```toml
-[dependencies]
-maxminddb = { version = "0.31", features = ["mmap"] }
-```
-
 ## Example
 
 ```rust
@@ -129,7 +122,7 @@ The project includes benchmarks using [Criterion.rs](https://github.com/bheisler
 First you need to have a working copy of the GeoIP City database.
 You can fetch it from [here](https://dev.maxmind.com/geoip/geoip2/geolite2/).
 
-Place it in the root folder as `GeoIP2-City.mmdb`.
+Place it in the root folder as `GeoLite2-City.mmdb`.
 
 Once this is done, run
 
@@ -144,9 +137,8 @@ cargo bench --bench lookup
 cargo bench --bench serde_usage
 ```
 
-If [gnuplot](http://www.gnuplot.info/) is installed, Criterion.rs can generate
-an HTML report displaying the results of the benchmark under
-`target/criterion/report/index.html`.
+Criterion.rs generates an HTML report at `target/criterion/report/index.html`.
+It uses gnuplot when available and the bundled Plotters backend otherwise.
 
 ## Contributing
 
