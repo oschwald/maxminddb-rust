@@ -137,9 +137,8 @@ cargo bench --bench lookup
 cargo bench --bench serde_usage
 ```
 
-If [gnuplot](http://www.gnuplot.info/) is installed, Criterion.rs can generate
-an HTML report displaying the results of the benchmark under
-`target/criterion/report/index.html`.
+Criterion.rs generates an HTML report at `target/criterion/report/index.html`.
+It uses gnuplot when available and the bundled Plotters backend otherwise.
 
 ## Contributing
 
