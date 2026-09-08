@@ -1,9 +1,4 @@
-#[macro_use]
-extern crate criterion;
-extern crate maxminddb;
-extern crate rayon;
-
-use criterion::Criterion;
+use criterion::{criterion_group, criterion_main, Criterion};
 use maxminddb::geoip2;
 use rayon::prelude::*;
 
