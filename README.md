@@ -31,13 +31,6 @@ Add this to your `Cargo.toml`:
 maxminddb = "0.31"
 ```
 
-Enable optional features as needed:
-
-```toml
-[dependencies]
-maxminddb = { version = "0.31", features = ["mmap"] }
-```
-
 ## Example
 
 ```rust
