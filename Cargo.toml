@@ -3,7 +3,6 @@ name = "maxminddb"
 version = "0.31.0"
 authors = [ "Gregory J. Oschwald <oschwald@gmail.com>" ]
 description = "Library for reading MaxMind DB format used by GeoIP2 and GeoLite2"
-readme = "README.md"
 keywords = ["MaxMind", "GeoIP2", "GeoIP", "geolocation", "ip"]
 categories = ["database", "network-programming"]
 homepage = "https://github.com/oschwald/maxminddb-rust"
@@ -22,9 +21,6 @@ mmap = ["memmap2"]
 unsafe-str-decode = []
 # Internal entry points used by the cargo-fuzz targets.
 fuzzing = []
-
-[lib]
-name = "maxminddb"
 
 [dependencies]
 ipnetwork = "0.21.1"
