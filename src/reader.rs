@@ -229,6 +229,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// # Ok(())
     /// # }
     /// ```
+    #[inline]
     pub fn lookup(&'de self, address: IpAddr) -> Result<LookupResult<'de, S>, MaxMindDbError> {
         match address {
             IpAddr::V4(v4) => {
@@ -812,8 +813,12 @@ struct RecordSize24;
 impl SearchTreeRecord for RecordSize24 {
     #[inline(always)]
     fn read_node(buf: &[u8], node_number: usize, index: usize) -> usize {
-        let offset = node_number * 6 + index * 3;
-        (buf[offset] as usize) << 16 | (buf[offset + 1] as usize) << 8 | buf[offset + 2] as usize
+        // Both four-byte windows stay inside the six-byte node. The left
+        // child occupies the high three bytes; the right occupies the low three.
+        let offset = node_number * 6 + index * 2;
+        let bytes: [u8; 4] = buf[offset..offset + 4].try_into().unwrap();
+        let word = u32::from_be_bytes(bytes);
+        ((word >> ((1 - index) * 8)) & 0x00FF_FFFF) as usize
     }
 }
 
@@ -822,17 +827,18 @@ struct RecordSize28;
 impl SearchTreeRecord for RecordSize28 {
     #[inline(always)]
     fn read_node(buf: &[u8], node_number: usize, index: usize) -> usize {
-        let base_offset = node_number * 7;
-        let middle = if index == 0 {
-            (buf[base_offset + 3] & 0xF0) >> 4
+        // The left window ends at the shared nibble byte; the right starts
+        // there. Each child and its shared nibble fit in a single word.
+        let offset = node_number * 7 + index * 3;
+        let bytes: [u8; 4] = buf[offset..offset + 4].try_into().unwrap();
+        let word = u32::from_be_bytes(bytes);
+        if index == 0 {
+            // The first three bytes hold bits 23..0, and the shared byte's
+            // high nibble holds bits 27..24. Move that nibble above the bytes.
+            ((word >> 8) | ((word << 20) & 0x0F00_0000)) as usize
         } else {
-            buf[base_offset + 3] & 0x0F
-        };
-        let offset = base_offset + index * 4;
-        (middle as usize) << 24
-            | (buf[offset] as usize) << 16
-            | (buf[offset + 1] as usize) << 8
-            | buf[offset + 2] as usize
+            (word & 0x0FFF_FFFF) as usize
+        }
     }
 }
 
@@ -917,4 +923,78 @@ fn metadata_marker_start(metadata_start: usize) -> Result<usize, MaxMindDbError>
     metadata_start
         .checked_sub(METADATA_START_MARKER.len())
         .ok_or_else(|| MaxMindDbError::invalid_database("invalid metadata marker location"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RecordSize24, RecordSize28, RecordSize32, SearchTreeRecord};
+
+    #[test]
+    fn packed_28_bit_node_matches_spec_layout() {
+        // The MMDB specification places each child's most-significant nibble
+        // in the shared byte: [left low 24][left high 4 | right high 4][right low 24].
+        // https://maxmind.github.io/MaxMind-DB/#28-bits-medium-database-one-node-is-7-bytes
+        let node = [0x23, 0x45, 0x67, 0x18, 0x9A, 0xBC, 0xDE];
+        assert_eq!(RecordSize28::read_node(&node, 0, 0), 0x0123_4567);
+        assert_eq!(RecordSize28::read_node(&node, 0, 1), 0x089A_BCDE);
+    }
+
+    #[test]
+    fn packed_nodes_round_trip_both_children() {
+        type ReadNode = fn(&[u8], usize, usize) -> usize;
+        let readers: [(usize, ReadNode); 3] = [
+            (24, RecordSize24::read_node),
+            (28, RecordSize28::read_node),
+            (32, RecordSize32::read_node),
+        ];
+        for (bits, read_node) in readers {
+            let node_size = bits / 4;
+            let mask = u32::MAX >> (32 - bits);
+            let mut state = 0x4D59_5DF4_D0F3_3173_u64;
+            let mut buf = [0u8; 24];
+            for sample in 0..65_536 {
+                state = state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                let (left, right) = match sample {
+                    0 => (0, mask),
+                    1 => (mask, 0),
+                    _ => (state as u32 & mask, (state >> 32) as u32 & mask),
+                };
+                // Exercise every shared-nibble combination for 28-bit records.
+                let (left, right) = if bits == 28 && sample >= 2 {
+                    (
+                        (left & 0x00FF_FFFF) | ((sample as u32 & 15) << 24),
+                        (right & 0x00FF_FFFF) | (((sample as u32 >> 4) & 15) << 24),
+                    )
+                } else {
+                    (left, right)
+                };
+                let node = sample % 3;
+                let start = node * node_size;
+                let end = start + node_size;
+                let encoded = &mut buf[start..end];
+                match bits {
+                    24 => {
+                        encoded[..3].copy_from_slice(&left.to_be_bytes()[1..]);
+                        encoded[3..].copy_from_slice(&right.to_be_bytes()[1..]);
+                    }
+                    28 => {
+                        encoded[..3].copy_from_slice(&left.to_be_bytes()[1..]);
+                        encoded[3] = ((left >> 20) as u8 & 0xF0) | (right >> 24) as u8;
+                        encoded[4..].copy_from_slice(&right.to_be_bytes()[1..]);
+                    }
+                    32 => {
+                        encoded[..4].copy_from_slice(&left.to_be_bytes());
+                        encoded[4..].copy_from_slice(&right.to_be_bytes());
+                    }
+                    _ => unreachable!(),
+                }
+                // Include unaligned nodes and end the buffer at this node:
+                // neither child may require a byte from the following node.
+                assert_eq!(read_node(&buf[..end], node, 0), left as usize);
+                assert_eq!(read_node(&buf[..end], node, 1), right as usize);
+            }
+        }
+    }
 }

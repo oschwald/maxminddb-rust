@@ -839,7 +839,44 @@ impl<'de> Decoder<'de> {
 
     /// Reads a string's bytes directly, following pointers if needed.
     /// Does NOT validate UTF-8.
+    #[inline]
     pub(crate) fn read_str_as_bytes(&mut self) -> DecodeResult<&'de [u8]> {
+        // Keys are strings, optionally behind one pointer. Handle those
+        // headers directly, including extended lengths, without retrying a
+        // general decode for valid inline strings or wider pointers.
+        let offset = self.current_ptr;
+        let ctrl = self.eat_byte()?;
+        match usize::from(ctrl >> 5) {
+            TYPE_STRING => {
+                let size = self.size_from_ctrl_byte(ctrl, TYPE_STRING)?;
+                self.count_payload(size)?;
+                return self.read_string_bytes(size);
+            }
+            TYPE_POINTER => {
+                let size = self.size_from_ctrl_byte(ctrl, TYPE_POINTER)?;
+                let target = self.decode_pointer(size);
+                let continuation = self.current_ptr;
+                self.current_ptr = target;
+                let ctrl = self.eat_byte()?;
+                if usize::from(ctrl >> 5) == TYPE_STRING {
+                    let size = self.size_from_ctrl_byte(ctrl, TYPE_STRING)?;
+                    let result = self
+                        .count_payload(size)
+                        .and_then(|()| self.read_string_bytes(size));
+                    self.current_ptr = continuation;
+                    return result;
+                }
+            }
+            _ => {}
+        }
+        self.current_ptr = offset;
+        self.read_str_as_bytes_slow()
+    }
+
+    // Preserve the general parser's error details and cursor behavior for
+    // unexpected types. Tests also use this as a reference for valid keys.
+    #[cold]
+    fn read_str_as_bytes_slow(&mut self) -> DecodeResult<&'de [u8]> {
         let (size, type_num) = self.size_and_type()?;
         match type_num {
             TYPE_POINTER => {
@@ -2232,6 +2269,97 @@ mod tests {
                 assert_eq!(decoder.decode_pointer(size), limit);
                 assert_eq!(decoder.offset(), limit);
                 assert!(u16::deserialize(&mut decoder).is_err());
+            }
+        }
+    }
+
+    fn compare_key_decoders(buf: &[u8], start: usize, limit: usize, remaining: u32) {
+        for budgeted in [false, true] {
+            let mut fast = Decoder::new_with_limit(buf, start, limit);
+            let mut general = Decoder::new_with_limit(buf, start, limit);
+            if budgeted {
+                fast.activate_budget();
+                general.activate_budget();
+            }
+            fast.payload_remaining = remaining;
+            general.payload_remaining = remaining;
+            let actual = fast.read_str_as_bytes().map_err(|e| format!("{e:?}"));
+            let expected = general
+                .read_str_as_bytes_slow()
+                .map_err(|e| format!("{e:?}"));
+            assert_eq!(
+                actual, expected,
+                "start={start}, limit={limit}, remaining={remaining}, budgeted={budgeted}"
+            );
+            assert_eq!(fast.current_ptr, general.current_ptr);
+            assert_eq!(fast.state, general.state);
+            assert_eq!(fast.payload_remaining, general.payload_remaining);
+        }
+    }
+
+    #[test]
+    fn key_decoding_preserves_values_errors_cursors_and_budgets() {
+        let mut buf = [0x61; 80];
+        buf[..2].copy_from_slice(&[0x20, 10]);
+        for control in 0..=255 {
+            buf[10] = control;
+            for limit in 0..=buf.len() {
+                for remaining in [0, 1, 2, 28, 29, 4096] {
+                    compare_key_decoders(&buf, 0, limit, remaining);
+                    compare_key_decoders(&buf, 10, limit, remaining);
+                }
+            }
+        }
+
+        let mut state = 0x4D59_5DF4_D0F3_3173_u64;
+        for _ in 0..8192 {
+            for byte in &mut buf {
+                state = state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                *byte = (state >> 32) as u8;
+            }
+            for start in [0, 1, 10, 79, 80, usize::MAX] {
+                compare_key_decoders(&buf, start, buf.len(), 0);
+                compare_key_decoders(&buf, start, buf.len(), 4096);
+            }
+        }
+
+        for pointer in 0..2048 {
+            let mut buf = [0x61; 2112];
+            buf[2080..2082].copy_from_slice(&[0x20 | ((pointer >> 8) as u8), pointer as u8]);
+            // Raw keys need not be valid UTF-8. Keep the pointer token after
+            // every possible target so it cannot overlap the string payload.
+            buf[pointer..pointer + 3].copy_from_slice(&[0x42, 0xFF, 0xFE]);
+            compare_key_decoders(&buf, 2080, buf.len(), 1);
+            compare_key_decoders(&buf, 2080, buf.len(), 2);
+        }
+    }
+
+    #[test]
+    fn key_decoders_agree_on_pointer_widths_and_extended_strings() {
+        let pointers: &[(&[u8], usize)] = &[
+            (&[0x20, 8], 8),
+            (&[0x28, 0, 0], 2048),
+            (&[0x30, 0, 0, 0], 526_336),
+            (&[0x38, 0, 0, 0, 8], 8),
+        ];
+        for &(pointer, target) in pointers {
+            for size in [0, 1, 28, 29, 285] {
+                let mut buf = pointer.to_vec();
+                buf.resize(target, 0);
+                match size {
+                    0..=28 => buf.push(0x40 | size as u8),
+                    29 => buf.extend_from_slice(&[0x5D, 0]),
+                    285 => buf.extend_from_slice(&[0x5E, 0, 0]),
+                    _ => unreachable!(),
+                }
+                buf.resize(buf.len() + size, b'k');
+                for limit in [pointer.len() - 1, target, buf.len() - 1, buf.len()] {
+                    for remaining in [0, 28, 4096] {
+                        compare_key_decoders(&buf, 0, limit, remaining);
+                    }
+                }
             }
         }
     }
