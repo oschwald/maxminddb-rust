@@ -1,7 +1,6 @@
 exclude = [
   "target/**/*",
   "test-data/**/*",
-  "supply-chain/**/*",
 ]
 
 [commands.clippy]
