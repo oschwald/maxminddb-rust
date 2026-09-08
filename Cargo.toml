@@ -12,6 +12,7 @@ repository = "https://github.com/oschwald/maxminddb-rust"
 license = "ISC"
 include = ["/Cargo.toml", "/benches/*.rs", "/src/**/*.rs", "/README.md", "/UPGRADING.md", "/LICENSE"]
 edition = "2021"
+autobenches = false
 
 [features]
 default = []
