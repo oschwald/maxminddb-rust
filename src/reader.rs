@@ -833,6 +833,8 @@ impl SearchTreeRecord for RecordSize28 {
         let bytes: [u8; 4] = buf[offset..offset + 4].try_into().unwrap();
         let word = u32::from_be_bytes(bytes);
         if index == 0 {
+            // The first three bytes hold bits 23..0, and the shared byte's
+            // high nibble holds bits 27..24. Move that nibble above the bytes.
             ((word >> 8) | ((word << 20) & 0x0F00_0000)) as usize
         } else {
             (word & 0x0FFF_FFFF) as usize
@@ -926,6 +928,16 @@ fn metadata_marker_start(metadata_start: usize) -> Result<usize, MaxMindDbError>
 #[cfg(test)]
 mod tests {
     use super::{RecordSize24, RecordSize28, RecordSize32, SearchTreeRecord};
+
+    #[test]
+    fn packed_28_bit_node_matches_spec_layout() {
+        // The MMDB specification places each child's most-significant nibble
+        // in the shared byte: [left low 24][left high 4 | right high 4][right low 24].
+        // https://maxmind.github.io/MaxMind-DB/#28-bits-medium-database-one-node-is-7-bytes
+        let node = [0x23, 0x45, 0x67, 0x18, 0x9A, 0xBC, 0xDE];
+        assert_eq!(RecordSize28::read_node(&node, 0, 0), 0x0123_4567);
+        assert_eq!(RecordSize28::read_node(&node, 0, 1), 0x089A_BCDE);
+    }
 
     #[test]
     fn packed_nodes_round_trip_both_children() {
