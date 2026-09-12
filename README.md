@@ -28,7 +28,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-maxminddb = "0.31"
+maxminddb = "0.32"
 ```
 
 ## Example
@@ -108,7 +108,7 @@ Enable in `Cargo.toml`:
 
 ```toml
 [dependencies]
-maxminddb = { version = "0.31", features = ["mmap"] }
+maxminddb = { version = "0.32", features = ["mmap"] }
 ```
 
 ## Documentation

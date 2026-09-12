@@ -1,6 +1,6 @@
 [package]
 name = "maxminddb"
-version = "0.31.0"
+version = "0.32.0"
 authors = [ "Gregory J. Oschwald <oschwald@gmail.com>" ]
 description = "Library for reading MaxMind DB format used by GeoIP2 and GeoLite2"
 keywords = ["MaxMind", "GeoIP2", "GeoIP", "geolocation", "ip"]
