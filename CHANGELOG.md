@@ -1,6 +1,6 @@
 # Change Log
 
-## Unreleased
+## 0.32.0 - 2026-09-12
 
 - Reused precharged map-key bytes for raw identifier decoding, avoiding a
   second header parse while preserving payload limits and other Serde entry
