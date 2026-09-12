@@ -15,7 +15,9 @@ use serde::forward_to_deserialize_any;
 
 use crate::error::MaxMindDbError;
 
+mod key;
 mod verification;
+use key::{CachedKey, KeyDeserializer};
 pub(crate) use verification::VerificationState;
 
 // MaxMind DB type constants
@@ -296,25 +298,50 @@ impl<'de> Decoder<'de> {
     /// Charges a string or bytes value at the current position without
     /// consuming it. Dynamically shaped maps use this for keys because a raw
     /// identifier visitor may copy them without requesting a string decode.
-    fn count_payload_at_current(&mut self) -> DecodeResult<bool> {
+    /// Retains complete string bytes for identifier visitors to reuse.
+    #[inline]
+    fn count_payload_at_current(&mut self) -> DecodeResult<(bool, Option<CachedKey<'de>>)> {
         let saved_ptr = self.current_ptr;
-        let result = (|| {
-            let (mut size, mut type_num) = self.size_and_type()?;
-            if type_num == TYPE_POINTER {
-                self.current_ptr = self.decode_pointer(size);
-                (size, type_num) = self.size_and_type()?;
-                if type_num == TYPE_POINTER {
-                    return Err(self.invalid_db_error("pointer points to another pointer"));
-                }
-            }
-            if type_num == TYPE_STRING || type_num == TYPE_BYTES {
-                self.count_payload(size)?;
-                return Ok(true);
-            }
-            Ok(false)
-        })();
+        let result = self.count_payload_at_current_inner();
         self.current_ptr = saved_ptr;
         result
+    }
+
+    // Inline the parsing body so callers that do not use raw identifiers can
+    // eliminate the cached bytes and continuation. Keep cursor restoration in
+    // the outer method so it also runs when parsing fails.
+    #[inline(always)]
+    fn count_payload_at_current_inner(&mut self) -> DecodeResult<(bool, Option<CachedKey<'de>>)> {
+        let (mut size, mut type_num) = self.size_and_type()?;
+        let mut continuation = None;
+        if type_num == TYPE_POINTER {
+            let target = self.decode_pointer(size);
+            continuation = Some(self.current_ptr);
+            self.current_ptr = target;
+            (size, type_num) = self.size_and_type()?;
+            if type_num == TYPE_POINTER {
+                return Err(self.invalid_db_error("pointer points to another pointer"));
+            }
+        }
+        if type_num == TYPE_STRING || type_num == TYPE_BYTES {
+            self.count_payload(size)?;
+            // Cache only complete string payloads. Leave malformed lengths
+            // to the requested Serde entry point so its errors and cursor
+            // restoration remain unchanged.
+            let cached = if type_num == TYPE_STRING {
+                self.current_ptr
+                    .checked_add(size)
+                    .filter(|&end| end <= self.limit)
+                    .map(|end| CachedKey {
+                        bytes: self.slice(self.current_ptr, end),
+                        continuation: continuation.unwrap_or(end),
+                    })
+            } else {
+                None
+            };
+            return Ok((true, cached));
+        }
+        Ok((false, None))
     }
 
     /// Create an InvalidDatabase error with current offset context.
@@ -1532,7 +1559,7 @@ impl<'de, const BUDGETED: bool> MapAccess<'de> for MapAccessor<'_, 'de, BUDGETED
 
         if BUDGETED {
             let payload_remaining_before = self.de.payload_remaining;
-            let payload_precharged = self.de.count_payload_at_current()?;
+            let (payload_precharged, cached) = self.de.count_payload_at_current()?;
             let payload_remaining_after = self.de.payload_remaining;
 
             // Let the seed perform its ordinary payload charge, while retaining
@@ -1540,7 +1567,12 @@ impl<'de, const BUDGETED: bool> MapAccess<'de> for MapAccessor<'_, 'de, BUDGETED
             // avoids disabling a budget that deserialize_any can reactivate and
             // keeps the ordinary payload counter free of a map-key-only branch.
             self.de.payload_remaining = payload_remaining_before;
-            let result = seed.deserialize(&mut *self.de).map(Some);
+            let result = seed
+                .deserialize(KeyDeserializer {
+                    decoder: self.de,
+                    cached,
+                })
+                .map(Some);
             if payload_precharged {
                 self.de.payload_remaining = self.de.payload_remaining.min(payload_remaining_after);
             }
@@ -1760,6 +1792,7 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Copy)]
     struct RawIdentifierSeed;
 
     impl<'de> DeserializeSeed<'de> for RawIdentifierSeed {
@@ -2831,6 +2864,128 @@ mod tests {
         assert!(err
             .to_string()
             .contains("maximum size of data structure string and bytes"));
+    }
+
+    fn compare_cached_key<'de, K>(
+        buf: &'de [u8],
+        start: usize,
+        limit: usize,
+        remaining: u32,
+        seed: K,
+    ) where
+        K: DeserializeSeed<'de> + Copy,
+        K::Value: fmt::Debug + PartialEq,
+    {
+        let mut cached = Decoder::new_with_limit(buf, start, limit);
+        let mut original = Decoder::new_with_limit(buf, start, limit);
+        for decoder in [&mut cached, &mut original] {
+            decoder.activate_budget();
+            decoder.payload_remaining = remaining;
+        }
+
+        let actual = super::MapAccessor::<true> {
+            de: &mut cached,
+            count: 2,
+        }
+        .next_key_seed(seed)
+        .map_err(|error| format!("{error:?}"));
+        // Reference the previous map-key algorithm: precharge, decode from the
+        // original cursor, then retain whichever payload charge is larger.
+        let expected = (|| {
+            let (charged, _) = original.count_payload_at_current()?;
+            let after = original.payload_remaining;
+            original.payload_remaining = remaining;
+            let result = seed.deserialize(&mut original).map(Some);
+            if charged {
+                original.payload_remaining = original.payload_remaining.min(after);
+            }
+            result
+        })()
+        .map_err(|error: super::DecoderError| format!("{error:?}"));
+
+        assert_eq!(
+            actual, expected,
+            "start={start}, limit={limit}, remaining={remaining}"
+        );
+        assert_eq!(cached.current_ptr, original.current_ptr);
+        assert_eq!(cached.state, original.state);
+        assert_eq!(cached.payload_remaining, original.payload_remaining);
+    }
+
+    #[test]
+    fn cached_map_keys_preserve_values_errors_cursors_and_budgets() {
+        let mut buf = [0x61; 80];
+        buf[..2].copy_from_slice(&[0x20, 10]);
+        for control in 0..=255 {
+            buf[10] = control;
+            for limit in 0..=buf.len() {
+                for remaining in [0, 1, 28, 32, 4096] {
+                    compare_cached_key(&buf, 0, limit, remaining, RawIdentifierSeed);
+                    compare_cached_key(&buf, 10, limit, remaining, RawIdentifierSeed);
+                }
+            }
+        }
+        for &(pointer, target) in &[
+            (&[0x20, 8][..], 8),
+            (&[0x28, 0, 0][..], 2048),
+            (&[0x30, 0, 0, 0][..], 526_336),
+            (&[0x38, 0, 0, 0, 8][..], 8),
+        ] {
+            let mut buf = pointer.to_vec();
+            buf.resize(target, 0);
+            buf.extend([0x5e, 0, 0]); // 285-byte string
+            buf.resize(buf.len() + 285, 0xff); // identifiers preserve raw UTF-8 bytes
+            for limit in [pointer.len() - 1, target, buf.len() - 1, buf.len()] {
+                for remaining in [0, 284, 285, 4096] {
+                    compare_cached_key(&buf, 0, limit, remaining, RawIdentifierSeed);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cached_map_keys_preserve_other_serde_entry_points() {
+        use std::marker::PhantomData;
+
+        let cases: &[&[u8]] = &[
+            &[0x41, b'x'],
+            &[0x20, 4, 0xa1, 42, 0x41, b'x'],
+            &[0x20, 4, 0xa1, 42, 0x41],
+            &[0x81, 0xff], // bytes are not string identifiers
+            &[0xa1, 42],
+            &[0xe0],
+        ];
+        for &buf in cases {
+            for remaining in [0, 1, 4096] {
+                compare_cached_key(buf, 0, buf.len(), remaining, PhantomData::<String>);
+                compare_cached_key(
+                    buf,
+                    0,
+                    buf.len(),
+                    remaining,
+                    PhantomData::<serde_json::Value>,
+                );
+                compare_cached_key(
+                    buf,
+                    0,
+                    buf.len(),
+                    remaining,
+                    PhantomData::<serde::de::IgnoredAny>,
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(not(feature = "unsafe-str-decode"))]
+    fn cached_map_keys_do_not_bypass_utf8_validation_for_strings() {
+        use std::marker::PhantomData;
+
+        for buf in [&[0x41, 0xff][..], &[0x20, 2, 0x41, 0xff][..]] {
+            compare_cached_key(buf, 0, buf.len(), 4096, PhantomData::<String>);
+            compare_cached_key(buf, 0, buf.len(), 4096, PhantomData::<serde_json::Value>);
+            compare_cached_key(buf, 0, buf.len(), 4096, RawIdentifierSeed);
+        }
     }
 
     #[test]

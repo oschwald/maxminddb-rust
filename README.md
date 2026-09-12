@@ -137,6 +137,13 @@ cargo bench --bench lookup
 cargo bench --bench serde_usage
 ```
 
+The `serde_usage` suite covers typed records, ignored fields, generic JSON
+values, raw-string adapters, and selective paths. The `decode_raw_strings`
+case walks every record using borrowed identifier bytes and
+`deserialize_any_with_raw_strings`, as language bindings do, without adding
+another runtime's allocation costs. It detects decoder overhead that typed
+record benchmarks can miss.
+
 Criterion.rs generates an HTML report at `target/criterion/report/index.html`.
 It uses gnuplot when available and the bundled Plotters backend otherwise.
 

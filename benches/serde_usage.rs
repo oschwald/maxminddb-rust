@@ -6,6 +6,7 @@ use std::hint::black_box;
 use std::net::IpAddr;
 
 mod common;
+mod raw_strings;
 use common::{generate_ipv4, open_reader};
 
 const DB_FILE: &str = "GeoLite2-City.mmdb";
@@ -106,6 +107,20 @@ pub fn serde_usage_benchmark(c: &mut Criterion) {
     });
     c.bench_function("serde_usage/decode_empty_record", |b| {
         b.iter(|| bench_decode_empty_record(&cached_results))
+    });
+    c.bench_function("serde_usage/decode_json_value", |b| {
+        b.iter(|| {
+            for result in &cached_results {
+                black_box(result.decode::<serde_json::Value>().unwrap());
+            }
+        })
+    });
+    c.bench_function("serde_usage/decode_raw_strings", |b| {
+        b.iter(|| {
+            for result in &cached_results {
+                black_box(result.decode::<raw_strings::RawStrings>().unwrap());
+            }
+        })
     });
     c.bench_function("serde_usage/decode_path_country_iso", |b| {
         b.iter(|| bench_decode_path_country_iso(&cached_results))
