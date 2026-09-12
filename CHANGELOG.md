@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Reused precharged map-key bytes for raw identifier decoding, avoiding a
+  second header parse while preserving payload limits and other Serde entry
+  points. Added raw-string adapter and generic JSON decoding benchmarks.
 - Breaking: Removed the `simdutf8` feature and its optional dependency. It did
   not improve lookup performance in benchmarks using production GeoIP2 City
   and Country databases. Remove `simdutf8` from dependency feature lists when
