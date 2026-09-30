@@ -1,5 +1,15 @@
 # Change Log
 
+## Unreleased
+
+- Added opt-in `Reader::with_lookup_index()` to accelerate repeated lookups
+  with a prefix table using up to 64 KiB of additional memory per reader.
+- Reduced decoder error-handling code on successful paths and used 64-bit
+  words for IPv6 search-tree traversal. Validation and error behavior are
+  unchanged.
+- Added a workload benchmark separating tree traversal, record decoding, and
+  index construction, with explicit hit counts and JSON timing results.
+
 ## 0.32.0 - 2026-09-12
 
 - Reused precharged map-key bytes for raw identifier decoding, avoiding a
