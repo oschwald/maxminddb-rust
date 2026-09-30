@@ -153,6 +153,23 @@ record benchmarks can miss.
 Criterion.rs generates an HTML report at `target/criterion/report/index.html`.
 It uses gnuplot when available and the bundled Plotters backend otherwise.
 
+The separate `lookup_workloads` benchmark emits JSON with five timing samples
+and their median. It measures tree traversal, full City decoding, and reader
+construction on deterministic random IPs and a reservoir sample of successful
+networks across the database. Random workloads report their hit counts; hit
+samples weight networks equally rather than weighting by network size. Both
+City and Country databases can be used; decoding always requests `geoip2::City`.
+
+```bash
+cargo bench --bench lookup_workloads -- /path/to/GeoLite2-City.mmdb
+```
+
+Use the same database, compiler, build flags, and CPU affinity for comparisons.
+`MMDB_BENCH_MS` sets each sample's minimum duration (default: 200 ms), and
+`MMDB_BENCH_FILTER` selects measurement names by substring, such as `tree/` or
+`open_buffer`. `open_buffer` includes reader construction, but excludes
+disk reads. The lookup measurements run after opening and warmup.
+
 ## Contributing
 
 Contributions welcome! Please fork the repository and open a pull request
