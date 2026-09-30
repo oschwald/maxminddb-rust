@@ -7,6 +7,8 @@
   aliases are still filtered by default.
 - Fixed deserialization of derived Serde newtypes around scalars, strings,
   and records, including nested wrappers and pointer-backed values.
+- Reduced decoder error-handling code on successful paths. Validation and
+  error behavior are unchanged.
 - Added a workload benchmark that separates tree traversal, record decoding,
   and reader construction, with hit counts and JSON timing results.
 
