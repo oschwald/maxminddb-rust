@@ -344,14 +344,17 @@ impl<'de> Decoder<'de> {
         Ok((false, None))
     }
 
+    // Keep error construction out of line so successful decode paths stay small.
     /// Create an InvalidDatabase error with current offset context.
-    #[inline]
+    #[cold]
+    #[inline(never)]
     fn invalid_db_error(&self, msg: &str) -> DecoderError {
         MaxMindDbError::invalid_database_at(msg, self.current_ptr).into()
     }
 
     /// Create a Decoding error with current offset context.
-    #[inline]
+    #[cold]
+    #[inline(never)]
     fn decode_error(&self, msg: &str) -> DecoderError {
         MaxMindDbError::decoding_at(msg, self.current_ptr).into()
     }
@@ -363,7 +366,8 @@ impl<'de> Decoder<'de> {
         MaxMindDbError::resource_limit_at(msg, self.current_ptr).into()
     }
 
-    #[inline(always)]
+    #[cold]
+    #[inline(never)]
     fn type_mismatch(&self, label: &str, type_num: usize) -> DecoderError {
         if type_num > usize::from(u8::MAX) {
             self.invalid_db_error(&format!("unknown data type: {type_num}"))
