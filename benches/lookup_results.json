@@ -1,0 +1,465 @@
+{
+  "date": "2026-09-29",
+  "baseline_library_commit": "c0d0ccd2e6b42742f9002855afe00e29cf64c4c4",
+  "cpu": "Intel Core Ultra 7 265K, affinity CPU 0",
+  "compiler": "rustc 1.90.0 (1159e78c4 2025-09-14)",
+  "build_command": "cargo +1.90.0 bench --bench lookup_workloads --no-run",
+  "rustflags": "",
+  "features": "default; UTF-8 validation enabled",
+  "measurement": "Nanoseconds per operation; median of five samples, each at least 250 ms for confirmation and 100 ms for screening. Reader holds a borrowed in-memory database buffer; opening excludes disk reads. Decoding requests geoip2::City for both files. The synthetic fixture comes from libmaxminddb-rs a080ed906f3bff0ffe64e316a83678e85c142500 tools/gen-bench-data.",
+  "retained": "Cold decoder error construction and 64-bit IPv6 traversal apply by default. Reader::with_lookup_index() opts into 12-bit tables, up to 64 KiB. Broad decoder inlining was inconsistent; the 16-bit index used more memory and made random IPv6 misses slower; the 8-bit index saved memory but accelerated successful traversal less.",
+  "confirmation": [
+    {
+      "bytes": 125642862,
+      "node_count": 11805467,
+      "record_size": 28,
+      "build_epoch": 1790338710,
+      "workloads": {
+        "v4_hits": {
+          "hits": 8192,
+          "queries": 8192
+        },
+        "v4_random": {
+          "hits": 56126,
+          "queries": 65536
+        },
+        "v6_hits": {
+          "hits": 8192,
+          "queries": 8192
+        },
+        "v6_random": {
+          "hits": 8,
+          "queries": 65536
+        }
+      },
+      "database": "GeoIP2-City.mmdb",
+      "sha256": "36b296b9c0f8309e4bd63a488061d4a48b71b04b11e86c378cdaacdbb000bc05",
+      "results": {
+        "baseline": {
+          "decode/v4_hits": 957.73,
+          "decode/v6_hits": 919.67,
+          "lookup_decode/v4_hits": 1139.42,
+          "lookup_decode/v4_random": 834.49,
+          "lookup_decode/v6_hits": 1170.34,
+          "lookup_decode/v6_random": 19.29,
+          "open_buffer": 461.82,
+          "tree/v4_hits": 148.3,
+          "tree/v4_random": 88.84,
+          "tree/v6_hits": 200.76,
+          "tree/v6_random": 19.01
+        },
+        "default": {
+          "decode/v4_hits": 855.74,
+          "decode/v6_hits": 802.36,
+          "lookup_decode/v4_hits": 1060.64,
+          "lookup_decode/v4_random": 782.99,
+          "lookup_decode/v6_hits": 1058.11,
+          "lookup_decode/v6_random": 16.45,
+          "open_buffer": 445.61,
+          "tree/v4_hits": 149.47,
+          "tree/v4_random": 90.39,
+          "tree/v6_hits": 196.55,
+          "tree/v6_random": 16.33
+        },
+        "indexed": {
+          "decode/v4_hits": 847.09,
+          "decode/v6_hits": 809.76,
+          "lookup_decode/v4_hits": 997.92,
+          "lookup_decode/v4_random": 737.54,
+          "lookup_decode/v6_hits": 1024.53,
+          "lookup_decode/v6_random": 6.94,
+          "open_buffer": 14907.67,
+          "tree/v4_hits": 110.84,
+          "tree/v4_random": 53.64,
+          "tree/v6_hits": 171.4,
+          "tree/v6_random": 6.96
+        }
+      }
+    },
+    {
+      "bytes": 8382585,
+      "node_count": 1376042,
+      "record_size": 24,
+      "build_epoch": 1790338710,
+      "workloads": {
+        "v4_hits": {
+          "hits": 8192,
+          "queries": 8192
+        },
+        "v4_random": {
+          "hits": 56126,
+          "queries": 65536
+        },
+        "v6_hits": {
+          "hits": 8192,
+          "queries": 8192
+        },
+        "v6_random": {
+          "hits": 8,
+          "queries": 65536
+        }
+      },
+      "database": "GeoIP2-Country.mmdb",
+      "sha256": "8fe9cdb4ecb12c858c97875acb3a278fc401ca72bb72378a891f41d605f612d2",
+      "results": {
+        "baseline": {
+          "decode/v4_hits": 512.84,
+          "decode/v6_hits": 503.86,
+          "lookup_decode/v4_hits": 600.41,
+          "lookup_decode/v4_random": 479.24,
+          "lookup_decode/v6_hits": 680.62,
+          "lookup_decode/v6_random": 20.01,
+          "open_buffer": 435.19,
+          "tree/v4_hits": 74.59,
+          "tree/v4_random": 40.82,
+          "tree/v6_hits": 156.23,
+          "tree/v6_random": 20.11
+        },
+        "default": {
+          "decode/v4_hits": 456.84,
+          "decode/v6_hits": 448.08,
+          "lookup_decode/v4_hits": 531.1,
+          "lookup_decode/v4_random": 423.38,
+          "lookup_decode/v6_hits": 617.72,
+          "lookup_decode/v6_random": 18.25,
+          "open_buffer": 419.63,
+          "tree/v4_hits": 73.83,
+          "tree/v4_random": 40.97,
+          "tree/v6_hits": 151.6,
+          "tree/v6_random": 18.17
+        },
+        "indexed": {
+          "decode/v4_hits": 449.07,
+          "decode/v6_hits": 442.43,
+          "lookup_decode/v4_hits": 507.73,
+          "lookup_decode/v4_random": 407.25,
+          "lookup_decode/v6_hits": 593.61,
+          "lookup_decode/v6_random": 6.77,
+          "open_buffer": 12236.71,
+          "tree/v4_hits": 45.85,
+          "tree/v4_random": 18.91,
+          "tree/v6_hits": 123.74,
+          "tree/v6_random": 6.92
+        }
+      }
+    }
+  ],
+  "screening": {
+    "word64": {
+      "change": "IPv6 traversal using 64-bit halves; no index or decoder change",
+      "results": {
+        "GeoIP2-City": {
+          "decode/v4_hits": 963.31,
+          "decode/v6_hits": 911.32,
+          "lookup_decode/v4_hits": 1171.47,
+          "lookup_decode/v4_random": 869.1,
+          "lookup_decode/v6_hits": 1171.64,
+          "lookup_decode/v6_random": 16.17,
+          "open_buffer": 468.62,
+          "tree/v4_hits": 149.19,
+          "tree/v4_random": 90.25,
+          "tree/v6_hits": 197.89,
+          "tree/v6_random": 16.22
+        },
+        "GeoIP2-Country": {
+          "decode/v4_hits": 510.97,
+          "decode/v6_hits": 517.57,
+          "lookup_decode/v4_hits": 616.74,
+          "lookup_decode/v4_random": 497.49,
+          "lookup_decode/v6_hits": 708.27,
+          "lookup_decode/v6_random": 18.5,
+          "open_buffer": 443.44,
+          "tree/v4_hits": 76.15,
+          "tree/v4_random": 41.56,
+          "tree/v6_hits": 153.41,
+          "tree/v6_random": 18.25
+        },
+        "synthetic": {
+          "decode/v4_hits": 479.78,
+          "decode/v6_hits": 477.96,
+          "lookup_decode/v4_hits": 467.31,
+          "lookup_decode/v4_random": 41.03,
+          "lookup_decode/v6_hits": 558.36,
+          "lookup_decode/v6_random": 15.39,
+          "open_buffer": 342.22,
+          "tree/v4_hits": 26.14,
+          "tree/v4_random": 13.03,
+          "tree/v6_hits": 121.89,
+          "tree/v6_random": 15.11
+        }
+      }
+    },
+    "index12": {
+      "change": "64-bit traversal plus 12-bit prefix index",
+      "results": {
+        "GeoIP2-City": {
+          "decode/v4_hits": 972.32,
+          "decode/v6_hits": 926.65,
+          "lookup_decode/v4_hits": 1139.33,
+          "lookup_decode/v4_random": 833.81,
+          "lookup_decode/v6_hits": 1148.4,
+          "lookup_decode/v6_random": 6.98,
+          "open_buffer": 16340.99,
+          "tree/v4_hits": 111.09,
+          "tree/v4_random": 54.99,
+          "tree/v6_hits": 171.9,
+          "tree/v6_random": 7.03
+        },
+        "GeoIP2-Country": {
+          "decode/v4_hits": 507.85,
+          "decode/v6_hits": 501.19,
+          "lookup_decode/v4_hits": 560.72,
+          "lookup_decode/v4_random": 452.02,
+          "lookup_decode/v6_hits": 650.49,
+          "lookup_decode/v6_random": 6.81,
+          "open_buffer": 12442.95,
+          "tree/v4_hits": 46.57,
+          "tree/v4_random": 19.32,
+          "tree/v6_hits": 125.59,
+          "tree/v6_random": 6.96
+        },
+        "synthetic": {
+          "decode/v4_hits": 447.93,
+          "decode/v6_hits": 447.57,
+          "lookup_decode/v4_hits": 464.03,
+          "lookup_decode/v4_random": 31.76,
+          "lookup_decode/v6_hits": 554.29,
+          "lookup_decode/v6_random": 6.8,
+          "open_buffer": 6051.33,
+          "tree/v4_hits": 7.35,
+          "tree/v4_random": 2.84,
+          "tree/v6_hits": 96.05,
+          "tree/v6_random": 6.93
+        }
+      }
+    },
+    "index16": {
+      "change": "64-bit traversal plus 16-bit prefix index; up to 1 MiB of tables",
+      "results": {
+        "GeoIP2-City": {
+          "decode/v4_hits": 976.6,
+          "decode/v6_hits": 918.55,
+          "lookup_decode/v4_hits": 1113.1,
+          "lookup_decode/v4_random": 812.11,
+          "lookup_decode/v6_hits": 1146.09,
+          "lookup_decode/v6_random": 9.74,
+          "open_buffer": 565583.91,
+          "tree/v4_hits": 86.93,
+          "tree/v4_random": 35.52,
+          "tree/v6_hits": 163.9,
+          "tree/v6_random": 9.7
+        },
+        "GeoIP2-Country": {
+          "decode/v4_hits": 515.13,
+          "decode/v6_hits": 510.85,
+          "lookup_decode/v4_hits": 553.67,
+          "lookup_decode/v4_random": 439.82,
+          "lookup_decode/v6_hits": 646.43,
+          "lookup_decode/v6_random": 9.74,
+          "open_buffer": 421521.61,
+          "tree/v4_hits": 35.98,
+          "tree/v4_random": 8.81,
+          "tree/v6_hits": 116.64,
+          "tree/v6_random": 9.74
+        },
+        "synthetic": {
+          "decode/v4_hits": 440.48,
+          "decode/v6_hits": 439.15,
+          "lookup_decode/v4_hits": 443.11,
+          "lookup_decode/v4_random": 30.54,
+          "lookup_decode/v6_hits": 524.27,
+          "lookup_decode/v6_random": 9.2,
+          "open_buffer": 297975.39,
+          "tree/v4_hits": 2.17,
+          "tree/v4_random": 2.81,
+          "tree/v6_hits": 84.68,
+          "tree/v6_random": 9.55
+        }
+      }
+    },
+    "inline12": {
+      "change": "12-bit index plus forced inlining of typed decoder entry points",
+      "results": {
+        "GeoIP2-City": {
+          "decode/v4_hits": 948.29,
+          "decode/v6_hits": 900.22,
+          "lookup_decode/v4_hits": 1124.72,
+          "lookup_decode/v4_random": 823.24,
+          "lookup_decode/v6_hits": 1141.37,
+          "lookup_decode/v6_random": 6.6,
+          "open_buffer": 16431.63,
+          "tree/v4_hits": 109.97,
+          "tree/v4_random": 53.11,
+          "tree/v6_hits": 173.67,
+          "tree/v6_random": 6.88
+        },
+        "GeoIP2-Country": {
+          "decode/v4_hits": 521.07,
+          "decode/v6_hits": 515.82,
+          "lookup_decode/v4_hits": 556.44,
+          "lookup_decode/v4_random": 451.15,
+          "lookup_decode/v6_hits": 644.98,
+          "lookup_decode/v6_random": 6.92,
+          "open_buffer": 13179.15,
+          "tree/v4_hits": 45.67,
+          "tree/v4_random": 18.86,
+          "tree/v6_hits": 126.21,
+          "tree/v6_random": 6.94
+        },
+        "synthetic": {
+          "decode/v4_hits": 438.35,
+          "decode/v6_hits": 438.45,
+          "lookup_decode/v4_hits": 438.52,
+          "lookup_decode/v4_random": 30.22,
+          "lookup_decode/v6_hits": 526.98,
+          "lookup_decode/v6_random": 6.68,
+          "open_buffer": 5994.39,
+          "tree/v4_hits": 7.48,
+          "tree/v4_random": 2.76,
+          "tree/v6_hits": 96.24,
+          "tree/v6_random": 6.89
+        }
+      }
+    },
+    "cold12": {
+      "change": "12-bit index plus out-of-line decoder errors",
+      "results": {
+        "GeoIP2-City": {
+          "decode/v4_hits": 895.25,
+          "decode/v6_hits": 858.23,
+          "lookup_decode/v4_hits": 1019.14,
+          "lookup_decode/v4_random": 754.07,
+          "lookup_decode/v6_hits": 1051.67,
+          "lookup_decode/v6_random": 6.58,
+          "open_buffer": 16565.67,
+          "tree/v4_hits": 109.98,
+          "tree/v4_random": 53.69,
+          "tree/v6_hits": 173.44,
+          "tree/v6_random": 6.88
+        },
+        "GeoIP2-Country": {
+          "decode/v4_hits": 456.59,
+          "decode/v6_hits": 449.86,
+          "lookup_decode/v4_hits": 507.71,
+          "lookup_decode/v4_random": 405.51,
+          "lookup_decode/v6_hits": 596.95,
+          "lookup_decode/v6_random": 7.0,
+          "open_buffer": 12503.26,
+          "tree/v4_hits": 46.98,
+          "tree/v4_random": 18.86,
+          "tree/v6_hits": 127.1,
+          "tree/v6_random": 7.07
+        },
+        "synthetic": {
+          "decode/v4_hits": 383.36,
+          "decode/v6_hits": 382.76,
+          "lookup_decode/v4_hits": 389.59,
+          "lookup_decode/v4_random": 27.15,
+          "lookup_decode/v6_hits": 482.46,
+          "lookup_decode/v6_random": 6.4,
+          "open_buffer": 5956.87,
+          "tree/v4_hits": 7.42,
+          "tree/v4_random": 2.79,
+          "tree/v6_hits": 94.23,
+          "tree/v6_random": 6.83
+        }
+      }
+    },
+    "cold8": {
+      "change": "8-bit index plus out-of-line decoder errors; up to 4 KiB of tables",
+      "results": {
+        "GeoIP2-City": {
+          "decode/v4_hits": 850.82,
+          "decode/v6_hits": 804.24,
+          "lookup_decode/v4_hits": 1040.89,
+          "lookup_decode/v4_random": 767.19,
+          "lookup_decode/v6_hits": 1053.4,
+          "lookup_decode/v6_random": 7.09,
+          "open_buffer": 1207.58,
+          "tree/v4_hits": 128.32,
+          "tree/v4_random": 70.29,
+          "tree/v6_hits": 179.88,
+          "tree/v6_random": 7.18
+        },
+        "GeoIP2-Country": {
+          "decode/v4_hits": 455.94,
+          "decode/v6_hits": 453.21,
+          "lookup_decode/v4_hits": 518.56,
+          "lookup_decode/v4_random": 413.66,
+          "lookup_decode/v6_hits": 601.06,
+          "lookup_decode/v6_random": 7.06,
+          "open_buffer": 1130.38,
+          "tree/v4_hits": 58.31,
+          "tree/v4_random": 26.63,
+          "tree/v6_hits": 135.53,
+          "tree/v6_random": 7.04
+        },
+        "synthetic": {
+          "decode/v4_hits": 376.47,
+          "decode/v6_hits": 375.99,
+          "lookup_decode/v4_hits": 386.09,
+          "lookup_decode/v4_random": 26.88,
+          "lookup_decode/v6_hits": 472.68,
+          "lookup_decode/v6_random": 6.7,
+          "open_buffer": 643.48,
+          "tree/v4_hits": 12.19,
+          "tree/v4_random": 3.09,
+          "tree/v6_hits": 102.75,
+          "tree/v6_random": 6.8
+        }
+      }
+    }
+  },
+  "validation": {
+    "rust_1_90_default": "150 unit tests and 23 doctests passed",
+    "rust_1_90_all_features": "149 unit tests and 24 doctests passed",
+    "rust_1_98_1_default": "150 unit tests and 23 doctests passed",
+    "clippy": "All targets, all features, warnings denied",
+    "rustdoc": "mmap enabled, warnings denied",
+    "reader_fuzz": "387827 runs in 31 seconds; compares indexed and unindexed offsets, networks, and errors"
+  },
+  "baseline_benchmark_commit": "7ab2747c",
+  "cross_library_probe": {
+    "fixture": "synthetic fixture described above; 50679 bytes, 8345 nodes",
+    "competitor_commit": "a080ed906f3bff0ffe64e316a83678e85c142500",
+    "method": "Separate diagnostic harness, Rust 1.90, native CPU target, fat LTO, one codegen unit, pinned CPU 0. maxminddb enables unsafe-str-decode to match the competitor comparison. Both deserialize the same 256-byte City schema and black-box records only on hits. Three samples of at least 100 ms. Final maxminddb enables the 12-bit index. Random workloads contain one million queries; IPv4 has 62549 hits, IPv6 zero. Hit/hot samples contain 8192 queries. Both binaries were run again after implementation.",
+    "results": {
+      "v4_random": {
+        "maxminddb_baseline_ns": 28.77,
+        "libmaxminddb_rs_baseline_ns": 11.91,
+        "maxminddb_final_ns": 18.82,
+        "libmaxminddb_rs_final_ns": 11.9
+      },
+      "v6_random": {
+        "maxminddb_baseline_ns": 19.5,
+        "libmaxminddb_rs_baseline_ns": 6.24,
+        "maxminddb_final_ns": 7.39,
+        "libmaxminddb_rs_final_ns": 6.49
+      },
+      "v4_miss": {
+        "maxminddb_baseline_ns": 5.63,
+        "libmaxminddb_rs_baseline_ns": 1.97,
+        "maxminddb_final_ns": 5.46,
+        "libmaxminddb_rs_final_ns": 1.98
+      },
+      "v4_hits": {
+        "maxminddb_baseline_ns": 255.74,
+        "libmaxminddb_rs_baseline_ns": 148.95,
+        "maxminddb_final_ns": 216.64,
+        "libmaxminddb_rs_final_ns": 151.45
+      },
+      "v4_hot": {
+        "maxminddb_baseline_ns": 271.97,
+        "libmaxminddb_rs_baseline_ns": 149.96,
+        "maxminddb_final_ns": 226.5,
+        "libmaxminddb_rs_final_ns": 151.81
+      },
+      "v6_hot": {
+        "maxminddb_baseline_ns": 361.29,
+        "libmaxminddb_rs_baseline_ns": 156.58,
+        "maxminddb_final_ns": 298.33,
+        "libmaxminddb_rs_final_ns": 158.84
+      }
+    }
+  }
+}

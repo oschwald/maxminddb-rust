@@ -18,6 +18,104 @@ fn open_test_data_reader(database: &str) -> Reader<Vec<u8>> {
         .unwrap_or_else(|e| panic!("failed to open test database '{database}': {e}"))
 }
 
+#[test]
+fn lookup_index_preserves_records_and_networks() {
+    for bits in TEST_RECORD_SIZES {
+        for family in ["ipv4", "ipv6", "mixed"] {
+            let name = format!("MaxMind-DB-test-{family}-{bits}.mmdb");
+            let direct = open_test_data_reader(&name);
+            let indexed = open_test_data_reader(&name).with_lookup_index();
+            // Check both ends of every network, including empty networks and
+            // IPv4 aliases. This exercises early terminals and exact prefixes.
+            let options = WithinOptions::default()
+                .include_aliased_networks()
+                .include_networks_without_data();
+            for result in direct.networks(options).unwrap() {
+                let network = result.unwrap().network().unwrap();
+                for ip in [network.network(), network.broadcast()] {
+                    let expected = direct.lookup(ip).unwrap();
+                    let actual = indexed.lookup(ip).unwrap();
+                    assert_eq!(actual.offset(), expected.offset(), "{name}: {ip}");
+                    assert_eq!(actual.network().unwrap(), expected.network().unwrap());
+                    assert_eq!(
+                        actual.decode::<serde_json::Value>().unwrap(),
+                        expected.decode::<serde_json::Value>().unwrap()
+                    );
+                }
+            }
+            // Exercise every index entry, with different suffixes.
+            for prefix in 0..4096u32 {
+                let v4 = IpAddr::from(std::net::Ipv4Addr::from((prefix << 20) | 0x000a_bcde));
+                let expected = direct.lookup(v4).unwrap();
+                let actual = indexed.lookup(v4).unwrap();
+                assert_eq!(actual.offset(), expected.offset());
+                assert_eq!(actual.network().unwrap(), expected.network().unwrap());
+                if direct.metadata().ip_version == 6 {
+                    let v6 = IpAddr::from(std::net::Ipv6Addr::from(
+                        (u128::from(prefix) << 116) | 0x1234_5678_9abc_def0,
+                    ));
+                    let expected = direct.lookup(v6).unwrap();
+                    let actual = indexed.lookup(v6).unwrap();
+                    assert_eq!(actual.offset(), expected.offset());
+                    assert_eq!(actual.network().unwrap(), expected.network().unwrap());
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn lookup_index_preserves_missing_ipv4_subtree() {
+    let direct = open_test_data_reader("MaxMind-DB-no-ipv4-search-tree.mmdb");
+    let indexed = open_test_data_reader("MaxMind-DB-no-ipv4-search-tree.mmdb")
+        .with_lookup_index()
+        .with_lookup_index();
+    for address in [
+        "0.0.0.0",
+        "1.1.1.1",
+        "255.255.255.255",
+        "::",
+        "::1",
+        "ffff::",
+    ] {
+        let ip = address.parse().unwrap();
+        let expected = direct.lookup(ip).unwrap();
+        let actual = indexed.lookup(ip).unwrap();
+        assert_eq!(actual.offset(), expected.offset());
+        assert_eq!(actual.network().unwrap(), expected.network().unwrap());
+    }
+}
+
+#[test]
+fn lookup_index_preserves_corrupt_tree_behavior() {
+    let original = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
+    let node_count = original.metadata().node_count;
+    // Cycle, empty terminal, separator pointers, and out-of-bounds pointers.
+    for pointer in [0, node_count, node_count + 1, node_count + 15, 0x00ff_ffff] {
+        let mut bytes = original.buf.clone();
+        let encoded = pointer.to_be_bytes();
+        bytes[..3].copy_from_slice(&encoded[1..]);
+        bytes[3..6].copy_from_slice(&encoded[1..]);
+        let direct = Reader::from_source(bytes.as_slice()).unwrap();
+        let indexed = Reader::from_source(bytes.as_slice())
+            .unwrap()
+            .with_lookup_index();
+        for address in ["0.0.0.0", "1.2.3.4", "255.255.255.255"] {
+            let ip = address.parse().unwrap();
+            match (direct.lookup(ip), indexed.lookup(ip)) {
+                (Ok(expected), Ok(actual)) => {
+                    assert_eq!(actual.offset(), expected.offset());
+                    assert_eq!(actual.network().unwrap(), expected.network().unwrap());
+                }
+                (Err(expected), Err(actual)) => {
+                    assert_eq!(actual.to_string(), expected.to_string())
+                }
+                _ => panic!("index changed lookup outcome for pointer {pointer}"),
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 struct OwnedBytes(Vec<u8>);
 

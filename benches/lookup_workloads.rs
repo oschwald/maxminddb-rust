@@ -43,7 +43,16 @@ fn main() {
         .find(|arg| arg != "--bench")
         .unwrap_or_else(|| "GeoLite2-City.mmdb".into());
     let bytes = std::fs::read(&path).unwrap();
-    let reader = Reader::from_source(bytes.as_slice()).unwrap();
+    let indexed = std::env::var_os("MMDB_BENCH_INDEX").is_some();
+    let open = || {
+        let reader = Reader::from_source(black_box(bytes.as_slice())).unwrap();
+        if indexed {
+            reader.with_lookup_index()
+        } else {
+            reader
+        }
+    };
+    let reader = open();
     let mut state = 0x5eed_2024_cafe_babe;
     let v4: Vec<_> = (0..65_536)
         .map(|_| IpAddr::V4(Ipv4Addr::from((random(&mut state) >> 32) as u32)))
@@ -152,7 +161,7 @@ fn main() {
             "open_buffer",
             measure(
                 || {
-                    black_box(Reader::from_source(black_box(bytes.as_slice())).unwrap());
+                    black_box(open());
                 },
                 10,
             ),
@@ -163,6 +172,7 @@ fn main() {
         "{}",
         json!({
             "path": path,
+        "indexed": indexed,
             "bytes": bytes.len(),
             "node_count": reader.metadata().node_count,
             "record_size": reader.metadata().record_size,
