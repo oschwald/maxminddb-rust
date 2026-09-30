@@ -25,14 +25,17 @@ use crate::within::{IpInt, Within, WithinNode, WithinOptions};
 const DATA_SECTION_SEPARATOR_SIZE: usize = 16;
 const METADATA_START_MARKER: &[u8] = b"\xab\xcd\xefMaxMind.com";
 
-const LOOKUP_INDEX_BITS: usize = 12;
+const LOOKUP_INDEX_BITS_V4: usize = 8;
+const LOOKUP_INDEX_BITS_V6: usize = 4;
 
 #[derive(Clone, Copy)]
+#[repr(C, packed)]
 struct IndexEntry {
     node: u32,
     depth: u8,
 }
 
+#[derive(Default)]
 struct LookupIndex {
     ipv4: Box<[IndexEntry]>,
     ipv6: Box<[IndexEntry]>,
@@ -68,7 +71,7 @@ pub struct Reader<S: AsRef<[u8]>> {
     pub(crate) pointer_base: usize,
     pub(crate) data_section_len: usize,
     pub(crate) metadata_start: usize,
-    lookup_index: Option<LookupIndex>,
+    lookup_index: LookupIndex,
 }
 
 impl<S: AsRef<[u8]>> std::fmt::Debug for Reader<S> {
@@ -131,7 +134,11 @@ impl Reader<Vec<u8>> {
 }
 
 impl<'de, S: AsRef<[u8]>> Reader<S> {
-    /// Open a MaxMind DB database from anything that implements AsRef<[u8]>
+    /// Open a MaxMind DB database from anything that implements AsRef<[u8]>.
+    ///
+    /// A small immutable prefix index is built automatically. Its tables use
+    /// up to 1,280 bytes for IPv4 and another 80 bytes for IPv6. Decoding stays
+    /// lazy, and the reader can still be shared across threads.
     ///
     /// # Example
     ///
@@ -177,50 +184,32 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
             metadata,
             ipv4_start: 0,
             ipv4_start_bit_depth: 0,
-            lookup_index: None,
+            lookup_index: LookupIndex::default(),
         };
         let (ipv4_start, ipv4_start_bit_depth) = reader.find_ipv4_start();
         reader.ipv4_start = ipv4_start;
         reader.ipv4_start_bit_depth = ipv4_start_bit_depth;
+        reader.initialize_lookup_index();
 
         Ok(reader)
     }
 
-    /// Prepare a prefix index to accelerate repeated IP lookups.
-    ///
-    /// The index skips up to the first 12 search-tree steps. It uses 32 KiB for
-    /// IPv4 databases and up to 64 KiB for IPv6 databases, in addition to the
-    /// original database buffer. Construction takes extra time, so this is
-    /// most useful for readers serving many lookups. The data section remains
-    /// borrowed, and decoding and network iteration are unchanged.
-    ///
-    /// ```
-    /// let reader = maxminddb::Reader::open_readfile(
-    ///     "test-data/test-data/GeoIP2-City-Test.mmdb",
-    /// ).unwrap().with_lookup_index();
-    /// let lookup = reader.lookup("89.160.20.128".parse().unwrap()).unwrap();
-    /// assert!(lookup.has_data());
-    /// ```
-    #[must_use]
-    pub fn with_lookup_index(mut self) -> Self {
-        if self.lookup_index.is_none() {
-            self.lookup_index = Some(LookupIndex {
-                ipv4: self.build_lookup_index(self.ipv4_start),
-                ipv6: if self.metadata.ip_version == 6 {
-                    self.build_lookup_index(0)
-                } else {
-                    Box::new([])
-                },
-            });
-        }
-        self
+    fn initialize_lookup_index(&mut self) {
+        self.lookup_index = LookupIndex {
+            ipv4: self.build_lookup_index(self.ipv4_start, LOOKUP_INDEX_BITS_V4),
+            ipv6: if self.metadata.ip_version == 6 {
+                self.build_lookup_index(0, LOOKUP_INDEX_BITS_V6)
+            } else {
+                Box::new([])
+            },
+        };
     }
 
-    fn build_lookup_index(&self, node: usize) -> Box<[IndexEntry]> {
+    fn build_lookup_index(&self, node: usize, bits: usize) -> Box<[IndexEntry]> {
         if node >= self.node_count {
             return Box::new([]);
         }
-        let mut entries = vec![IndexEntry { node: 0, depth: 0 }; 1 << LOOKUP_INDEX_BITS];
+        let mut entries = vec![IndexEntry { node: 0, depth: 0 }; 1 << bits];
         self.fill_lookup_index(&mut entries, node, 0);
         entries.into_boxed_slice()
     }
@@ -239,6 +228,39 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let (left, right) = entries.split_at_mut(entries.len() / 2);
         self.fill_lookup_index(left, self.read_node(node, 0), depth + 1);
         self.fill_lookup_index(right, self.read_node(node, 1), depth + 1);
+    }
+
+    /// Create a two-entry decoded-record cache for this reader and type.
+    ///
+    /// The cache reuses complete records when multiple IPs resolve to the same
+    /// data offset. It borrows this reader and requires mutable access for
+    /// lookups; concurrent consumers should each have their own cache. No
+    /// synchronization is added to the shared reader.
+    ///
+    /// Memory depends on `T` and its owned allocations. Caching is useful when
+    /// records repeat; it can add overhead when most records are used once.
+    /// Ordinary [`LookupResult::decode()`] and selective decoding remain lazy.
+    ///
+    /// ```
+    /// use maxminddb::{geoip2, Reader};
+    /// let reader = Reader::open_readfile(
+    ///     "test-data/test-data/GeoIP2-City-Test.mmdb",
+    /// ).unwrap();
+    /// let mut cache = reader.record_cache::<geoip2::City>();
+    /// let result = cache.lookup("89.160.20.128".parse().unwrap()).unwrap();
+    /// if let Some(city) = result.data() {
+    ///     assert_eq!(city.country.iso_code, Some("SE"));
+    /// }
+    /// assert!(result.network().is_ok());
+    /// ```
+    pub fn record_cache<'a, T: Deserialize<'a>>(&'a self) -> crate::RecordCache<'a, S, T> {
+        crate::RecordCache::new(self)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn without_lookup_index(mut self) -> Self {
+        self.lookup_index = LookupIndex::default();
+        self
     }
 
     /// Returns database metadata.
@@ -569,11 +591,12 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let buf = self.buf.as_ref();
         let node_count = self.node_count;
 
-        let (node, depth) = match &self.lookup_index {
-            Some(index) if !index.ipv4.is_empty() => {
-                let entry = index.ipv4[(ip >> (32 - LOOKUP_INDEX_BITS)) as usize];
-                (entry.node as usize, entry.depth as usize)
-            }
+        let (node, depth) = match self
+            .lookup_index
+            .ipv4
+            .get((ip >> (32 - LOOKUP_INDEX_BITS_V4)) as usize)
+        {
+            Some(entry) => (entry.node as usize, entry.depth as usize),
             _ => (self.ipv4_start, 0),
         };
 
@@ -590,11 +613,12 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let buf = self.buf.as_ref();
         let node_count = self.node_count;
 
-        let (node, depth) = match &self.lookup_index {
-            Some(index) => {
-                let entry = index.ipv6[(ip >> (128 - LOOKUP_INDEX_BITS)) as usize];
-                (entry.node as usize, entry.depth as usize)
-            }
+        let (node, depth) = match self
+            .lookup_index
+            .ipv6
+            .get((ip >> (128 - LOOKUP_INDEX_BITS_V6)) as usize)
+        {
+            Some(entry) => (entry.node as usize, entry.depth as usize),
             None => (0, 0),
         };
 
@@ -1019,6 +1043,21 @@ mod tests {
     use super::{
         find_address_in_tree_v6, RecordSize24, RecordSize28, RecordSize32, SearchTreeRecord,
     };
+
+    #[test]
+    fn readers_build_bounded_prefix_tables_automatically() {
+        for family in ["ipv4", "ipv6"] {
+            let reader = super::Reader::open_readfile(format!(
+                "test-data/test-data/MaxMind-DB-test-{family}-24.mmdb"
+            ))
+            .unwrap();
+            assert_eq!(std::mem::size_of_val(&*reader.lookup_index.ipv4), 1280);
+            assert_eq!(
+                std::mem::size_of_val(&*reader.lookup_index.ipv6),
+                if family == "ipv6" { 80 } else { 0 }
+            );
+        }
+    }
 
     #[test]
     fn ipv6_walk_preserves_prefixes_across_word_boundaries() {

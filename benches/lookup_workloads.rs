@@ -43,15 +43,8 @@ fn main() {
         .find(|arg| arg != "--bench")
         .unwrap_or_else(|| "GeoLite2-City.mmdb".into());
     let bytes = std::fs::read(&path).unwrap();
-    let indexed = std::env::var_os("MMDB_BENCH_INDEX").is_some();
-    let open = || {
-        let reader = Reader::from_source(black_box(bytes.as_slice())).unwrap();
-        if indexed {
-            reader.with_lookup_index()
-        } else {
-            reader
-        }
-    };
+    let indexed = true;
+    let open = || Reader::from_source(black_box(bytes.as_slice())).unwrap();
     let reader = open();
     let mut state = 0x5eed_2024_cafe_babe;
     let v4: Vec<_> = (0..65_536)

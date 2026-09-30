@@ -23,8 +23,8 @@ fn lookup_index_preserves_records_and_networks() {
     for bits in TEST_RECORD_SIZES {
         for family in ["ipv4", "ipv6", "mixed"] {
             let name = format!("MaxMind-DB-test-{family}-{bits}.mmdb");
-            let direct = open_test_data_reader(&name);
-            let indexed = open_test_data_reader(&name).with_lookup_index();
+            let direct = open_test_data_reader(&name).without_lookup_index();
+            let indexed = open_test_data_reader(&name);
             // Check both ends of every network, including empty networks and
             // IPv4 aliases. This exercises early terminals and exact prefixes.
             let options = WithinOptions::default()
@@ -43,7 +43,7 @@ fn lookup_index_preserves_records_and_networks() {
                     );
                 }
             }
-            // Exercise every index entry, with different suffixes.
+            // Exercise every 8-bit and 4-bit index entry, including different suffixes.
             for prefix in 0..4096u32 {
                 let v4 = IpAddr::from(std::net::Ipv4Addr::from((prefix << 20) | 0x000a_bcde));
                 let expected = direct.lookup(v4).unwrap();
@@ -66,10 +66,9 @@ fn lookup_index_preserves_records_and_networks() {
 
 #[test]
 fn lookup_index_preserves_missing_ipv4_subtree() {
-    let direct = open_test_data_reader("MaxMind-DB-no-ipv4-search-tree.mmdb");
-    let indexed = open_test_data_reader("MaxMind-DB-no-ipv4-search-tree.mmdb")
-        .with_lookup_index()
-        .with_lookup_index();
+    let direct =
+        open_test_data_reader("MaxMind-DB-no-ipv4-search-tree.mmdb").without_lookup_index();
+    let indexed = open_test_data_reader("MaxMind-DB-no-ipv4-search-tree.mmdb");
     for address in [
         "0.0.0.0",
         "1.1.1.1",
@@ -96,10 +95,10 @@ fn lookup_index_preserves_corrupt_tree_behavior() {
         let encoded = pointer.to_be_bytes();
         bytes[..3].copy_from_slice(&encoded[1..]);
         bytes[3..6].copy_from_slice(&encoded[1..]);
-        let direct = Reader::from_source(bytes.as_slice()).unwrap();
-        let indexed = Reader::from_source(bytes.as_slice())
+        let direct = Reader::from_source(bytes.as_slice())
             .unwrap()
-            .with_lookup_index();
+            .without_lookup_index();
+        let indexed = Reader::from_source(bytes.as_slice()).unwrap();
         for address in ["0.0.0.0", "1.2.3.4", "255.255.255.255"] {
             let ip = address.parse().unwrap();
             match (direct.lookup(ip), indexed.lookup(ip)) {

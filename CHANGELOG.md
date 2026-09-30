@@ -2,8 +2,11 @@
 
 ## Unreleased
 
-- Added opt-in `Reader::with_lookup_index()` to accelerate repeated lookups
-  with a prefix table using up to 64 KiB of additional memory per reader.
+- Added automatic prefix tables to accelerate lookups, using at most 1,360
+  bytes per reader (8 IPv4 bits and 4 IPv6 bits).
+- Added `Reader::record_cache()` for a caller-owned, two-entry cache of decoded
+  records. It supports borrowed values without cloning and preserves the
+  network information for each lookup. Memory use depends on the decoded type.
 - Reduced decoder error-handling code on successful paths and used 64-bit
   words for IPv6 search-tree traversal. Validation and error behavior are
   unchanged.

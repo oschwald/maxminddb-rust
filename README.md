@@ -64,17 +64,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Decode one field with `decode_path()`
 - Reuse `offset()` as a cache key when many IPs share the same record
 
-For readers serving many lookups, opt into a prefix index:
+Every reader automatically builds a small prefix index. It skips up to eight
+IPv4 tree steps or four IPv6 steps, using at most 1,360 bytes of table storage.
+It works with owned, borrowed, and memory-mapped database buffers.
+
+When many IPs share complete records, a typed cache can also avoid decoding:
 
 ```rust
-let reader = Reader::open_readfile("/path/to/GeoLite2-City.mmdb")?
-    .with_lookup_index();
+let mut cache = reader.record_cache::<geoip2::City>();
+let result = cache.lookup(ip)?;
+if let Some(city) = result.data() {
+    println!("Country: {}", city.country.iso_code.unwrap_or("N/A"));
+}
 ```
 
-The index replaces up to the first 12 search-tree steps with a table lookup.
-It adds 32 KiB for an IPv4 database, or up to 64 KiB for an IPv6 database,
-and takes extra time to build. It works with memory-mapped and borrowed buffers
-as well as owned files. Record decoding and network iteration are unchanged.
+This cache holds two decoded records and favors frequently reused values while
+aging out old ones. Results expose records by reference without requiring
+`Clone`. Drop a result before the next cache lookup; its network information
+always describes the current IP. Concurrent consumers can each keep a cache
+while sharing one reader.
+
+Record caching is explicit because `decode<T>()` supports arbitrary types and
+returns owned values. Cache memory depends on `T` and its allocations, and
+workloads with little record reuse can be slower. The measured 3.9 KiB for a City
+workload includes the prefix tables and record cache; it is not a fixed memory
+limit. Ordinary lookups and selective decoding remain available.
 
 ## Iterating networks
 
@@ -168,14 +182,40 @@ City and Country databases can be used; decoding always requests `geoip2::City`.
 
 ```bash
 cargo bench --bench lookup_workloads -- /path/to/GeoLite2-City.mmdb
-MMDB_BENCH_INDEX=1 cargo bench --bench lookup_workloads -- /path/to/GeoLite2-City.mmdb
 ```
 
 Use the same database, compiler, build flags, and CPU affinity for comparisons.
 `MMDB_BENCH_MS` sets each sample's minimum duration (default: 200 ms), and
 `MMDB_BENCH_FILTER` selects measurement names by substring, such as `tree/` or
-`open_buffer`. `open_buffer` includes index construction when enabled, but
+`open_buffer`. `open_buffer` includes automatic index construction, but
 excludes disk reads. The lookup measurements run after opening and warmup.
+
+`record_cache` compares the public typed cache with ordinary full decoding.
+Both paths consume complete records by reference, and the benchmark checks
+cached values, offsets, and networks against uncached results before timing.
+It reports five timing samples, uncached measurements before and after the
+cached measurement, reader construction, and cache initialization/destruction.
+
+```bash
+MMDB_CACHE_SCHEMA=city cargo bench --bench record_cache -- /path/to/GeoIP2-City.mmdb
+MMDB_TRACK_ALLOC=1 cargo bench --bench record_cache -- /path/to/GeoIP2-City.mmdb
+```
+
+`MMDB_CACHE_SCHEMA` accepts `city`, `country`, `isp`, `anonymous`, and `value`
+(full JSON). `MMDB_CACHE_WORKLOAD` optionally selects `mixed_random` or
+`mixed_hits`; the default runs both. The random workload shuffles 65,536 uniform
+IPs per family, so most IPv6 queries miss. The hit workload samples up to 8,192
+successful networks per family, weighting networks equally. These are
+sensitivity checks rather than models of production traffic. `MMDB_CACHE_SEED`
+changes the deterministic seed, `MMDB_CACHE_COUNT` changes the random count per
+family, and `MMDB_BENCH_MS` sets each sample's minimum duration (default: 100 ms).
+
+Allocation tracking is enabled at compile time with `MMDB_TRACK_ALLOC=1` and
+disables timing output. Its retained and peak bytes include the record cache's
+inline storage and requested heap allocations, including values decoded on
+misses. Add up to 1,360 bytes for the reader's prefix tables. The measurements
+exclude the database buffer, reader metadata, allocator overhead, and stack
+temporaries. Observed peaks depend on the database and workload.
 
 ## Contributing
 
