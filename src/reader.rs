@@ -25,6 +25,22 @@ use crate::within::{IpInt, Within, WithinNode, WithinOptions};
 const DATA_SECTION_SEPARATOR_SIZE: usize = 16;
 const METADATA_START_MARKER: &[u8] = b"\xab\xcd\xefMaxMind.com";
 
+const LOOKUP_INDEX_BITS_V4: usize = 8;
+const LOOKUP_INDEX_BITS_V6: usize = 4;
+
+#[derive(Clone, Copy)]
+#[repr(C, packed)]
+struct IndexEntry {
+    node: u32,
+    depth: u8,
+}
+
+#[derive(Default)]
+struct LookupIndex {
+    ipv4: Box<[IndexEntry]>,
+    ipv6: Box<[IndexEntry]>,
+}
+
 /// A reader for the MaxMind DB format. The lifetime `'data` is tied to the
 /// lifetime of the underlying buffer holding the contents of the database file.
 ///
@@ -55,6 +71,7 @@ pub struct Reader<S: AsRef<[u8]>> {
     pub(crate) pointer_base: usize,
     pub(crate) data_section_len: usize,
     pub(crate) metadata_start: usize,
+    lookup_index: LookupIndex,
 }
 
 impl<S: AsRef<[u8]>> std::fmt::Debug for Reader<S> {
@@ -117,7 +134,11 @@ impl Reader<Vec<u8>> {
 }
 
 impl<'de, S: AsRef<[u8]>> Reader<S> {
-    /// Open a MaxMind DB database from anything that implements AsRef<[u8]>
+    /// Open a MaxMind DB database from anything that implements AsRef<[u8]>.
+    ///
+    /// A small immutable prefix index is built automatically. Its tables use
+    /// up to 1,280 bytes for IPv4 and another 80 bytes for IPv6. Decoding stays
+    /// lazy, and the reader can still be shared across threads.
     ///
     /// # Example
     ///
@@ -163,12 +184,83 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
             metadata,
             ipv4_start: 0,
             ipv4_start_bit_depth: 0,
+            lookup_index: LookupIndex::default(),
         };
         let (ipv4_start, ipv4_start_bit_depth) = reader.find_ipv4_start();
         reader.ipv4_start = ipv4_start;
         reader.ipv4_start_bit_depth = ipv4_start_bit_depth;
+        reader.initialize_lookup_index();
 
         Ok(reader)
+    }
+
+    fn initialize_lookup_index(&mut self) {
+        self.lookup_index = LookupIndex {
+            ipv4: self.build_lookup_index(self.ipv4_start, LOOKUP_INDEX_BITS_V4),
+            ipv6: if self.metadata.ip_version == 6 {
+                self.build_lookup_index(0, LOOKUP_INDEX_BITS_V6)
+            } else {
+                Box::new([])
+            },
+        };
+    }
+
+    fn build_lookup_index(&self, node: usize, bits: usize) -> Box<[IndexEntry]> {
+        if node >= self.node_count {
+            return Box::new([]);
+        }
+        let mut entries = vec![IndexEntry { node: 0, depth: 0 }; 1 << bits];
+        self.fill_lookup_index(&mut entries, node, 0);
+        entries.into_boxed_slice()
+    }
+
+    fn fill_lookup_index(&self, entries: &mut [IndexEntry], node: usize, depth: u8) {
+        if node >= self.node_count || entries.len() == 1 {
+            // All supported record widths fit in u32. Preserve terminal nodes
+            // verbatim, including invalid data pointers, so lookup still
+            // reports the same errors and prefix lengths as a direct walk.
+            entries.fill(IndexEntry {
+                node: node as u32,
+                depth,
+            });
+            return;
+        }
+        let (left, right) = entries.split_at_mut(entries.len() / 2);
+        self.fill_lookup_index(left, self.read_node(node, 0), depth + 1);
+        self.fill_lookup_index(right, self.read_node(node, 1), depth + 1);
+    }
+
+    /// Create a two-entry decoded-record cache for this reader and type.
+    ///
+    /// The cache reuses complete records when multiple IPs resolve to the same
+    /// data offset. It borrows this reader and requires mutable access for
+    /// lookups; concurrent consumers should each have their own cache. No
+    /// synchronization is added to the shared reader.
+    ///
+    /// Memory depends on `T` and its owned allocations. Caching is useful when
+    /// records repeat; it can add overhead when most records are used once.
+    /// Ordinary [`LookupResult::decode()`] and selective decoding remain lazy.
+    ///
+    /// ```
+    /// use maxminddb::{geoip2, Reader};
+    /// let reader = Reader::open_readfile(
+    ///     "test-data/test-data/GeoIP2-City-Test.mmdb",
+    /// ).unwrap();
+    /// let mut cache = reader.record_cache::<geoip2::City>();
+    /// let result = cache.lookup("89.160.20.128".parse().unwrap()).unwrap();
+    /// if let Some(city) = result.data() {
+    ///     assert_eq!(city.country.iso_code, Some("SE"));
+    /// }
+    /// assert!(result.network().is_ok());
+    /// ```
+    pub fn record_cache<'a, T: Deserialize<'a>>(&'a self) -> crate::RecordCache<'a, S, T> {
+        crate::RecordCache::new(self)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn without_lookup_index(mut self) -> Self {
+        self.lookup_index = LookupIndex::default();
+        self
     }
 
     /// Returns database metadata.
@@ -499,10 +591,19 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let buf = self.buf.as_ref();
         let node_count = self.node_count;
 
+        let (node, depth) = match self
+            .lookup_index
+            .ipv4
+            .get((ip >> (32 - LOOKUP_INDEX_BITS_V4)) as usize)
+        {
+            Some(entry) => (entry.node as usize, entry.depth as usize),
+            _ => (self.ipv4_start, 0),
+        };
+
         match self.record_size {
-            24 => find_address_in_tree_v4::<RecordSize24>(buf, self.ipv4_start, node_count, ip),
-            28 => find_address_in_tree_v4::<RecordSize28>(buf, self.ipv4_start, node_count, ip),
-            32 => find_address_in_tree_v4::<RecordSize32>(buf, self.ipv4_start, node_count, ip),
+            24 => find_address_in_tree_v4::<RecordSize24>(buf, node, depth, node_count, ip),
+            28 => find_address_in_tree_v4::<RecordSize28>(buf, node, depth, node_count, ip),
+            32 => find_address_in_tree_v4::<RecordSize32>(buf, node, depth, node_count, ip),
             _ => unreachable!("record_size is validated in Reader::from_source"),
         }
     }
@@ -512,10 +613,19 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let buf = self.buf.as_ref();
         let node_count = self.node_count;
 
+        let (node, depth) = match self
+            .lookup_index
+            .ipv6
+            .get((ip >> (128 - LOOKUP_INDEX_BITS_V6)) as usize)
+        {
+            Some(entry) => (entry.node as usize, entry.depth as usize),
+            None => (0, 0),
+        };
+
         match self.record_size {
-            24 => find_address_in_tree_v6::<RecordSize24>(buf, node_count, ip),
-            28 => find_address_in_tree_v6::<RecordSize28>(buf, node_count, ip),
-            32 => find_address_in_tree_v6::<RecordSize32>(buf, node_count, ip),
+            24 => find_address_in_tree_v6::<RecordSize24>(buf, node, depth, node_count, ip),
+            28 => find_address_in_tree_v6::<RecordSize28>(buf, node, depth, node_count, ip),
+            32 => find_address_in_tree_v6::<RecordSize32>(buf, node, depth, node_count, ip),
             _ => unreachable!("record_size is validated in Reader::from_source"),
         }
     }
@@ -857,13 +967,14 @@ impl SearchTreeRecord for RecordSize32 {
 fn find_address_in_tree_v4<R: SearchTreeRecord>(
     buf: &[u8],
     start_node: usize,
+    start_depth: usize,
     node_count: usize,
     ip: u32,
 ) -> (usize, usize) {
     let mut node = start_node;
     let mut prefix_len = 32;
 
-    for i in 0..32 {
+    for i in start_depth..32 {
         if node >= node_count {
             prefix_len = i;
             break;
@@ -878,22 +989,24 @@ fn find_address_in_tree_v4<R: SearchTreeRecord>(
 #[inline(always)]
 fn find_address_in_tree_v6<R: SearchTreeRecord>(
     buf: &[u8],
+    start_node: usize,
+    start_depth: usize,
     node_count: usize,
     ip: u128,
 ) -> (usize, usize) {
-    let mut node = 0;
-    let mut prefix_len = 128;
-
-    for i in 0..128 {
-        if node >= node_count {
-            prefix_len = i;
-            break;
+    let mut node = start_node;
+    // Walk 64-bit halves rather than shifting a u128 at every node.
+    for (word, base, depth) in [(ip >> 64, 0, start_depth), (ip, 64, 0)] {
+        let mut bits = (word as u64) << depth;
+        for i in depth..64 {
+            if node >= node_count {
+                return normalize_lookup_result(node, node_count, base + i);
+            }
+            node = R::read_node(buf, node, (bits >> 63) as usize);
+            bits <<= 1;
         }
-        let bit = ((ip >> (127 - i)) & 1) as usize;
-        node = R::read_node(buf, node, bit);
     }
-
-    normalize_lookup_result(node, node_count, prefix_len)
+    normalize_lookup_result(node, node_count, 128)
 }
 
 // Map both "not found" outcomes onto pointer 0:
@@ -927,7 +1040,61 @@ fn metadata_marker_start(metadata_start: usize) -> Result<usize, MaxMindDbError>
 
 #[cfg(test)]
 mod tests {
-    use super::{RecordSize24, RecordSize28, RecordSize32, SearchTreeRecord};
+    use super::{
+        find_address_in_tree_v6, RecordSize24, RecordSize28, RecordSize32, SearchTreeRecord,
+    };
+
+    #[test]
+    fn readers_build_bounded_prefix_tables_automatically() {
+        for family in ["ipv4", "ipv6"] {
+            let reader = super::Reader::open_readfile(format!(
+                "test-data/test-data/MaxMind-DB-test-{family}-24.mmdb"
+            ))
+            .unwrap();
+            assert_eq!(std::mem::size_of_val(&*reader.lookup_index.ipv4), 1280);
+            assert_eq!(
+                std::mem::size_of_val(&*reader.lookup_index.ipv6),
+                if family == "ipv6" { 80 } else { 0 }
+            );
+        }
+    }
+
+    #[test]
+    fn ipv6_walk_preserves_prefixes_across_word_boundaries() {
+        for depth in [1, 8, 12, 13, 32, 63, 64, 65, 96, 127, 128] {
+            let node_count = depth;
+            let data = node_count + 16;
+            let mut tree = Vec::new();
+            for node in 0..node_count {
+                let left = if node + 1 == node_count {
+                    data
+                } else {
+                    node + 1
+                };
+                tree.extend_from_slice(&(left as u32).to_be_bytes());
+                tree.extend_from_slice(&(node_count as u32).to_be_bytes());
+            }
+            // Zero follows the complete chain. Diverging at any bit must
+            // report exactly that bit's empty-network prefix length.
+            assert_eq!(
+                find_address_in_tree_v6::<RecordSize32>(&tree, 0, 0, node_count, 0),
+                (data, depth)
+            );
+            for bit in 0..depth {
+                let ip = 1u128 << (127 - bit);
+                assert_eq!(
+                    find_address_in_tree_v6::<RecordSize32>(&tree, 0, 0, node_count, ip),
+                    (0, bit + 1)
+                );
+            }
+            if depth > 12 {
+                assert_eq!(
+                    find_address_in_tree_v6::<RecordSize32>(&tree, 12, 12, node_count, 0),
+                    (data, depth)
+                );
+            }
+        }
+    }
 
     #[test]
     fn packed_28_bit_node_matches_spec_layout() {

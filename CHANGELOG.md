@@ -1,5 +1,18 @@
 # Change Log
 
+## Unreleased
+
+- Added automatic prefix tables to accelerate lookups, using at most 1,360
+  bytes per reader (8 IPv4 bits and 4 IPv6 bits).
+- Added `Reader::record_cache()` for a caller-owned, two-entry cache of decoded
+  records. It supports borrowed values without cloning and preserves the
+  network information for each lookup. Memory use depends on the decoded type.
+- Reduced decoder error-handling code on successful paths and used 64-bit
+  words for IPv6 search-tree traversal. Validation and error behavior are
+  unchanged.
+- Added a workload benchmark separating tree traversal, record decoding, and
+  index construction, with explicit hit counts and JSON timing results.
+
 ## 0.32.0 - 2026-09-12
 
 - Reused precharged map-key bytes for raw identifier decoding, avoiding a

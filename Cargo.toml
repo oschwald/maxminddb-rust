@@ -48,3 +48,11 @@ harness = false
 [[bench]]
 name = "metadata"
 harness = false
+
+[[bench]]
+name = "lookup_workloads"
+harness = false
+
+[[bench]]
+name = "record_cache"
+harness = false

@@ -30,6 +30,7 @@ fn exercise_database(data: &[u8]) {
     };
 
     let _ = reader.verify();
+    let indexed = Reader::from_source(data).unwrap().with_lookup_index();
 
     let addresses = [
         IpAddr::V4(Ipv4Addr::UNSPECIFIED),
@@ -40,6 +41,15 @@ fn exercise_database(data: &[u8]) {
         IpAddr::V6(Ipv6Addr::from(u128::MAX)),
     ];
     for address in addresses {
+        let describe = |lookup: Result<LookupResult<'_, &[u8]>, maxminddb::MaxMindDbError>| {
+            lookup
+                .map(|result| (result.offset(), result.network().map_err(|e| e.to_string())))
+                .map_err(|e| e.to_string())
+        };
+        assert_eq!(
+            describe(reader.lookup(address)),
+            describe(indexed.lookup(address))
+        );
         if let Ok(lookup) = reader.lookup(address) {
             exercise_lookup(&lookup);
         }

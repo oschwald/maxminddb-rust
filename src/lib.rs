@@ -70,6 +70,7 @@
 //! println!("Country: {:?}", country_code);
 //! ```
 
+mod cache;
 mod decoder;
 mod error;
 pub mod geoip2;
@@ -79,6 +80,7 @@ mod result;
 mod within;
 
 // Re-export public types
+pub use cache::{CachedLookup, RecordCache};
 pub use decoder::deserialize_any_with_raw_strings;
 pub use error::MaxMindDbError;
 pub use metadata::Metadata;
