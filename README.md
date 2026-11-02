@@ -66,8 +66,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Iterating networks
 
-Use `within()` to iterate over the networks contained in a CIDR range, or
-`networks()` to iterate over the whole database. The example below uses the
+Use `within()` to iterate over database networks matching a CIDR range in the
+database's search-tree address space, or `networks()` to iterate over the whole
+database. Results are not clipped to the requested range and can include an
+enclosing database network. Returned networks can use a different address family
+than the requested CIDR. See the `Reader::within()` API documentation for IPv4/IPv6
+representation rules.
+
+The example below uses the
 [`ipnetwork`](https://crates.io/crates/ipnetwork) crate, which is not
 re-exported by `maxminddb`; add it to your own `Cargo.toml` to run this code.
 

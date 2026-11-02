@@ -1,4 +1,9 @@
-//! Iterate over networks within a CIDR range.
+//! Iterate over database networks matching a CIDR range.
+//!
+//! Matching uses the database's search-tree address space. Results are not
+//! clipped to the requested range and can include an enclosing database network.
+//! Returned networks can use a different address family than the requested CIDR.
+//! See [`Reader::within()`](maxminddb::Reader::within) for IPv4/IPv6 representation rules.
 //!
 //! Usage: cargo run --example within <database.mmdb> <cidr>
 //!
@@ -26,7 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .parse()
         .map_err(|e| format!("Invalid CIDR notation '{}': {}", cidr_str, e))?;
 
-    // Iterate over all networks within the specified range
+    // Iterate over database networks matching the range in the search tree
     let mut n = 0;
     let iter: Within<_> = reader.within(ip_net, Default::default())?;
     for next in iter {

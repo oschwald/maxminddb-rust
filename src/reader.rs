@@ -294,10 +294,19 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         self.within(cidr, options)
     }
 
-    /// Iterate over IP networks within a CIDR range.
+    /// Iterate over database networks matching a CIDR range.
     ///
-    /// Returns an iterator that yields [`LookupResult`] for each network in the
-    /// database that falls within the specified CIDR range.
+    /// Returns an iterator that yields [`LookupResult`] for networks that overlap
+    /// the range in the database's search-tree address space, subject to `options`.
+    /// Results are not clipped to the requested range. If the range is inside a
+    /// larger database network in that address space, the iterator can yield that
+    /// enclosing network.
+    ///
+    /// In IPv6 databases, IPv4 CIDRs are searched under `::/96`. Iteration reports
+    /// networks in that IPv4 subtree as IPv4, even for an IPv6 CIDR. If the search
+    /// reaches a record before the IPv4 subtree, the result remains IPv6. Returned
+    /// networks therefore need not share the CIDR's address family. IPv4-only
+    /// databases reject IPv6 CIDRs.
     ///
     /// # Arguments
     ///
@@ -346,6 +355,36 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     ///         }
     ///         Err(e) => eprintln!("Error: {}", e),
     ///     }
+    /// }
+    /// ```
+    ///
+    /// A requested range inside a larger database network returns that network:
+    /// ```
+    /// use maxminddb::Reader;
+    ///
+    /// let reader = Reader::open_readfile(
+    ///     "test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    /// let mut results = reader
+    ///     .within("89.160.20.128/32".parse().unwrap(), Default::default())
+    ///     .unwrap();
+    /// let lookup = results.next().unwrap().unwrap();
+    /// assert_eq!(lookup.network().unwrap(), "89.160.20.128/25".parse().unwrap());
+    /// assert!(results.next().is_none());
+    /// ```
+    ///
+    /// IPv6 CIDRs can return IPv4 networks, and IPv4 CIDRs can return IPv6 networks:
+    /// ```
+    /// use maxminddb::Reader;
+    ///
+    /// for (database, cidr, expected) in [
+    ///     ("GeoIP2-City-Test.mmdb", "::89.160.20.128/128", "89.160.20.128/25"),
+    ///     ("MaxMind-DB-no-ipv4-search-tree.mmdb", "200.0.2.1/32", "::/64"),
+    /// ] {
+    ///     let reader = Reader::open_readfile(format!("test-data/test-data/{database}")).unwrap();
+    ///     let mut results = reader.within(cidr.parse().unwrap(), Default::default()).unwrap();
+    ///     let lookup = results.next().unwrap().unwrap();
+    ///     assert_eq!(lookup.network().unwrap(), expected.parse().unwrap());
+    ///     assert!(results.next().is_none());
     /// }
     /// ```
     ///

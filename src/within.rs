@@ -83,12 +83,15 @@ pub(crate) struct WithinNode {
     pub(crate) prefix_len: usize,
 }
 
-/// Iterator over IP networks within a CIDR range.
+/// Iterator over database networks matching a CIDR range.
 ///
 /// Created by [`Reader::within()`](crate::Reader::within) or
 /// [`Reader::networks()`](crate::Reader::networks). Yields
-/// [`LookupResult`] for each network in the database that falls
-/// within the specified range.
+/// [`LookupResult`] for matching networks, subject to [`WithinOptions`].
+/// Matching uses the database's search-tree address space. Results are not
+/// clipped to the requested range and can include an enclosing database network.
+/// Returned networks can use a different address family than the requested CIDR.
+/// See [`Reader::within()`](crate::Reader::within) for IPv4/IPv6 representation rules.
 ///
 /// Networks are yielded in depth-first order through the search tree.
 /// Use [`LookupResult::decode()`](crate::LookupResult::decode) to
