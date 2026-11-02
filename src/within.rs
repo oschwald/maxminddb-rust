@@ -171,8 +171,9 @@ impl<'de, S: AsRef<[u8]>> Iterator for Within<'de, S> {
         while let Some(current) = self.stack.pop() {
             let bit_count = current.ip_int.bit_count();
 
-            // Skip networks that are aliases for the IPv4 network (unless option is set)
+            // Only internal IPv4 subtrees have aliases. Terminal records can be shared.
             if !self.options.include_aliased_networks
+                && self.has_ipv4_subtree
                 && self.reader.ipv4_start != 0
                 && current.node == self.reader.ipv4_start
                 && bit_count == 128

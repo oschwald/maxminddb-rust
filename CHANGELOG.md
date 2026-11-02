@@ -1,5 +1,11 @@
 # Change Log
 
+## Unreleased
+
+- Fixed `networks()` and `within()` dropping IPv6 networks that share a terminal
+  data record or no-data sentinel with the IPv4 search start. IPv4 subtree
+  aliases are still filtered by default.
+
 ## 0.32.0 - 2026-09-12
 
 - Reused precharged map-key bytes for raw identifier decoding, avoiding a
