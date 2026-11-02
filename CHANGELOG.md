@@ -5,6 +5,8 @@
 - Fixed `networks()` and `within()` dropping IPv6 networks that share a terminal
   data record or no-data sentinel with the IPv4 search start. IPv4 subtree
   aliases are still filtered by default.
+- Fixed decoding of four-byte data pointers whose ignored control bits were
+  incorrectly parsed as an extended payload length.
 
 ## 0.32.0 - 2026-09-12
 
