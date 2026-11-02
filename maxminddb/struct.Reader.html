@@ -25,7 +25,7 @@ file while it is memory-mapped will result in undefined behavior.</p>
 ) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.99.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="struct.Reader.html" title="struct maxminddb::Reader">Reader</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.99.1/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.99.1/std/primitive.u8.html">u8</a>&gt;&gt;, <a class="enum" href="enum.MaxMindDbError.html" title="enum maxminddb::MaxMindDbError">MaxMindDbError</a>&gt;</h4></section></summary><div class="docblock"><p>Open a MaxMind DB database file by loading it into memory.</p>
 <h5 id="example-1"><a class="doc-anchor" href="#example-1">§</a>Example</h5>
 <div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">let </span>reader = maxminddb::Reader::open_readfile(
-    <span class="string">"test-data/test-data/GeoIP2-City-Test.mmdb"</span>).unwrap();</code></pre></div></div></details></div></details><details class="toggle implementors-toggle" open><summary><section id="impl-Reader%3CS%3E" class="impl"><a class="src rightside" href="../src/maxminddb/reader.rs.html#119-748">Source</a><a href="#impl-Reader%3CS%3E" class="anchor">§</a><h3 class="code-header">impl&lt;'de, S: <a class="trait" href="https://doc.rust-lang.org/1.99.1/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;[<a class="primitive" href="https://doc.rust-lang.org/1.99.1/std/primitive.u8.html">u8</a>]&gt;&gt; <a class="struct" href="struct.Reader.html" title="struct maxminddb::Reader">Reader</a>&lt;S&gt;</h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.from_source" class="method"><a class="src rightside" href="../src/maxminddb/reader.rs.html#129-172">Source</a><h4 class="code-header">pub fn <a href="#method.from_source" class="fn">from_source</a>(buf: S) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.99.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="struct.Reader.html" title="struct maxminddb::Reader">Reader</a>&lt;S&gt;, <a class="enum" href="enum.MaxMindDbError.html" title="enum maxminddb::MaxMindDbError">MaxMindDbError</a>&gt;</h4></section></summary><div class="docblock"><p>Open a MaxMind DB database from anything that implements AsRef&lt;<a href="https://doc.rust-lang.org/1.99.1/std/primitive.u8.html" title="primitive u8">u8</a>&gt;</p>
+    <span class="string">"test-data/test-data/GeoIP2-City-Test.mmdb"</span>).unwrap();</code></pre></div></div></details></div></details><details class="toggle implementors-toggle" open><summary><section id="impl-Reader%3CS%3E" class="impl"><a class="src rightside" href="../src/maxminddb/reader.rs.html#119-787">Source</a><a href="#impl-Reader%3CS%3E" class="anchor">§</a><h3 class="code-header">impl&lt;'de, S: <a class="trait" href="https://doc.rust-lang.org/1.99.1/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;[<a class="primitive" href="https://doc.rust-lang.org/1.99.1/std/primitive.u8.html">u8</a>]&gt;&gt; <a class="struct" href="struct.Reader.html" title="struct maxminddb::Reader">Reader</a>&lt;S&gt;</h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.from_source" class="method"><a class="src rightside" href="../src/maxminddb/reader.rs.html#129-172">Source</a><h4 class="code-header">pub fn <a href="#method.from_source" class="fn">from_source</a>(buf: S) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.99.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="struct.Reader.html" title="struct maxminddb::Reader">Reader</a>&lt;S&gt;, <a class="enum" href="enum.MaxMindDbError.html" title="enum maxminddb::MaxMindDbError">MaxMindDbError</a>&gt;</h4></section></summary><div class="docblock"><p>Open a MaxMind DB database from anything that implements AsRef&lt;<a href="https://doc.rust-lang.org/1.99.1/std/primitive.u8.html" title="primitive u8">u8</a>&gt;</p>
 <h5 id="example-2"><a class="doc-anchor" href="#example-2">§</a>Example</h5>
 <div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>std::fs;
 <span class="kw">let </span>buf = fs::read(<span class="string">"test-data/test-data/GeoIP2-City-Test.mmdb"</span>).unwrap();
@@ -93,13 +93,21 @@ for standard behavior.</li>
     <span class="kw">let </span>lookup = result.unwrap();
     count += <span class="number">1</span>;
     <span class="kw">if </span>count &gt;= <span class="number">10 </span>{ <span class="kw">break</span>; }
-}</code></pre></div></div></details><details class="toggle method-toggle" open><summary><section id="method.within" class="method"><a class="src rightside" href="../src/maxminddb/reader.rs.html#368-454">Source</a><h4 class="code-header">pub fn <a href="#method.within" class="fn">within</a>(
+}</code></pre></div></div></details><details class="toggle method-toggle" open><summary><section id="method.within" class="method"><a class="src rightside" href="../src/maxminddb/reader.rs.html#407-493">Source</a><h4 class="code-header">pub fn <a href="#method.within" class="fn">within</a>(
     &amp;'de self,
     cidr: IpNetwork,
     options: <a class="struct" href="struct.WithinOptions.html" title="struct maxminddb::WithinOptions">WithinOptions</a>,
-) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.99.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="struct.Within.html" title="struct maxminddb::Within">Within</a>&lt;'de, S&gt;, <a class="enum" href="enum.MaxMindDbError.html" title="enum maxminddb::MaxMindDbError">MaxMindDbError</a>&gt;</h4></section></summary><div class="docblock"><p>Iterate over IP networks within a CIDR range.</p>
-<p>Returns an iterator that yields <a href="struct.LookupResult.html" title="struct maxminddb::LookupResult"><code>LookupResult</code></a> for each network in the
-database that falls within the specified CIDR range.</p>
+) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.99.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="struct.Within.html" title="struct maxminddb::Within">Within</a>&lt;'de, S&gt;, <a class="enum" href="enum.MaxMindDbError.html" title="enum maxminddb::MaxMindDbError">MaxMindDbError</a>&gt;</h4></section></summary><div class="docblock"><p>Iterate over database networks matching a CIDR range.</p>
+<p>Returns an iterator that yields <a href="struct.LookupResult.html" title="struct maxminddb::LookupResult"><code>LookupResult</code></a> for networks that overlap
+the range in the database’s search-tree address space, subject to <code>options</code>.
+Results are not clipped to the requested range. If the range is inside a
+larger database network in that address space, the iterator can yield that
+enclosing network.</p>
+<p>In IPv6 databases, IPv4 CIDRs are searched under <code>::/96</code>. Iteration reports
+networks in that IPv4 subtree as IPv4, even for an IPv6 CIDR. If the search
+reaches a record before the IPv4 subtree, the result remains IPv6. Returned
+networks therefore need not share the CIDR’s address family. IPv4-only
+databases reject IPv6 CIDRs.</p>
 <h5 id="arguments-1"><a class="doc-anchor" href="#arguments-1">§</a>Arguments</h5>
 <ul>
 <li><code>cidr</code> - The CIDR range to iterate over.</li>
@@ -145,6 +153,32 @@ empty values).</li>
         <span class="prelude-val">Err</span>(e) =&gt; <span class="macro">eprintln!</span>(<span class="string">"Error: {}"</span>, e),
     }
 }</code></pre></div>
+<p>A requested range inside a larger database network returns that network:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>maxminddb::Reader;
+
+<span class="kw">let </span>reader = Reader::open_readfile(
+    <span class="string">"test-data/test-data/GeoIP2-City-Test.mmdb"</span>).unwrap();
+<span class="kw">let </span><span class="kw-2">mut </span>results = reader
+    .within(<span class="string">"89.160.20.128/32"</span>.parse().unwrap(), Default::default())
+    .unwrap();
+<span class="kw">let </span>lookup = results.next().unwrap().unwrap();
+<span class="macro">assert_eq!</span>(lookup.network().unwrap(), <span class="string">"89.160.20.128/25"</span>.parse().unwrap());
+<span class="macro">assert!</span>(results.next().is_none());</code></pre></div>
+<p>IPv6 CIDRs can return IPv4 networks, and IPv4 CIDRs can return IPv6 networks:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>maxminddb::Reader;
+
+<span class="kw">for </span>(database, cidr, expected) <span class="kw">in </span>[
+    (<span class="string">"GeoIP2-City-Test.mmdb"</span>, <span class="string">"::89.160.20.128/128"</span>, <span class="string">"89.160.20.128/25"</span>),
+    (<span class="string">"MaxMind-DB-no-ipv4-search-tree.mmdb"</span>, <span class="string">"200.0.2.1/32"</span>, <span class="string">"::/64"</span>),
+] {
+    <span class="kw">let </span>reader = Reader::open_readfile(<span class="macro">format!</span>(<span class="string">"test-data/test-data/{database}"</span>)).unwrap();
+    <span class="kw">let </span><span class="kw-2">mut </span>results = reader.within(cidr.parse().unwrap(), Default::default()).unwrap();
+    <span class="kw">let </span>lookup = results.next().unwrap().unwrap();
+    <span class="macro">assert_eq!</span>(lookup.network().unwrap(), expected.parse().unwrap());
+    <span class="macro">assert!</span>(results.next().is_none());
+}</code></pre></div>
 <p>Include networks without data:</p>
 
 <div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>ipnetwork::IpNetwork;
@@ -159,7 +193,7 @@ empty values).</li>
     <span class="kw">if </span>!lookup.has_data() {
         <span class="macro">println!</span>(<span class="string">"Network {} has no data"</span>, lookup.network().unwrap());
     }
-}</code></pre></div></div></details><details class="toggle method-toggle" open><summary><section id="method.verify" class="method"><a class="src rightside" href="../src/maxminddb/reader.rs.html#624-629">Source</a><h4 class="code-header">pub fn <a href="#method.verify" class="fn">verify</a>(&amp;self) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.99.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.99.1/std/primitive.unit.html">()</a>, <a class="enum" href="enum.MaxMindDbError.html" title="enum maxminddb::MaxMindDbError">MaxMindDbError</a>&gt;</h4></section></summary><div class="docblock"><p>Performs comprehensive validation of the MaxMind DB file.</p>
+}</code></pre></div></div></details><details class="toggle method-toggle" open><summary><section id="method.verify" class="method"><a class="src rightside" href="../src/maxminddb/reader.rs.html#663-668">Source</a><h4 class="code-header">pub fn <a href="#method.verify" class="fn">verify</a>(&amp;self) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.99.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.99.1/std/primitive.unit.html">()</a>, <a class="enum" href="enum.MaxMindDbError.html" title="enum maxminddb::MaxMindDbError">MaxMindDbError</a>&gt;</h4></section></summary><div class="docblock"><p>Performs comprehensive validation of the MaxMind DB file.</p>
 <p>This method validates:</p>
 <ul>
 <li>Metadata section: format versions, required fields, and value constraints</li>
