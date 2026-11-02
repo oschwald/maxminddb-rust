@@ -432,9 +432,15 @@ impl<'de> Decoder<'de> {
         if type_num == TYPE_EXTENDED {
             return Ok(size);
         }
-
+        if size < 29 {
+            return Ok(size);
+        }
+        // Pointers use the five bits as SSVVV, not as an extended length:
+        // sizes 29-31 are four-byte pointers whose low three bits are ignored.
+        if type_num == TYPE_POINTER {
+            return Ok(size);
+        }
         match size {
-            s if s < 29 => Ok(s),
             29 => Ok(29_usize + self.eat_byte()? as usize),
             30 => {
                 let b0 = self.eat_byte()? as usize;
@@ -885,8 +891,7 @@ impl<'de> Decoder<'de> {
                 return self.read_string_bytes(size);
             }
             TYPE_POINTER => {
-                let size = self.size_from_ctrl_byte(ctrl, TYPE_POINTER)?;
-                let target = self.decode_pointer(size);
+                let target = self.decode_pointer(usize::from(ctrl & 0x1f));
                 let continuation = self.current_ptr;
                 self.current_ptr = target;
                 let ctrl = self.eat_byte()?;
@@ -2268,6 +2273,65 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(*err, MaxMindDbError::InvalidDatabase { .. }));
+    }
+
+    #[test]
+    fn four_byte_pointers_ignore_low_control_bits() {
+        for ctrl_byte in 0x38..=0x3f {
+            let buf = [
+                ctrl_byte, 0, 0, 0, 7, // four-byte pointer to offset seven
+                0xa1, 42, // next inline uint16
+                0xa1, 99, // pointed-to uint16
+            ];
+            let mut decoder = Decoder::new(&buf, 0);
+            assert_eq!(u16::deserialize(&mut decoder).unwrap(), 99);
+            assert_eq!(decoder.offset(), 5);
+            assert_eq!(u16::deserialize(&mut decoder).unwrap(), 42);
+
+            let mut decoder = Decoder::new(&buf, 0);
+            assert_eq!(serde_json::Value::deserialize(&mut decoder).unwrap(), 99);
+            assert_eq!(decoder.offset(), 5);
+        }
+    }
+
+    #[test]
+    fn four_byte_pointers_ignore_low_control_bits_in_keys_and_skips() {
+        #[derive(Deserialize)]
+        struct Record {
+            a: u16,
+        }
+
+        for ctrl_byte in 0x38..=0x3f {
+            let buf = [
+                0xe2, // map with two entries
+                ctrl_byte, 0, 0, 0, 15, // key: four-byte pointer to "a"
+                0xa1, 42, // value: inline uint16
+                0x41, b'x', // key: inline "x"
+                ctrl_byte, 0, 0, 0, 17, // value: four-byte pointer to uint16
+                0x41, b'a', // offset 15
+                0xa1, 99, // offset 17
+            ];
+
+            // Map keys go through try_read_identifier_bytes, and the unknown
+            // field "x" goes through skip_value.
+            let mut decoder = Decoder::new(&buf, 0);
+            assert_eq!(Record::deserialize(&mut decoder).unwrap().a, 42);
+            assert_eq!(decoder.offset(), 15);
+
+            let mut decoder = Decoder::new(&buf, 1);
+            let (charged, cached) = decoder.count_payload_at_current().unwrap();
+            assert!(charged);
+            let cached = cached.unwrap();
+            assert_eq!(cached.bytes, b"a");
+            assert_eq!(cached.continuation, 6);
+            assert_eq!(decoder.offset(), 1);
+
+            let mut decoder = Decoder::new(&buf, 0);
+            decoder
+                .skip_value_for_verification(&mut VerificationState::new(decoder.limit))
+                .unwrap();
+            assert_eq!(decoder.offset(), 15);
+        }
     }
 
     #[test]
