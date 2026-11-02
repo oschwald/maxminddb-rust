@@ -24,8 +24,17 @@
 //!
 //! ## Thread Safety
 //!
-//! The `Reader` is `Send` and `Sync`, making it safe to share across threads.
-//! This makes it ideal for web servers and other concurrent applications.
+//! `Reader<S>` is `Send` when `S` is `Send`, and `Sync` when `S` is `Sync`.
+//! `Reader<Vec<u8>>`, returned by [`Reader::open_readfile`], implements both:
+//!
+//! ```
+//! fn assert_send_sync<T: Send + Sync>() {}
+//! assert_send_sync::<maxminddb::Reader<Vec<u8>>>();
+//! ```
+//!
+//! Custom sources passed to [`Reader::from_source`] determine these traits.
+//! For example, a source of type `std::rc::Rc<[u8]>` makes the reader neither
+//! `Send` nor `Sync`.
 //!
 //! ## Quick Start
 //!
