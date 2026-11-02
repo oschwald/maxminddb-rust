@@ -12,7 +12,8 @@ use crate::error::MaxMindDbError;
 pub struct Metadata {
     /// Major version of the binary format (always 2).
     pub binary_format_major_version: u16,
-    /// Minor version of the binary format (always 0).
+    /// Minor version of the binary format.
+    /// Minor versions are accepted for forward compatibility.
     pub binary_format_minor_version: u16,
     /// Unix timestamp when the database was built.
     pub build_epoch: u64,
