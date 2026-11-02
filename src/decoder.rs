@@ -429,6 +429,12 @@ impl<'de> Decoder<'de> {
 
         match size {
             s if s < 29 => Ok(s),
+            // Pointers never use extended payload lengths: the low five bits
+            // are SSVVV (size in the top two bits, value in the low three), so
+            // sizes 29-31 are four-byte pointers whose low three bits are
+            // ignored. This arm only runs when the size is 29 or greater, so
+            // it does not affect ordinary scalar or container headers.
+            s if type_num == TYPE_POINTER => Ok(s),
             29 => Ok(29_usize + self.eat_byte()? as usize),
             30 => {
                 let b0 = self.eat_byte()? as usize;
@@ -2271,6 +2277,25 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(*err, MaxMindDbError::InvalidDatabase { .. }));
+    }
+
+    #[test]
+    fn four_byte_pointers_ignore_low_control_bits() {
+        for ctrl_byte in 0x38..=0x3f {
+            let buf = [
+                ctrl_byte, 0, 0, 0, 7, // four-byte pointer to offset seven
+                0xa1, 42, // next inline uint16
+                0xa1, 99, // pointed-to uint16
+            ];
+            let mut decoder = Decoder::new(&buf, 0);
+            assert_eq!(u16::deserialize(&mut decoder).unwrap(), 99);
+            assert_eq!(decoder.offset(), 5);
+            assert_eq!(u16::deserialize(&mut decoder).unwrap(), 42);
+
+            let mut decoder = Decoder::new(&buf, 0);
+            assert_eq!(serde_json::Value::deserialize(&mut decoder).unwrap(), 99);
+            assert_eq!(decoder.offset(), 5);
+        }
     }
 
     #[test]
