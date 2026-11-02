@@ -704,6 +704,141 @@ fn test_networks() {
     }
 }
 
+#[test]
+fn test_iteration_preserves_shared_ipv6_data_records() {
+    check_shared_ipv6_terminal(true);
+}
+
+#[test]
+fn test_iteration_preserves_shared_ipv6_no_data_terminals() {
+    check_shared_ipv6_terminal(false);
+}
+
+fn check_shared_ipv6_terminal(has_data: bool) {
+    let reader = Reader::from_source(shared_ipv6_terminal_database(has_data)).unwrap();
+    reader.verify().unwrap();
+    let value = if has_data { Some("X".to_owned()) } else { None };
+
+    for (address, network) in [("::", "::/1"), ("8000::", "8000::/1")] {
+        let lookup = reader.lookup(address.parse().unwrap()).unwrap();
+        assert_eq!(lookup.network().unwrap(), network.parse().unwrap());
+        assert_eq!(lookup.has_data(), has_data);
+        assert_eq!(lookup.decode::<String>().unwrap(), value);
+    }
+
+    let collect = |iter: Within<'_, Vec<u8>>| {
+        iter.map(|result| {
+            let lookup = result.unwrap();
+            assert_eq!(lookup.has_data(), has_data);
+            assert_eq!(lookup.decode::<String>().unwrap(), value);
+            lookup.network().unwrap().to_string()
+        })
+        .collect::<Vec<_>>()
+    };
+
+    for include_aliases in [false, true] {
+        for include_no_data in [false, true] {
+            let mut options = WithinOptions::default();
+            if include_aliases {
+                options = options.include_aliased_networks();
+            }
+            if include_no_data {
+                options = options.include_networks_without_data();
+            }
+            let expected = if has_data || include_no_data {
+                vec!["::/1", "8000::/1"]
+            } else {
+                vec![]
+            };
+            assert_eq!(collect(reader.networks(options).unwrap()), expected);
+
+            for (cidr, containing_networks) in [
+                ("::/0", vec!["::/1", "8000::/1"]),
+                ("::/1", vec!["::/1"]),
+                ("::1/128", vec!["::/1"]),
+                ("8000::/1", vec!["8000::/1"]),
+                ("9000::/16", vec!["8000::/1"]),
+            ] {
+                let expected = if has_data || include_no_data {
+                    containing_networks
+                } else {
+                    vec![]
+                };
+                assert_eq!(
+                    collect(reader.within(cidr.parse().unwrap(), options).unwrap()),
+                    expected,
+                    "within {cidr}, options {options:?}"
+                );
+            }
+        }
+    }
+}
+
+fn shared_ipv6_terminal_database(has_data: bool) -> Vec<u8> {
+    fn string(bytes: &mut Vec<u8>, value: &str) {
+        assert!(value.len() < 29, "test strings use a one-byte header");
+        bytes.push(0x40 | value.len() as u8);
+        bytes.extend_from_slice(value.as_bytes());
+    }
+
+    // One 24-bit node. Both /1 networks share either the first data record
+    // (node_count + the 16-byte separator) or the node_count no-data sentinel.
+    let terminal = if has_data { 17 } else { 1 };
+    let mut bytes = vec![0, 0, terminal, 0, 0, terminal];
+    bytes.extend_from_slice(&[0; 16]);
+    if has_data {
+        string(&mut bytes, "X");
+    }
+    bytes.extend_from_slice(b"\xab\xcd\xefMaxMind.com");
+    bytes.push(0xe9); // Metadata map with nine fields.
+    for (key, encoded_value) in [
+        ("binary_format_major_version", &[0xa1, 2][..]), // uint16
+        ("binary_format_minor_version", &[0xa1, 0]),
+        ("build_epoch", &[0x01, 0x02, 1]), // uint64
+        ("ip_version", &[0xa1, 6]),
+        ("node_count", &[0xc1, 1]), // uint32
+        ("record_size", &[0xa1, 24]),
+    ] {
+        string(&mut bytes, key);
+        bytes.extend_from_slice(encoded_value);
+    }
+    string(&mut bytes, "database_type");
+    string(&mut bytes, "shared-terminals");
+    string(&mut bytes, "description");
+    bytes.push(0xe1); // Map with one field.
+    string(&mut bytes, "en");
+    string(&mut bytes, "shared IPv6 terminals");
+    string(&mut bytes, "languages");
+    bytes.extend_from_slice(&[0x01, 0x04]); // Array with one string.
+    string(&mut bytes, "en");
+    bytes
+}
+
+#[test]
+fn test_ipv6_root_cycle_is_not_filtered_as_an_alias() {
+    let mut bytes = shared_ipv6_terminal_database(true);
+    bytes[..6].fill(0);
+    let reader = Reader::from_source(bytes).unwrap();
+
+    for options in [
+        WithinOptions::default(),
+        WithinOptions::default().include_aliased_networks(),
+    ] {
+        for mut iter in [
+            reader.networks(options).unwrap(),
+            reader.within("::/0".parse().unwrap(), options).unwrap(),
+        ] {
+            let err = iter.next().unwrap().unwrap_err();
+            assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+            assert!(err.to_string().contains("address bit length"));
+        }
+    }
+    assert!(matches!(
+        reader.verify(),
+        Err(MaxMindDbError::InvalidDatabase { .. })
+    ));
+}
+
 /// Test that default options skip aliased networks
 #[test]
 fn test_default_skips_aliases() {
@@ -729,6 +864,15 @@ fn test_default_skips_aliases() {
     let networks = collect_networks(reader.within(ip_net_all, Default::default()).unwrap());
 
     assert_eq!(networks, expected_without_aliases);
+    assert_eq!(
+        collect_networks(reader.networks(Default::default()).unwrap()),
+        expected_without_aliases
+    );
+    assert!(reader
+        .within("::ffff:0:0/96".parse().unwrap(), Default::default())
+        .unwrap()
+        .next()
+        .is_none());
 }
 
 /// Test IncludeAliasedNetworks option
@@ -775,6 +919,25 @@ fn test_include_aliased_networks() {
     let networks = collect_networks(reader.within(ip_net_all, opts).unwrap());
 
     assert_eq!(networks, expected_with_aliases);
+    assert_eq!(
+        collect_networks(reader.networks(opts).unwrap()),
+        expected_with_aliases
+    );
+    assert_eq!(
+        collect_networks(
+            reader
+                .within("::ffff:0:0/96".parse().unwrap(), opts)
+                .unwrap()
+        ),
+        vec![
+            "::ffff:1.1.1.1/128",
+            "::ffff:1.1.1.2/127",
+            "::ffff:1.1.1.4/126",
+            "::ffff:1.1.1.8/125",
+            "::ffff:1.1.1.16/124",
+            "::ffff:1.1.1.32/128",
+        ]
+    );
 }
 
 /// Test IncludeNetworksWithoutData option
