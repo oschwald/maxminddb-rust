@@ -5,6 +5,8 @@
 - Fixed `networks()` and `within()` dropping IPv6 networks that share a terminal
   data record or no-data sentinel with the IPv4 search start. IPv4 subtree
   aliases are still filtered by default.
+- Fixed deserialization of derived Serde newtypes around scalars, strings,
+  and records, including nested wrappers and pointer-backed values.
 
 ## 0.32.0 - 2026-09-12
 

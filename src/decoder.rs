@@ -1457,7 +1457,8 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
             self.activate_budget();
             self.decode_any_impl::<true, V>(visitor)
         } else {
-            self.decode_any(visitor)
+            self.activate_budget();
+            visitor.visit_newtype_struct(self)
         }
     }
 
@@ -2153,48 +2154,41 @@ mod tests {
 
     #[test]
     fn ordinary_string_decoding_remains_validated() {
-        struct OrdinaryNewtypeSeed;
+        // The old handwritten visitor accepted visit_borrowed_str directly
+        // and hid the missing visit_newtype_struct callback.
+        #[derive(Debug, Deserialize, PartialEq)]
+        struct Ordinary<'a>(&'a str);
 
-        impl<'de> DeserializeSeed<'de> for OrdinaryNewtypeSeed {
-            type Value = &'de str;
-
-            fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-            where
-                D: Deserializer<'de>,
-            {
-                deserializer.deserialize_newtype_struct("ordinary", StringVisitor)
-            }
-        }
-
-        struct StringVisitor;
-
-        impl<'de> Visitor<'de> for StringVisitor {
-            type Value = &'de str;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a borrowed string")
-            }
-
-            fn visit_borrowed_str<E>(self, value: &'de str) -> Result<Self::Value, E> {
-                Ok(value)
-            }
-        }
+        #[derive(Debug, Deserialize, PartialEq)]
+        struct Owned(String);
 
         let mut valid_decoder = Decoder::new(&[0x45, b'h', b'e', b'l', b'l', b'o'], 0);
         assert_eq!(String::deserialize(&mut valid_decoder).unwrap(), "hello");
 
         let mut newtype_decoder = Decoder::new(&[0x45, b'h', b'e', b'l', b'l', b'o'], 0);
         assert_eq!(
-            OrdinaryNewtypeSeed
-                .deserialize(&mut newtype_decoder)
-                .unwrap(),
-            "hello"
+            Ordinary::deserialize(&mut newtype_decoder).unwrap(),
+            Ordinary("hello")
+        );
+
+        let mut owned_decoder = Decoder::new(&[0x45, b'h', b'e', b'l', b'l', b'o'], 0);
+        assert_eq!(
+            Owned::deserialize(&mut owned_decoder).unwrap(),
+            Owned("hello".to_owned())
         );
 
         #[cfg(not(feature = "unsafe-str-decode"))]
         {
             let mut invalid_decoder = Decoder::new(&[0x41, 0xff], 0);
             let err = String::deserialize(&mut invalid_decoder).unwrap_err();
+            assert!(err.to_string().contains("invalid UTF-8"));
+
+            let mut invalid_decoder = Decoder::new(&[0x41, 0xff], 0);
+            let err = Ordinary::deserialize(&mut invalid_decoder).unwrap_err();
+            assert!(err.to_string().contains("invalid UTF-8"));
+
+            let mut invalid_decoder = Decoder::new(&[0x41, 0xff], 0);
+            let err = Owned::deserialize(&mut invalid_decoder).unwrap_err();
             assert!(err.to_string().contains("invalid UTF-8"));
         }
     }
