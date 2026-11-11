@@ -25,6 +25,44 @@ use crate::within::{IpInt, Within, WithinNode, WithinOptions};
 const DATA_SECTION_SEPARATOR_SIZE: usize = 16;
 const METADATA_START_MARKER: &[u8] = b"\xab\xcd\xefMaxMind.com";
 
+const LOOKUP_INDEX_BITS_V4: usize = 8;
+const LOOKUP_INDEX_BITS_V6: usize = 4;
+
+// Lookups shift addresses by these widths, and the IPv6 walk shifts its first
+// 64-bit word by the stored depth.
+const _: () = assert!(LOOKUP_INDEX_BITS_V4 > 0 && LOOKUP_INDEX_BITS_V4 < 32);
+const _: () = assert!(LOOKUP_INDEX_BITS_V6 > 0 && LOOKUP_INDEX_BITS_V6 < 64);
+
+#[derive(Clone, Copy)]
+#[repr(C, packed)]
+struct IndexEntry {
+    node: u32,
+    depth: u8,
+}
+
+struct LookupIndex {
+    ipv4: Box<[IndexEntry; 1 << LOOKUP_INDEX_BITS_V4]>,
+    ipv6: Box<[IndexEntry; 1 << LOOKUP_INDEX_BITS_V6]>,
+}
+
+// The documentation gives these sizes: 1,280 bytes for IPv4 and 80 for IPv6.
+const _: () = assert!(std::mem::size_of::<[IndexEntry; 1 << LOOKUP_INDEX_BITS_V4]>() == 1280);
+const _: () = assert!(std::mem::size_of::<[IndexEntry; 1 << LOOKUP_INDEX_BITS_V6]>() == 80);
+
+impl LookupIndex {
+    // Every slot starts at the root, which is the same as a direct walk.
+    fn direct(ipv4_start: usize) -> Self {
+        let root = |node: usize| IndexEntry {
+            node: node as u32,
+            depth: 0,
+        };
+        Self {
+            ipv4: Box::new([root(ipv4_start); 1 << LOOKUP_INDEX_BITS_V4]),
+            ipv6: Box::new([root(0); 1 << LOOKUP_INDEX_BITS_V6]),
+        }
+    }
+}
+
 /// A reader for the MaxMind DB format. The lifetime `'data` is tied to the
 /// lifetime of the underlying buffer holding the contents of the database file.
 ///
@@ -55,6 +93,7 @@ pub struct Reader<S: AsRef<[u8]>> {
     pub(crate) pointer_base: usize,
     pub(crate) data_section_len: usize,
     pub(crate) metadata_start: usize,
+    lookup_index: LookupIndex,
 }
 
 impl<S: AsRef<[u8]>> std::fmt::Debug for Reader<S> {
@@ -117,7 +156,11 @@ impl Reader<Vec<u8>> {
 }
 
 impl<'de, S: AsRef<[u8]>> Reader<S> {
-    /// Open a MaxMind DB database from anything that implements AsRef<[u8]>
+    /// Open a MaxMind DB database from anything that implements AsRef<[u8]>.
+    ///
+    /// A small immutable prefix index is built automatically. Its tables use
+    /// 1,280 bytes for IPv4 and 80 bytes for IPv6. Decoding stays lazy, and
+    /// the reader can still be shared across threads.
     ///
     /// # Example
     ///
@@ -163,10 +206,12 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
             metadata,
             ipv4_start: 0,
             ipv4_start_bit_depth: 0,
+            lookup_index: LookupIndex::direct(0),
         };
         let (ipv4_start, ipv4_start_bit_depth) = reader.find_ipv4_start();
         reader.ipv4_start = ipv4_start;
         reader.ipv4_start_bit_depth = ipv4_start_bit_depth;
+        reader.build_lookup_index();
 
         Ok(reader)
     }
@@ -538,10 +583,13 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let buf = self.buf.as_ref();
         let node_count = self.node_count;
 
+        let entry = self.lookup_index.ipv4[(ip >> (32 - LOOKUP_INDEX_BITS_V4)) as usize];
+        let (node, depth) = (entry.node as usize, entry.depth as usize);
+
         match self.record_size {
-            24 => find_address_in_tree_v4::<RecordSize24>(buf, self.ipv4_start, node_count, ip),
-            28 => find_address_in_tree_v4::<RecordSize28>(buf, self.ipv4_start, node_count, ip),
-            32 => find_address_in_tree_v4::<RecordSize32>(buf, self.ipv4_start, node_count, ip),
+            24 => find_address_in_tree_v4::<RecordSize24>(buf, node, depth, node_count, ip),
+            28 => find_address_in_tree_v4::<RecordSize28>(buf, node, depth, node_count, ip),
+            32 => find_address_in_tree_v4::<RecordSize32>(buf, node, depth, node_count, ip),
             _ => unreachable!("record_size is validated in Reader::from_source"),
         }
     }
@@ -551,10 +599,13 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let buf = self.buf.as_ref();
         let node_count = self.node_count;
 
+        let entry = self.lookup_index.ipv6[(ip >> (128 - LOOKUP_INDEX_BITS_V6)) as usize];
+        let (node, depth) = (entry.node as usize, entry.depth as usize);
+
         match self.record_size {
-            24 => find_address_in_tree_v6::<RecordSize24>(buf, node_count, ip),
-            28 => find_address_in_tree_v6::<RecordSize28>(buf, node_count, ip),
-            32 => find_address_in_tree_v6::<RecordSize32>(buf, node_count, ip),
+            24 => find_address_in_tree_v6::<RecordSize24>(buf, node, depth, node_count, ip),
+            28 => find_address_in_tree_v6::<RecordSize28>(buf, node, depth, node_count, ip),
+            32 => find_address_in_tree_v6::<RecordSize32>(buf, node, depth, node_count, ip),
             _ => unreachable!("record_size is validated in Reader::from_source"),
         }
     }
@@ -590,6 +641,34 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
             node = self.read_node(node, 0);
         }
         (node, 96)
+    }
+
+    fn build_lookup_index(&mut self) {
+        // Borrow the tree and the tables separately so the tables allocated in
+        // from_source are filled in place.
+        let Self {
+            buf,
+            record_size,
+            node_count,
+            ipv4_start,
+            lookup_index,
+            ..
+        } = self;
+        let tree = buf.as_ref();
+        let fill = match record_size {
+            24 => fill_lookup_index::<RecordSize24>,
+            28 => fill_lookup_index::<RecordSize28>,
+            32 => fill_lookup_index::<RecordSize32>,
+            _ => unreachable!("record_size is validated in Reader::from_source"),
+        };
+        fill(
+            tree,
+            *node_count,
+            &mut lookup_index.ipv4[..],
+            *ipv4_start,
+            0,
+        );
+        fill(tree, *node_count, &mut lookup_index.ipv6[..], 0, 0);
     }
 
     #[inline(always)]
@@ -784,6 +863,14 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
 
         Ok(())
     }
+
+    // Fuzzing compares indexed lookups with a direct walk from the root.
+    #[cfg(any(test, feature = "fuzzing"))]
+    #[doc(hidden)]
+    pub fn without_lookup_index(mut self) -> Self {
+        self.lookup_index = LookupIndex::direct(self.ipv4_start);
+        self
+    }
 }
 
 fn validate_record_size(record_size: u16) -> Result<(), MaxMindDbError> {
@@ -843,6 +930,31 @@ fn validate_search_tree_layout(
     Ok(())
 }
 
+// Each slot gets the node and depth that a direct walk reaches after the
+// slot's prefix bits.
+fn fill_lookup_index<R: SearchTreeRecord>(
+    tree: &[u8],
+    node_count: usize,
+    entries: &mut [IndexEntry],
+    node: usize,
+    depth: u8,
+) {
+    if node >= node_count || entries.len() == 1 {
+        // All supported record widths fit in u32. Preserve terminal nodes
+        // verbatim, including invalid data pointers, so lookup still
+        // reports the same errors and prefix lengths as a direct walk.
+        entries.fill(IndexEntry {
+            node: node as u32,
+            depth,
+        });
+        return;
+    }
+    let (left, right) = entries.split_at_mut(entries.len() / 2);
+    let (left_node, right_node) = (R::read_node(tree, node, 0), R::read_node(tree, node, 1));
+    fill_lookup_index::<R>(tree, node_count, left, left_node, depth + 1);
+    fill_lookup_index::<R>(tree, node_count, right, right_node, depth + 1);
+}
+
 trait SearchTreeRecord {
     fn read_node(buf: &[u8], node_number: usize, index: usize) -> usize;
 }
@@ -896,13 +1008,14 @@ impl SearchTreeRecord for RecordSize32 {
 fn find_address_in_tree_v4<R: SearchTreeRecord>(
     buf: &[u8],
     start_node: usize,
+    start_depth: usize,
     node_count: usize,
     ip: u32,
 ) -> (usize, usize) {
     let mut node = start_node;
     let mut prefix_len = 32;
 
-    for i in 0..32 {
+    for i in start_depth..32 {
         if node >= node_count {
             prefix_len = i;
             break;
@@ -917,22 +1030,26 @@ fn find_address_in_tree_v4<R: SearchTreeRecord>(
 #[inline(always)]
 fn find_address_in_tree_v6<R: SearchTreeRecord>(
     buf: &[u8],
+    start_node: usize,
+    start_depth: usize,
     node_count: usize,
     ip: u128,
 ) -> (usize, usize) {
-    let mut node = 0;
-    let mut prefix_len = 128;
-
-    for i in 0..128 {
-        if node >= node_count {
-            prefix_len = i;
-            break;
+    // The first half shifts by start_depth, so it must stay within one word.
+    debug_assert!(start_depth < 64);
+    let mut node = start_node;
+    // Walk 64-bit halves rather than shifting a u128 at every node.
+    for (word, base, depth) in [(ip >> 64, 0, start_depth), (ip, 64, 0)] {
+        let mut bits = (word as u64) << depth;
+        for i in depth..64 {
+            if node >= node_count {
+                return normalize_lookup_result(node, node_count, base + i);
+            }
+            node = R::read_node(buf, node, (bits >> 63) as usize);
+            bits <<= 1;
         }
-        let bit = ((ip >> (127 - i)) & 1) as usize;
-        node = R::read_node(buf, node, bit);
     }
-
-    normalize_lookup_result(node, node_count, prefix_len)
+    normalize_lookup_result(node, node_count, 128)
 }
 
 // Map both "not found" outcomes onto pointer 0:
@@ -966,7 +1083,124 @@ fn metadata_marker_start(metadata_start: usize) -> Result<usize, MaxMindDbError>
 
 #[cfg(test)]
 mod tests {
-    use super::{RecordSize24, RecordSize28, RecordSize32, SearchTreeRecord};
+    use super::{
+        find_address_in_tree_v6, normalize_lookup_result, IndexEntry, Reader, RecordSize24,
+        RecordSize28, RecordSize32, SearchTreeRecord, LOOKUP_INDEX_BITS_V4, LOOKUP_INDEX_BITS_V6,
+    };
+    use crate::WithinOptions;
+    use ipnetwork::IpNetwork;
+
+    #[test]
+    fn readers_build_prefix_tables_that_skip_tree_levels() {
+        // Tables with only root entries still give correct lookups, so check
+        // that some slots reach the full index depth.
+        let max_depth = |entries: &[IndexEntry]| entries.iter().map(|e| e.depth).max();
+        for (family, has_ipv4, has_ipv6) in [
+            ("ipv4", true, false),
+            ("ipv6", false, true),
+            ("mixed", true, true),
+        ] {
+            let reader = open_test_reader(&format!("MaxMind-DB-test-{family}-24.mmdb"));
+            if has_ipv4 {
+                let depth = max_depth(&reader.lookup_index.ipv4[..]);
+                assert_eq!(depth, Some(LOOKUP_INDEX_BITS_V4 as u8), "{family}");
+            }
+            if has_ipv6 {
+                let depth = max_depth(&reader.lookup_index.ipv6[..]);
+                assert_eq!(depth, Some(LOOKUP_INDEX_BITS_V6 as u8), "{family}");
+            }
+        }
+    }
+
+    #[test]
+    fn ipv6_walk_matches_bitwise_reference() {
+        // The one-bit-at-a-time walk that the two-word walk replaced.
+        fn reference(reader: &Reader<Vec<u8>>, ip: u128) -> (usize, usize) {
+            let mut node = 0;
+            for i in 0..128 {
+                if node >= reader.node_count {
+                    return normalize_lookup_result(node, reader.node_count, i);
+                }
+                node = reader.read_node(node, ((ip >> (127 - i)) & 1) as usize);
+            }
+            normalize_lookup_result(node, reader.node_count, 128)
+        }
+
+        for bits in [24, 28, 32] {
+            for family in ["ipv6", "mixed"] {
+                let name = format!("MaxMind-DB-test-{family}-{bits}.mmdb");
+                let indexed = open_test_reader(&name);
+                let direct = open_test_reader(&name).without_lookup_index();
+                let mut addresses = vec![0, u128::MAX];
+                addresses.extend((0..128).map(|bit| 1u128 << bit));
+                addresses.extend((0..128).map(|bit| u128::MAX >> bit));
+                let options = WithinOptions::default()
+                    .include_aliased_networks()
+                    .include_networks_without_data();
+                for result in indexed.networks(options).unwrap() {
+                    match result.unwrap().network().unwrap() {
+                        IpNetwork::V4(n) => addresses.extend([
+                            u128::from(u32::from(n.network())),
+                            u128::from(u32::from(n.broadcast())),
+                        ]),
+                        IpNetwork::V6(n) => {
+                            addresses.extend([u128::from(n.network()), u128::from(n.broadcast())])
+                        }
+                    }
+                }
+                for ip in addresses {
+                    let expected = reference(&indexed, ip);
+                    assert_eq!(
+                        indexed.find_address_in_tree_v6(ip),
+                        expected,
+                        "{name}: {ip:x}"
+                    );
+                    assert_eq!(
+                        direct.find_address_in_tree_v6(ip),
+                        expected,
+                        "{name}: {ip:x}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn ipv6_walk_preserves_prefixes_across_word_boundaries() {
+        for depth in [1, 8, 12, 13, 32, 63, 64, 65, 96, 127, 128] {
+            let node_count = depth;
+            let data = node_count + 16;
+            let mut tree = Vec::new();
+            for node in 0..node_count {
+                let left = if node + 1 == node_count {
+                    data
+                } else {
+                    node + 1
+                };
+                tree.extend_from_slice(&(left as u32).to_be_bytes());
+                tree.extend_from_slice(&(node_count as u32).to_be_bytes());
+            }
+            // Zero follows the complete chain. Diverging at any bit must
+            // report exactly that bit's empty-network prefix length.
+            assert_eq!(
+                find_address_in_tree_v6::<RecordSize32>(&tree, 0, 0, node_count, 0),
+                (data, depth)
+            );
+            for bit in 0..depth {
+                let ip = 1u128 << (127 - bit);
+                assert_eq!(
+                    find_address_in_tree_v6::<RecordSize32>(&tree, 0, 0, node_count, ip),
+                    (0, bit + 1)
+                );
+            }
+            if depth > 12 {
+                assert_eq!(
+                    find_address_in_tree_v6::<RecordSize32>(&tree, 12, 12, node_count, 0),
+                    (data, depth)
+                );
+            }
+        }
+    }
 
     #[test]
     fn packed_28_bit_node_matches_spec_layout() {
@@ -1035,5 +1269,9 @@ mod tests {
                 assert_eq!(read_node(&buf[..end], node, 1), right as usize);
             }
         }
+    }
+
+    fn open_test_reader(name: &str) -> Reader<Vec<u8>> {
+        Reader::open_readfile(format!("test-data/test-data/{name}")).unwrap()
     }
 }
