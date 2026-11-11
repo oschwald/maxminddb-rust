@@ -428,10 +428,6 @@ impl<'de> Decoder<'de> {
     #[inline(always)]
     fn size_from_ctrl_byte(&mut self, ctrl_byte: u8, type_num: usize) -> DecodeResult<usize> {
         let size = (ctrl_byte & 0x1f) as usize;
-        // Extended type - size field is used differently
-        if type_num == TYPE_EXTENDED {
-            return Ok(size);
-        }
         if size < 29 {
             return Ok(size);
         }
