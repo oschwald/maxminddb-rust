@@ -2201,19 +2201,16 @@ mod tests {
 
     #[test]
     fn test_decoder_accepts_tuple_with_matching_length() {
-        #[allow(dead_code)]
         #[derive(Debug, serde::Deserialize)]
         struct TupleRecord {
             array: (u32, u32, u32),
         }
 
-        #[allow(dead_code)]
         #[derive(Debug, serde::Deserialize)]
         struct TupleStructRecord {
             array: TupleStruct,
         }
 
-        #[allow(dead_code)]
         #[derive(Debug, serde::Deserialize)]
         struct TupleStruct(u32, u32, u32);
 
@@ -2710,7 +2707,6 @@ mod tests {
             .contains("maximum size of data structure string and bytes"));
     }
 
-    #[allow(dead_code)]
     #[derive(Debug, Deserialize)]
     enum StandaloneScalarEnum {
         Known,
