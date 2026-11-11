@@ -431,6 +431,14 @@ impl<'de> Decoder<'de> {
         if size < 29 {
             return Ok(size);
         }
+        self.extended_size(size, type_num)
+    }
+
+    // Kept separate from size_from_ctrl_byte for speed. The same code written
+    // inline there made the lookup and decode benchmarks 2-10% slower.
+    #[inline(always)]
+    fn extended_size(&mut self, size: usize, type_num: usize) -> DecodeResult<usize> {
+        debug_assert!((29..=31).contains(&size));
         // Pointers use the five bits as SSVVV, not as an extended length:
         // sizes 29-31 are four-byte pointers whose low three bits are ignored.
         if type_num == TYPE_POINTER {
