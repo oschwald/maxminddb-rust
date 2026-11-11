@@ -672,9 +672,9 @@ fn check_metadata<S: AsRef<[u8]>>(reader: &Reader<S>, ip_version: usize, record_
     assert_eq!(metadata.languages, vec!["en".to_string(), "zh".to_string()]);
 
     if ip_version == 4 {
-        assert_eq!(metadata.node_count, 163)
+        assert_eq!(metadata.node_count, 139)
     } else {
-        assert_eq!(metadata.node_count, 415)
+        assert_eq!(metadata.node_count, 376)
     }
 
     assert_eq!(metadata.record_size, record_size as u16)
@@ -1491,7 +1491,7 @@ fn test_verify_good_databases() {
         "GeoIP2-Country-Test.mmdb",
         "GeoIP2-Domain-Test.mmdb",
         "GeoIP2-ISP-Test.mmdb",
-        "GeoIP2-Precision-Enterprise-Test.mmdb",
+        "GeoIP2-Enterprise-Test.mmdb",
         "MaxMind-DB-no-ipv4-search-tree.mmdb",
         "MaxMind-DB-string-value-entries.mmdb",
         "MaxMind-DB-test-decoder.mmdb",
