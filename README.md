@@ -64,6 +64,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Decode one field with `decode_path()`
 - Reuse `offset()` as a cache key when many IPs share the same record
 
+Every reader automatically builds a small prefix index. It skips up to eight
+IPv4 tree steps or four IPv6 steps, using 1,360 bytes of table storage.
+Building it adds a small one-time cost to opening a reader. It works with
+owned, borrowed, and memory-mapped database buffers.
+
 ## Iterating networks
 
 Use `within()` to iterate over database networks matching a CIDR range in the
@@ -152,6 +157,23 @@ record benchmarks can miss.
 
 Criterion.rs generates an HTML report at `target/criterion/report/index.html`.
 It uses gnuplot when available and the bundled Plotters backend otherwise.
+
+The separate `lookup_workloads` benchmark emits JSON with five timing samples
+and their median. It measures tree traversal, full City decoding, and reader
+construction on deterministic random IPs and a reservoir sample of successful
+networks across the database. Random workloads report their hit counts; hit
+samples weight networks equally rather than weighting by network size. Both
+City and Country databases can be used; decoding always requests `geoip2::City`.
+
+```bash
+cargo bench --bench lookup_workloads -- /path/to/GeoLite2-City.mmdb
+```
+
+Use the same database, compiler, build flags, and CPU affinity for comparisons.
+`MMDB_BENCH_MS` sets each sample's minimum duration (default: 200 ms), and
+`MMDB_BENCH_FILTER` selects measurement names by substring, such as `tree/` or
+`open_buffer`. `open_buffer` includes automatic index construction, but
+excludes disk reads. The lookup measurements run after opening and warmup.
 
 ## Contributing
 

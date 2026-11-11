@@ -18,6 +18,187 @@ fn open_test_data_reader(database: &str) -> Reader<Vec<u8>> {
         .unwrap_or_else(|e| panic!("failed to open test database '{database}': {e}"))
 }
 
+#[test]
+fn lookup_index_preserves_records_and_networks() {
+    for bits in TEST_RECORD_SIZES {
+        for family in ["ipv4", "ipv6", "mixed"] {
+            let name = format!("MaxMind-DB-test-{family}-{bits}.mmdb");
+            let direct = open_test_data_reader(&name).without_lookup_index();
+            let indexed = open_test_data_reader(&name);
+            // Check both ends of every network, including empty networks and
+            // IPv4 aliases. This exercises early terminals and exact prefixes.
+            let options = WithinOptions::default()
+                .include_aliased_networks()
+                .include_networks_without_data();
+            for result in direct.networks(options).unwrap() {
+                let network = result.unwrap().network().unwrap();
+                for ip in [network.network(), network.broadcast()] {
+                    let expected = direct.lookup(ip).unwrap();
+                    let actual = indexed.lookup(ip).unwrap();
+                    assert_eq!(actual.offset(), expected.offset(), "{name}: {ip}");
+                    assert_eq!(actual.network().unwrap(), expected.network().unwrap());
+                    assert_eq!(
+                        actual.decode::<serde_json::Value>().unwrap(),
+                        expected.decode::<serde_json::Value>().unwrap()
+                    );
+                }
+            }
+            // Exercise every 8-bit and 4-bit index entry, including different suffixes.
+            for prefix in 0..4096u32 {
+                let v4 = IpAddr::from(std::net::Ipv4Addr::from((prefix << 20) | 0x000a_bcde));
+                let expected = direct.lookup(v4).unwrap();
+                let actual = indexed.lookup(v4).unwrap();
+                assert_eq!(actual.offset(), expected.offset());
+                assert_eq!(actual.network().unwrap(), expected.network().unwrap());
+                if direct.metadata().ip_version == 6 {
+                    let v6 = IpAddr::from(std::net::Ipv6Addr::from(
+                        (u128::from(prefix) << 116) | 0x1234_5678_9abc_def0,
+                    ));
+                    let expected = direct.lookup(v6).unwrap();
+                    let actual = indexed.lookup(v6).unwrap();
+                    assert_eq!(actual.offset(), expected.offset());
+                    assert_eq!(actual.network().unwrap(), expected.network().unwrap());
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn lookup_index_preserves_missing_ipv4_subtree() {
+    let direct =
+        open_test_data_reader("MaxMind-DB-no-ipv4-search-tree.mmdb").without_lookup_index();
+    let indexed = open_test_data_reader("MaxMind-DB-no-ipv4-search-tree.mmdb");
+    for address in [
+        "0.0.0.0",
+        "1.1.1.1",
+        "255.255.255.255",
+        "::",
+        "::1",
+        "ffff::",
+    ] {
+        let ip = address.parse().unwrap();
+        let expected = direct.lookup(ip).unwrap();
+        let actual = indexed.lookup(ip).unwrap();
+        assert_eq!(actual.offset(), expected.offset());
+        assert_eq!(actual.network().unwrap(), expected.network().unwrap());
+    }
+}
+
+#[test]
+fn lookup_index_preserves_corrupt_tree_behavior() {
+    let addresses = [
+        "0.0.0.0",
+        "1.2.3.4",
+        "255.255.255.255",
+        "::",
+        "::1.2.3.4",
+        "8000::",
+        "ffff::",
+    ];
+    for &bits in TEST_RECORD_SIZES {
+        for family in ["ipv4", "ipv6", "mixed"] {
+            let name = format!("MaxMind-DB-test-{family}-{bits}.mmdb");
+            let original = open_test_data_reader(&name);
+            let node_count = original.metadata().node_count as usize;
+            let mut patched_depths = Vec::new();
+            // Patch the root, a node inside the index depth, and nodes on the
+            // IPv4 path of IPv6 trees, including the IPv4 start and a node below it.
+            for depth in [0, 2, 50, 96, 98] {
+                let Some(node) = zero_path_node(&original, depth) else {
+                    continue;
+                };
+                patched_depths.push(depth);
+                // Cycle, empty terminal, separator pointers, and out-of-bounds pointers.
+                for (pointer, sides) in [
+                    0,
+                    node_count,
+                    node_count + 1,
+                    node_count + 15,
+                    (1 << bits) - 1,
+                ]
+                .into_iter()
+                .flat_map(|pointer| [&[0][..], &[1], &[0, 1]].map(|sides| (pointer, sides)))
+                {
+                    let mut bytes = original.buf.clone();
+                    for &side in sides {
+                        write_record(&mut bytes, bits, node, side, pointer);
+                    }
+                    let direct = Reader::from_source(bytes.as_slice())
+                        .unwrap()
+                        .without_lookup_index();
+                    for &side in sides {
+                        assert_eq!(
+                            direct.read_node(node, side),
+                            pointer,
+                            "{name}: patch failed"
+                        );
+                    }
+                    let indexed = Reader::from_source(bytes.as_slice()).unwrap();
+                    for address in addresses {
+                        let ip = address.parse().unwrap();
+                        match (direct.lookup(ip), indexed.lookup(ip)) {
+                            (Ok(expected), Ok(actual)) => {
+                                assert_eq!(actual.offset(), expected.offset());
+                                assert_eq!(actual.network().unwrap(), expected.network().unwrap());
+                            }
+                            (Err(expected), Err(actual)) => {
+                                assert_eq!(actual.to_string(), expected.to_string())
+                            }
+                            _ => panic!(
+                                "{name}: index changed lookup of {ip} after patching \
+                                 sides {sides:?} at depth {depth} with {pointer}"
+                            ),
+                        }
+                    }
+                }
+            }
+            if family == "mixed" {
+                assert!(patched_depths.contains(&98), "{name}: {patched_depths:?}");
+            }
+        }
+    }
+}
+
+/// Returns the node at `depth` on the all-zero path, if the path reaches it.
+fn zero_path_node(reader: &Reader<Vec<u8>>, depth: usize) -> Option<usize> {
+    let mut node = 0;
+    for _ in 0..depth {
+        node = reader.read_node(node, 0);
+        if node >= reader.metadata().node_count as usize {
+            return None;
+        }
+    }
+    Some(node)
+}
+
+fn write_record(bytes: &mut [u8], record_size: usize, node: usize, side: usize, value: usize) {
+    let value = u32::try_from(value).unwrap().to_be_bytes();
+    match record_size {
+        24 => {
+            let offset = node * 6 + side * 3;
+            bytes[offset..offset + 3].copy_from_slice(&value[1..]);
+        }
+        28 => {
+            // The middle byte holds the high nibble of each record.
+            let offset = node * 7;
+            let shared = offset + 3;
+            if side == 0 {
+                bytes[offset..offset + 3].copy_from_slice(&value[1..]);
+                bytes[shared] = (bytes[shared] & 0x0f) | (value[0] << 4);
+            } else {
+                bytes[shared + 1..shared + 4].copy_from_slice(&value[1..]);
+                bytes[shared] = (bytes[shared] & 0xf0) | (value[0] & 0x0f);
+            }
+        }
+        32 => {
+            let offset = node * 8 + side * 4;
+            bytes[offset..offset + 4].copy_from_slice(&value);
+        }
+        _ => unreachable!("test record sizes are 24, 28, or 32"),
+    }
+}
+
 #[derive(Debug)]
 struct OwnedBytes(Vec<u8>);
 
