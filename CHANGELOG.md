@@ -1,14 +1,19 @@
 # Change Log
 
-## Unreleased
+## 0.33.0 - 2026-11-12
 
+- **Breaking:** `deserialize_newtype_struct` now calls the visitor's
+  `visit_newtype_struct`. Before, it passed the inner value straight to
+  methods such as `visit_str` or `visit_map`. Derived Serde newtypes around
+  scalars, strings, and records now deserialize, including nested wrappers
+  and pointer-backed values. A hand-written visitor that does not implement
+  `visit_newtype_struct` now fails with an invalid type error. See
+  `UPGRADING.md`.
 - Declared a minimum supported Rust version (MSRV) of 1.77 in `Cargo.toml`.
   CI now builds the library with that version.
 - Fixed `networks()` and `within()` dropping IPv6 networks that share a terminal
   data record or no-data sentinel with the IPv4 search start. IPv4 subtree
   aliases are still filtered by default.
-- Fixed deserialization of derived Serde newtypes around scalars, strings,
-  and records, including nested wrappers and pointer-backed values.
 - Fixed decoding of four-byte data pointers with control bytes 0x3D-0x3F.
   The decoder read their ignored low bits as an extended payload length and
   could return the wrong value or an error. Four-byte pointers with other

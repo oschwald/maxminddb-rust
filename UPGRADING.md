@@ -1,5 +1,26 @@
 # Upgrading Guide
 
+## 0.32 to 0.33
+
+### Newtype Deserialization
+
+`deserialize_newtype_struct` now calls `Visitor::visit_newtype_struct`.
+Before 0.33, it decoded the inner value and passed it straight to methods
+such as `visit_str` or `visit_map`. Derived newtypes such as
+`struct Name(String)` now work.
+
+If you wrote a visitor for `deserialize_newtype_struct` by hand, implement
+`visit_newtype_struct` and deserialize the inner value there:
+
+```rust
+fn visit_newtype_struct<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserializer.deserialize_str(self)
+}
+```
+
 ## 0.28 to 0.29
 
 ### Reader Metadata
