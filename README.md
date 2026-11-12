@@ -31,6 +31,8 @@ Add this to your `Cargo.toml`:
 maxminddb = "0.32"
 ```
 
+The minimum supported Rust version is 1.77.
+
 ## Example
 
 ```rust
