@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Declared a minimum supported Rust version (MSRV) of 1.77 in `Cargo.toml`.
+  CI now builds the library with that version.
 - Fixed `networks()` and `within()` dropping IPv6 networks that share a terminal
   data record or no-data sentinel with the IPv4 search start. IPv4 subtree
   aliases are still filtered by default.

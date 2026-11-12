@@ -50,6 +50,24 @@ jobs:
       - name: Run cargo test
         run: cargo test
 
+  msrv:
+    name: MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Keep in sync with rust-version in Cargo.toml.
+      - name: Install 1.77 toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.77"
+
+      - name: Check library
+        run: cargo check --lib
+
+      - name: Check library with all features
+        run: cargo check --lib --all-features
+
   feature-test:
     name: Feature Tests
     runs-on: ${{ matrix.platform }}
