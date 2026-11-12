@@ -1,0 +1,9 @@
+[settings]
+lockfile = true
+locked = true
+
+[tools]
+node = "latest"
+"cargo:cargo-fuzz" = "latest"
+"github:houseabsolute/precious" = "latest"
+"npm:prettier" = "latest"

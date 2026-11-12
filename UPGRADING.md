@@ -1,5 +1,68 @@
 # Upgrading Guide
 
+## 0.32 to 0.33
+
+### Newtype Deserialization
+
+`deserialize_newtype_struct` now calls `Visitor::visit_newtype_struct`.
+Before 0.33, it decoded the inner value and passed it straight to methods
+such as `visit_str` or `visit_map`. Derived newtypes such as
+`struct Name(String)` now work.
+
+If you wrote a visitor for `deserialize_newtype_struct` by hand, implement
+`visit_newtype_struct` and deserialize the inner value there:
+
+```rust
+fn visit_newtype_struct<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserializer.deserialize_str(self)
+}
+```
+
+## 0.31 to 0.32
+
+### simdutf8 Feature Removal
+
+The `simdutf8` feature is gone. It did not speed up lookups on production
+GeoIP2 City and Country databases. Cargo rejects a dependency that still
+enables it, so remove it from your feature list.
+
+**Before (0.31):**
+
+```toml
+maxminddb = { version = "0.31", features = ["simdutf8"] }
+```
+
+**After (0.32):**
+
+```toml
+maxminddb = "0.32"
+```
+
+## 0.30 to 0.31
+
+### Decoding Resource Limits
+
+Each record or metadata decode now has fixed limits:
+
+- 65,536 values.
+- 2 MiB of string and byte data. Data that pointers reach more than once
+  counts each time.
+
+`Reader::verify()` also limits its work. An operation that exceeds a limit
+returns `MaxMindDbError::ResourceLimit`. The limits stop crafted databases
+that reference shared data repeatedly. You cannot change them, so a custom
+database with records above them now fails to decode.
+
+The `geoip2::City` and `geoip2::Enterprise` types also reject records with
+more than 32 subdivisions (`geoip2::MAX_SUBDIVISIONS`) with
+`MaxMindDbError::Decoding`.
+
+`MaxMindDbError` is `#[non_exhaustive]`, so existing `match` expressions
+still compile. Add a `ResourceLimit` arm if you handle errors by variant.
+
 ## 0.28 to 0.29
 
 ### Reader Metadata

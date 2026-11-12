@@ -28,7 +28,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-maxminddb = "0.32"
+maxminddb = "0.33"
 ```
 
 The minimum supported Rust version is 1.77.
@@ -121,7 +121,7 @@ Enable in `Cargo.toml`:
 
 ```toml
 [dependencies]
-maxminddb = { version = "0.32", features = ["mmap"] }
+maxminddb = { version = "0.33", features = ["mmap"] }
 ```
 
 ## Documentation
