@@ -172,84 +172,84 @@ fn test_lookup_networks_across_databases() {
         // IPv4 address in IPv6 database - not found, returns containing network
         TestCase {
             ip: "1.1.1.1",
-            db_file: "test-data/test-data/MaxMind-DB-test-ipv6-32.mmdb",
+            db_file: "MaxMind-DB-test-ipv6-32.mmdb",
             expected_network: "1.0.0.0/8",
             expected_found: false,
         },
         // IPv6 exact match
         TestCase {
             ip: "::1:ffff:ffff",
-            db_file: "test-data/test-data/MaxMind-DB-test-ipv6-24.mmdb",
+            db_file: "MaxMind-DB-test-ipv6-24.mmdb",
             expected_network: "::1:ffff:ffff/128",
             expected_found: true,
         },
         // IPv6 network match (not exact)
         TestCase {
             ip: "::2:0:1",
-            db_file: "test-data/test-data/MaxMind-DB-test-ipv6-24.mmdb",
+            db_file: "MaxMind-DB-test-ipv6-24.mmdb",
             expected_network: "::2:0:0/122",
             expected_found: true,
         },
         // IPv4 exact match
         TestCase {
             ip: "1.1.1.1",
-            db_file: "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb",
+            db_file: "MaxMind-DB-test-ipv4-24.mmdb",
             expected_network: "1.1.1.1/32",
             expected_found: true,
         },
         // IPv4 network match (not exact)
         TestCase {
             ip: "1.1.1.3",
-            db_file: "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb",
+            db_file: "MaxMind-DB-test-ipv4-24.mmdb",
             expected_network: "1.1.1.2/31",
             expected_found: true,
         },
         // IPv4 in decoder test database
         TestCase {
             ip: "1.1.1.3",
-            db_file: "test-data/test-data/MaxMind-DB-test-decoder.mmdb",
+            db_file: "MaxMind-DB-test-decoder.mmdb",
             expected_network: "1.1.1.0/24",
             expected_found: true,
         },
         // IPv4-mapped IPv6 address - preserves IPv6 form
         TestCase {
             ip: "::ffff:1.1.1.128",
-            db_file: "test-data/test-data/MaxMind-DB-test-decoder.mmdb",
+            db_file: "MaxMind-DB-test-decoder.mmdb",
             expected_network: "::ffff:1.1.1.0/120",
             expected_found: true,
         },
         // IPv4-compatible IPv6 address - uses compressed IPv6 notation
         TestCase {
             ip: "::1.1.1.128",
-            db_file: "test-data/test-data/MaxMind-DB-test-decoder.mmdb",
+            db_file: "MaxMind-DB-test-decoder.mmdb",
             expected_network: "::101:100/120",
             expected_found: true,
         },
         // No IPv4 search tree - IPv4 address returns ::/64
         TestCase {
             ip: "200.0.2.1",
-            db_file: "test-data/test-data/MaxMind-DB-no-ipv4-search-tree.mmdb",
+            db_file: "MaxMind-DB-no-ipv4-search-tree.mmdb",
             expected_network: "::/64",
             expected_found: true,
         },
         // No IPv4 search tree - IPv6 address in IPv4 range
         TestCase {
             ip: "::200.0.2.1",
-            db_file: "test-data/test-data/MaxMind-DB-no-ipv4-search-tree.mmdb",
+            db_file: "MaxMind-DB-no-ipv4-search-tree.mmdb",
             expected_network: "::/64",
             expected_found: true,
         },
         // No IPv4 search tree - IPv6 address at boundary of IPv4 space
         TestCase {
             ip: "0:0:0:0:ffff:ffff:ffff:ffff",
-            db_file: "test-data/test-data/MaxMind-DB-no-ipv4-search-tree.mmdb",
+            db_file: "MaxMind-DB-no-ipv4-search-tree.mmdb",
             expected_network: "::/64",
             expected_found: true,
         },
         // No IPv4 search tree - high IPv6 address not found
         TestCase {
             ip: "ef00::",
-            db_file: "test-data/test-data/MaxMind-DB-no-ipv4-search-tree.mmdb",
+            db_file: "MaxMind-DB-no-ipv4-search-tree.mmdb",
             expected_network: "8000::/1",
             expected_found: false,
         },
@@ -261,7 +261,7 @@ fn test_lookup_networks_across_databases() {
     for test in &test_cases {
         let reader = readers
             .entry(test.db_file)
-            .or_insert_with(|| Reader::open_readfile(test.db_file).unwrap());
+            .or_insert_with(|| open_test_data_reader(test.db_file));
 
         let ip: IpAddr = test.ip.parse().unwrap();
         let result = reader.lookup(ip).unwrap();
@@ -291,7 +291,7 @@ fn test_lookup_networks_across_databases() {
 
 #[test]
 fn test_lookup_with_geoip_data() {
-    let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    let reader = open_test_data_reader("GeoIP2-City-Test.mmdb");
     let ip: IpAddr = "89.160.20.128".parse().unwrap();
 
     let result = reader.lookup(ip).unwrap();
@@ -318,7 +318,7 @@ fn test_lookup_with_geoip_data() {
 
 #[test]
 fn test_lookup_offset_is_stable_for_shared_record() {
-    let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    let reader = open_test_data_reader("GeoIP2-City-Test.mmdb");
 
     let first = reader.lookup("89.160.20.128".parse().unwrap()).unwrap();
     let second = reader.lookup("89.160.20.129".parse().unwrap()).unwrap();
@@ -335,7 +335,7 @@ fn test_lookup_offset_is_stable_for_shared_record() {
 
 #[test]
 fn test_ipv6_in_ipv4_database() {
-    let reader = Reader::open_readfile("test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb").unwrap();
+    let reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
     let ip: IpAddr = "2001::".parse().unwrap();
 
     let result = reader.lookup(ip);

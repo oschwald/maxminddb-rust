@@ -419,7 +419,7 @@ fn test_decode_path_navigation_and_value_share_payload_budget() {
 
 #[test]
 fn test_decode_path() {
-    let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    let reader = open_test_data_reader("GeoIP2-City-Test.mmdb");
     let ip: IpAddr = "89.160.20.128".parse().unwrap();
 
     let result = reader.lookup(ip).unwrap();
@@ -439,7 +439,7 @@ fn test_decode_path() {
 
 #[test]
 fn test_decode_path_on_not_found_lookup() {
-    let reader = Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    let reader = open_test_data_reader("GeoIP2-City-Test.mmdb");
     let ip: IpAddr = "2c0f:ff00::1".parse().unwrap();
 
     let result = reader.lookup(ip).unwrap();
@@ -456,7 +456,7 @@ fn test_decode_path_on_not_found_lookup() {
 
 #[test]
 fn test_decode_path_comprehensive() {
-    let reader = Reader::open_readfile("test-data/test-data/MaxMind-DB-test-decoder.mmdb").unwrap();
+    let reader = open_test_data_reader("MaxMind-DB-test-decoder.mmdb");
     let ip: IpAddr = "::1.1.1.0".parse().unwrap();
 
     let result = reader.lookup(ip).unwrap();

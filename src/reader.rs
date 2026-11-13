@@ -1463,8 +1463,7 @@ mod tests {
 
     #[test]
     fn test_skip_empty_values_reports_absolute_file_offset() {
-        let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
-        let original = Reader::open_readfile(source_path).unwrap();
+        let original = open_test_reader("MaxMind-DB-test-ipv4-24.mmdb");
         let data_offset = original
             .lookup("1.1.1.32".parse().unwrap())
             .unwrap()
@@ -1473,7 +1472,7 @@ mod tests {
         let record_start = original.pointer_base + data_offset;
         let expected_offset = original.pointer_base + original.data_section_len;
         let pointer = four_byte_pointer(original.data_section_len);
-        let mut bytes = std::fs::read(source_path).unwrap();
+        let mut bytes = original.buf.clone();
         bytes[record_start..record_start + pointer.len()].copy_from_slice(&pointer);
 
         let reader = Reader::from_source(bytes).unwrap();
@@ -1495,10 +1494,9 @@ mod tests {
 
     #[test]
     fn test_verify_rejects_invalid_pointer_in_unknown_metadata_field() {
-        let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
-        let original = Reader::open_readfile(source_path).unwrap();
+        let original = open_test_reader("MaxMind-DB-test-ipv4-24.mmdb");
         let metadata_start = original.metadata_start;
-        let mut bytes = std::fs::read(source_path).unwrap();
+        let mut bytes = original.buf.clone();
 
         assert_eq!(bytes[metadata_start], 0xe9, "unexpected metadata map size");
         bytes[metadata_start] = 0xea; // add one map entry
@@ -1522,10 +1520,9 @@ mod tests {
 
     #[test]
     fn test_verify_bounds_overlapping_strings_in_unknown_metadata() {
-        let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
-        let original = Reader::open_readfile(source_path).unwrap();
+        let original = open_test_reader("MaxMind-DB-test-ipv4-24.mmdb");
         let metadata_start = original.metadata_start;
-        let mut bytes = std::fs::read(source_path).unwrap();
+        let mut bytes = original.buf.clone();
         assert_eq!(bytes[metadata_start], 0xe9);
         bytes[metadata_start] = 0xea;
         bytes.push(0x47);
@@ -1557,9 +1554,8 @@ mod tests {
 
     #[test]
     fn test_verify_shares_work_allowance_across_data_roots() {
-        let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
-        let source = std::fs::read(source_path).unwrap();
-        let original = Reader::from_source(source.as_slice()).unwrap();
+        let original = open_test_reader("MaxMind-DB-test-ipv4-24.mmdb");
+        let source = &original.buf;
         assert_eq!(original.metadata().record_size, 24);
         let node_count = original.metadata().node_count as usize;
 
@@ -1605,10 +1601,9 @@ mod tests {
 
     #[test]
     fn test_from_source_reports_absolute_metadata_offset() {
-        let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
-        let original = Reader::open_readfile(source_path).unwrap();
+        let original = open_test_reader("MaxMind-DB-test-ipv4-24.mmdb");
         let metadata_start = original.metadata_start;
-        let mut bytes = std::fs::read(source_path).unwrap();
+        let mut bytes = original.buf.clone();
         let metadata_len = bytes.len() - metadata_start;
         let database_type = b"database_type";
         let key_start = bytes[metadata_start..]
@@ -1632,14 +1627,13 @@ mod tests {
 
     #[test]
     fn test_rejects_data_pointer_to_metadata_marker() {
-        let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
-        let reader = Reader::open_readfile(source_path).unwrap();
+        let reader = open_test_reader("MaxMind-DB-test-ipv4-24.mmdb");
         assert_eq!(reader.metadata().record_size, 24);
 
         let pointer = reader.metadata().node_count as usize + 16 + reader.data_section_len;
         assert!(pointer <= 0x00ff_ffff);
 
-        let mut bytes = std::fs::read(source_path).unwrap();
+        let mut bytes = reader.buf.clone();
         for record_start in [0, 3] {
             let record = &mut bytes[record_start..record_start + 3];
             record[0] = ((pointer >> 16) & 0xff) as u8;
@@ -1663,11 +1657,10 @@ mod tests {
 
     #[test]
     fn test_verify_rejects_truncated_scalar_value() {
-        let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
         let reader = open_test_reader("MaxMind-DB-test-ipv4-24.mmdb");
         let lookup = reader.lookup("1.1.1.32".parse().unwrap()).unwrap();
         let data_offset = lookup.offset().expect("expected data offset");
-        let mut bytes = std::fs::read(source_path).unwrap();
+        let mut bytes = reader.buf.clone();
         let record_start = reader.pointer_base + data_offset;
         let string_value = b"1.1.1.32";
         let relative_value_offset = bytes[record_start..]
@@ -1701,11 +1694,10 @@ mod tests {
 
     #[test]
     fn test_decode_rejects_truncated_ignored_scalar_value() {
-        let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
         let reader = open_test_reader("MaxMind-DB-test-ipv4-24.mmdb");
         let lookup = reader.lookup("1.1.1.32".parse().unwrap()).unwrap();
         let data_offset = lookup.offset().expect("expected data offset");
-        let mut bytes = std::fs::read(source_path).unwrap();
+        let mut bytes = reader.buf.clone();
         let record_start = reader.pointer_base + data_offset;
         let string_value = b"1.1.1.32";
         let relative_value_offset = bytes[record_start..]
@@ -1825,8 +1817,7 @@ mod tests {
 
     #[test]
     fn test_lookup_network_uses_measured_ipv4_subtree_depth() {
-        let mut reader =
-            Reader::open_readfile("test-data/test-data/MaxMind-DB-test-ipv6-32.mmdb").unwrap();
+        let mut reader = open_test_reader("MaxMind-DB-test-ipv6-32.mmdb");
         assert_eq!(reader.metadata().ip_version, 6);
 
         // Simulate a valid IPv6 database whose IPv4 subtree starts somewhere

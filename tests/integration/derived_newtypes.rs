@@ -1,11 +1,13 @@
 use maxminddb::{path, MaxMindDbError, Reader};
 use serde::Deserialize;
 
+use crate::common::open_test_data_reader;
+
 #[derive(Debug, Deserialize, PartialEq)]
 struct Wrapped<T>(T);
 
 fn decoder_fixture() -> Reader<Vec<u8>> {
-    Reader::open_readfile("test-data/test-data/MaxMind-DB-test-decoder.mmdb").unwrap()
+    open_test_data_reader("MaxMind-DB-test-decoder.mmdb")
 }
 
 #[test]
@@ -84,7 +86,8 @@ fn derived_newtypes_decode_records_and_container_elements() {
 // Retain the fixture's search tree and metadata, but replace its data section.
 // Both root children point to offset zero in the replacement data.
 fn reader_with_data(data: &[u8]) -> Reader<Vec<u8>> {
-    let source = std::fs::read("test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb").unwrap();
+    let source = std::fs::read("test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb")
+        .expect("failed to read test database 'MaxMind-DB-test-ipv4-24.mmdb'");
     let original = Reader::from_source(&source).unwrap();
     let metadata = original.metadata();
     assert_eq!(metadata.record_size, 24);
@@ -178,7 +181,7 @@ fn derived_newtypes_preserve_resource_limits() {
         "MaxMind-DB-test-pointer-decoder-dos.mmdb",
         "MaxMind-DB-test-payload-amplification-dos-string.mmdb",
     ] {
-        let reader = Reader::open_readfile(format!("test-data/test-data/{fixture}")).unwrap();
+        let reader = open_test_data_reader(fixture);
         let lookup = reader.lookup("1.2.3.4".parse().unwrap()).unwrap();
         assert!(lookup.has_data(), "missing record in {fixture}");
         assert!(matches!(
