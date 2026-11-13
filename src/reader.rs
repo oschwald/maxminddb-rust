@@ -92,7 +92,7 @@ pub struct Reader<S: AsRef<[u8]>> {
     pub(crate) ipv4_start_bit_depth: usize,
     pub(crate) pointer_base: usize,
     pub(crate) data_section_len: usize,
-    pub(crate) metadata_start: usize,
+    metadata_start: usize,
     lookup_index: LookupIndex,
 }
 
@@ -620,7 +620,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     }
 
     #[inline]
-    pub(crate) fn has_ipv4_subtree(&self) -> bool {
+    fn has_ipv4_subtree(&self) -> bool {
         self.metadata.ip_version == 6 && self.ipv4_start < self.node_count
     }
 
@@ -884,7 +884,7 @@ fn validate_record_size(record_size: u16) -> Result<(), MaxMindDbError> {
     }
 }
 
-pub(crate) fn validate_metadata_for_reader(metadata: &Metadata) -> Result<(), MaxMindDbError> {
+fn validate_metadata_for_reader(metadata: &Metadata) -> Result<(), MaxMindDbError> {
     if metadata.binary_format_major_version != 2 {
         return Err(MaxMindDbError::invalid_database(format!(
             "binary_format_major_version - Expected: 2 Actual: {}",
