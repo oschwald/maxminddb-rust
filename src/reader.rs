@@ -1084,11 +1084,16 @@ fn metadata_marker_start(metadata_start: usize) -> Result<usize, MaxMindDbError>
 #[cfg(test)]
 mod tests {
     use super::{
-        find_address_in_tree_v6, normalize_lookup_result, IndexEntry, Reader, RecordSize24,
-        RecordSize28, RecordSize32, SearchTreeRecord, LOOKUP_INDEX_BITS_V4, LOOKUP_INDEX_BITS_V6,
+        find_address_in_tree_v6, normalize_lookup_result, validate_metadata_for_reader, IndexEntry,
+        Reader, RecordSize24, RecordSize28, RecordSize32, SearchTreeRecord, LOOKUP_INDEX_BITS_V4,
+        LOOKUP_INDEX_BITS_V6,
     };
-    use crate::WithinOptions;
+    use crate::{MaxMindDbError, PathElement, WithinOptions};
     use ipnetwork::IpNetwork;
+    use serde::Deserialize;
+    use std::net::IpAddr;
+
+    const TEST_RECORD_SIZES: &[usize] = &[24, 28, 32];
 
     #[test]
     fn readers_build_prefix_tables_that_skip_tree_levels() {
@@ -1271,7 +1276,616 @@ mod tests {
         }
     }
 
+    #[test]
+    fn lookup_index_preserves_records_and_networks() {
+        for bits in TEST_RECORD_SIZES {
+            for family in ["ipv4", "ipv6", "mixed"] {
+                let name = format!("MaxMind-DB-test-{family}-{bits}.mmdb");
+                let direct = open_test_reader(&name).without_lookup_index();
+                let indexed = open_test_reader(&name);
+                // Check both ends of every network, including empty networks and
+                // IPv4 aliases. This exercises early terminals and exact prefixes.
+                let options = WithinOptions::default()
+                    .include_aliased_networks()
+                    .include_networks_without_data();
+                for result in direct.networks(options).unwrap() {
+                    let network = result.unwrap().network().unwrap();
+                    for ip in [network.network(), network.broadcast()] {
+                        let expected = direct.lookup(ip).unwrap();
+                        let actual = indexed.lookup(ip).unwrap();
+                        assert_eq!(actual.offset(), expected.offset(), "{name}: {ip}");
+                        assert_eq!(actual.network().unwrap(), expected.network().unwrap());
+                        assert_eq!(
+                            actual.decode::<serde_json::Value>().unwrap(),
+                            expected.decode::<serde_json::Value>().unwrap()
+                        );
+                    }
+                }
+                // Exercise every 8-bit and 4-bit index entry, including different suffixes.
+                for prefix in 0..4096u32 {
+                    let v4 = IpAddr::from(std::net::Ipv4Addr::from((prefix << 20) | 0x000a_bcde));
+                    let expected = direct.lookup(v4).unwrap();
+                    let actual = indexed.lookup(v4).unwrap();
+                    assert_eq!(actual.offset(), expected.offset());
+                    assert_eq!(actual.network().unwrap(), expected.network().unwrap());
+                    if direct.metadata().ip_version == 6 {
+                        let v6 = IpAddr::from(std::net::Ipv6Addr::from(
+                            (u128::from(prefix) << 116) | 0x1234_5678_9abc_def0,
+                        ));
+                        let expected = direct.lookup(v6).unwrap();
+                        let actual = indexed.lookup(v6).unwrap();
+                        assert_eq!(actual.offset(), expected.offset());
+                        assert_eq!(actual.network().unwrap(), expected.network().unwrap());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn lookup_index_preserves_missing_ipv4_subtree() {
+        let direct = open_test_reader("MaxMind-DB-no-ipv4-search-tree.mmdb").without_lookup_index();
+        let indexed = open_test_reader("MaxMind-DB-no-ipv4-search-tree.mmdb");
+        for address in [
+            "0.0.0.0",
+            "1.1.1.1",
+            "255.255.255.255",
+            "::",
+            "::1",
+            "ffff::",
+        ] {
+            let ip = address.parse().unwrap();
+            let expected = direct.lookup(ip).unwrap();
+            let actual = indexed.lookup(ip).unwrap();
+            assert_eq!(actual.offset(), expected.offset());
+            assert_eq!(actual.network().unwrap(), expected.network().unwrap());
+        }
+    }
+
+    #[test]
+    fn lookup_index_preserves_corrupt_tree_behavior() {
+        let addresses = [
+            "0.0.0.0",
+            "1.2.3.4",
+            "255.255.255.255",
+            "::",
+            "::1.2.3.4",
+            "8000::",
+            "ffff::",
+        ];
+        for &bits in TEST_RECORD_SIZES {
+            for family in ["ipv4", "ipv6", "mixed"] {
+                let name = format!("MaxMind-DB-test-{family}-{bits}.mmdb");
+                let original = open_test_reader(&name);
+                let node_count = original.metadata().node_count as usize;
+                let mut patched_depths = Vec::new();
+                // Patch the root, a node inside the index depth, and nodes on the
+                // IPv4 path of IPv6 trees, including the IPv4 start and a node below it.
+                for depth in [0, 2, 50, 96, 98] {
+                    let Some(node) = zero_path_node(&original, depth) else {
+                        continue;
+                    };
+                    patched_depths.push(depth);
+                    // Cycle, empty terminal, separator pointers, and out-of-bounds pointers.
+                    for (pointer, sides) in [
+                        0,
+                        node_count,
+                        node_count + 1,
+                        node_count + 15,
+                        (1 << bits) - 1,
+                    ]
+                    .into_iter()
+                    .flat_map(|pointer| [&[0][..], &[1], &[0, 1]].map(|sides| (pointer, sides)))
+                    {
+                        let mut bytes = original.buf.clone();
+                        for &side in sides {
+                            write_record(&mut bytes, bits, node, side, pointer);
+                        }
+                        let direct = Reader::from_source(bytes.as_slice())
+                            .unwrap()
+                            .without_lookup_index();
+                        for &side in sides {
+                            assert_eq!(
+                                direct.read_node(node, side),
+                                pointer,
+                                "{name}: patch failed"
+                            );
+                        }
+                        let indexed = Reader::from_source(bytes.as_slice()).unwrap();
+                        for address in addresses {
+                            let ip = address.parse().unwrap();
+                            match (direct.lookup(ip), indexed.lookup(ip)) {
+                                (Ok(expected), Ok(actual)) => {
+                                    assert_eq!(actual.offset(), expected.offset());
+                                    assert_eq!(
+                                        actual.network().unwrap(),
+                                        expected.network().unwrap()
+                                    );
+                                }
+                                (Err(expected), Err(actual)) => {
+                                    assert_eq!(actual.to_string(), expected.to_string())
+                                }
+                                _ => panic!(
+                                    "{name}: index changed lookup of {ip} after patching \
+                                     sides {sides:?} at depth {depth} with {pointer}"
+                                ),
+                            }
+                        }
+                    }
+                }
+                if family == "mixed" {
+                    assert!(patched_depths.contains(&98), "{name}: {patched_depths:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_metadata_validation_rejects_hard_invariants() {
+        let reader = open_test_reader("MaxMind-DB-test-ipv4-24.mmdb");
+        let metadata = reader.metadata();
+
+        let mut invalid = metadata.clone();
+        invalid.binary_format_major_version = 3;
+        assert!(matches!(
+            validate_metadata_for_reader(&invalid),
+            Err(MaxMindDbError::InvalidDatabase { .. })
+        ));
+
+        let mut future_minor = metadata.clone();
+        future_minor.binary_format_minor_version = u16::MAX;
+        validate_metadata_for_reader(&future_minor).unwrap();
+
+        let mut invalid = metadata.clone();
+        invalid.ip_version = 5;
+        assert!(matches!(
+            validate_metadata_for_reader(&invalid),
+            Err(MaxMindDbError::InvalidDatabase { .. })
+        ));
+
+        let mut invalid = metadata.clone();
+        invalid.node_count = 0;
+        assert!(matches!(
+            validate_metadata_for_reader(&invalid),
+            Err(MaxMindDbError::InvalidDatabase { .. })
+        ));
+    }
+
+    #[test]
+    fn test_resolve_data_pointer_rejects_small_pointer() {
+        let reader = open_test_reader("MaxMind-DB-test-ipv4-24.mmdb");
+        let err = reader
+            .resolve_data_pointer(reader.metadata().node_count as usize)
+            .unwrap_err();
+
+        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+    }
+
+    #[test]
+    fn test_skip_empty_values_reports_absolute_file_offset() {
+        let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
+        let original = Reader::open_readfile(source_path).unwrap();
+        let data_offset = original
+            .lookup("1.1.1.32".parse().unwrap())
+            .unwrap()
+            .offset()
+            .unwrap();
+        let record_start = original.pointer_base + data_offset;
+        let expected_offset = original.pointer_base + original.data_section_len;
+        let pointer = four_byte_pointer(original.data_section_len);
+        let mut bytes = std::fs::read(source_path).unwrap();
+        bytes[record_start..record_start + pointer.len()].copy_from_slice(&pointer);
+
+        let reader = Reader::from_source(bytes).unwrap();
+        let options = WithinOptions::default().skip_empty_values();
+        let err = reader
+            .networks(options)
+            .unwrap()
+            .find_map(Result::err)
+            .expect("iterator should encounter the malformed record");
+
+        assert!(matches!(
+            err,
+            MaxMindDbError::InvalidDatabase {
+                offset: Some(offset),
+                ..
+            } if offset == expected_offset
+        ));
+    }
+
+    #[test]
+    fn test_verify_rejects_invalid_pointer_in_unknown_metadata_field() {
+        let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
+        let original = Reader::open_readfile(source_path).unwrap();
+        let metadata_start = original.metadata_start;
+        let mut bytes = std::fs::read(source_path).unwrap();
+
+        assert_eq!(bytes[metadata_start], 0xe9, "unexpected metadata map size");
+        bytes[metadata_start] = 0xea; // add one map entry
+        bytes.push(0x47); // seven-byte string key
+        bytes.extend_from_slice(b"unknown");
+        bytes.extend_from_slice(&[0x20, 0xff]); // pointer beyond the metadata buffer
+
+        // Typed metadata parsing skips the unknown value without following its
+        // pointer, so normal reader construction remains lazy.
+        let reader = Reader::from_source(bytes).unwrap();
+        let err = reader.verify().unwrap_err();
+
+        assert!(matches!(
+            err,
+            MaxMindDbError::InvalidDatabase {
+                offset: Some(offset),
+                ..
+            } if offset == metadata_start + 255
+        ));
+    }
+
+    #[test]
+    fn test_verify_bounds_overlapping_strings_in_unknown_metadata() {
+        let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
+        let original = Reader::open_readfile(source_path).unwrap();
+        let metadata_start = original.metadata_start;
+        let mut bytes = std::fs::read(source_path).unwrap();
+        assert_eq!(bytes[metadata_start], 0xe9);
+        bytes[metadata_start] = 0xea;
+        bytes.push(0x47);
+        bytes.extend_from_slice(b"unknown");
+        bytes.extend_from_slice(&four_byte_pointer(bytes.len() + 5 - metadata_start));
+
+        const COUNT: usize = 64;
+        bytes.extend_from_slice(&[0x1d, 0x04, (COUNT - 29) as u8]);
+        let strings_offset = bytes.len() + COUNT * 5 - metadata_start;
+        for index in 0..COUNT {
+            bytes.extend_from_slice(&four_byte_pointer(strings_offset + index * 4));
+        }
+        // String headers are valid ASCII within the overlapping payloads. A
+        // roughly 133 KiB file would otherwise require over 8 MiB of UTF-8 scans.
+        for _ in 0..COUNT {
+            bytes.extend_from_slice(&[0x5f, 0x01, 0x00, 0x00]);
+        }
+        bytes.resize(bytes.len() + 65_821 + 65_536, b'a');
+
+        let reader = Reader::from_source(bytes).unwrap();
+        let err = reader.verify().unwrap_err();
+        assert!(matches!(
+            err,
+            MaxMindDbError::ResourceLimit { message, offset: Some(offset), path: None }
+                if message == "exceeded maximum verification work"
+                    && offset == strings_offset + 8 * 4 + 4
+        ));
+    }
+
+    #[test]
+    fn test_verify_shares_work_allowance_across_data_roots() {
+        let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
+        let source = std::fs::read(source_path).unwrap();
+        let original = Reader::from_source(source.as_slice()).unwrap();
+        assert_eq!(original.metadata().record_size, 24);
+        let node_count = original.metadata().node_count as usize;
+
+        const ROOT_COUNT: usize = 16;
+        let make_reader = |distinct_roots: usize| {
+            let mut bytes = source[..original.pointer_base].to_vec();
+            let mut leaf_count = 0;
+            for record in bytes[..node_count * 6].as_chunks_mut::<3>().0 {
+                let pointer = u32::from_be_bytes([0, record[0], record[1], record[2]]) as usize;
+                if pointer >= node_count {
+                    // Preserve the tree, redirecting both empty and data leaves
+                    // to the overlapping string headers in the new data section.
+                    let offset = (leaf_count % distinct_roots) * 4;
+                    let target = u32::try_from(node_count + 16 + offset).unwrap();
+                    assert!(target <= 0x00ff_ffff);
+                    record.copy_from_slice(&target.to_be_bytes()[1..]);
+                    leaf_count += 1;
+                }
+            }
+            assert!(leaf_count >= ROOT_COUNT);
+
+            // Each string has a 131,357-byte payload, and its header is valid
+            // ASCII inside earlier strings. Nine scans exceed the allowance for
+            // this data section, including all headers and the trailing payload.
+            for _ in 0..ROOT_COUNT {
+                bytes.extend_from_slice(&[0x5f, 0x01, 0x00, 0x00]);
+            }
+            bytes.resize(bytes.len() + 65_821 + 65_536, b'a');
+            bytes.extend_from_slice(&source[original.pointer_base + original.data_section_len..]);
+            Reader::from_source(bytes).unwrap()
+        };
+
+        // Repeated references to one root fit because verification caches it.
+        make_reader(1).verify().unwrap();
+        let err = make_reader(ROOT_COUNT).verify().unwrap_err();
+        // Root iteration uses a HashSet, so the failing offset is unspecified.
+        assert!(matches!(
+            err,
+            MaxMindDbError::ResourceLimit { message, .. }
+                if message == "exceeded maximum verification work"
+        ));
+    }
+
+    #[test]
+    fn test_from_source_reports_absolute_metadata_offset() {
+        let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
+        let original = Reader::open_readfile(source_path).unwrap();
+        let metadata_start = original.metadata_start;
+        let mut bytes = std::fs::read(source_path).unwrap();
+        let metadata_len = bytes.len() - metadata_start;
+        let database_type = b"database_type";
+        let key_start = bytes[metadata_start..]
+            .windows(database_type.len())
+            .position(|window| window == database_type)
+            .map(|offset| metadata_start + offset)
+            .expect("metadata should contain database_type");
+        let value_start = key_start + database_type.len();
+        let pointer = four_byte_pointer(metadata_len);
+        bytes[value_start..value_start + pointer.len()].copy_from_slice(&pointer);
+
+        let err = Reader::from_source(bytes).unwrap_err();
+        assert!(matches!(
+            err,
+            MaxMindDbError::InvalidDatabase {
+                offset: Some(offset),
+                ..
+            } if offset == metadata_start + metadata_len
+        ));
+    }
+
+    #[test]
+    fn test_rejects_data_pointer_to_metadata_marker() {
+        let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
+        let reader = Reader::open_readfile(source_path).unwrap();
+        assert_eq!(reader.metadata().record_size, 24);
+
+        let pointer = reader.metadata().node_count as usize + 16 + reader.data_section_len;
+        assert!(pointer <= 0x00ff_ffff);
+
+        let mut bytes = std::fs::read(source_path).unwrap();
+        for record_start in [0, 3] {
+            let record = &mut bytes[record_start..record_start + 3];
+            record[0] = ((pointer >> 16) & 0xff) as u8;
+            record[1] = ((pointer >> 8) & 0xff) as u8;
+            record[2] = (pointer & 0xff) as u8;
+        }
+
+        let reader = Reader::from_source(bytes).unwrap();
+        let err = reader.lookup("1.1.1.1".parse().unwrap()).unwrap_err();
+        assert!(
+            matches!(err, MaxMindDbError::InvalidDatabase { .. }),
+            "Expected InvalidDatabase error for marker pointer, got {err:?}"
+        );
+
+        let result = reader.verify();
+        assert!(
+            matches!(result, Err(MaxMindDbError::InvalidDatabase { .. })),
+            "Expected InvalidDatabase error for marker pointer during verify, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_verify_rejects_truncated_scalar_value() {
+        let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
+        let reader = open_test_reader("MaxMind-DB-test-ipv4-24.mmdb");
+        let lookup = reader.lookup("1.1.1.32".parse().unwrap()).unwrap();
+        let data_offset = lookup.offset().expect("expected data offset");
+        let mut bytes = std::fs::read(source_path).unwrap();
+        let record_start = reader.pointer_base + data_offset;
+        let string_value = b"1.1.1.32";
+        let relative_value_offset = bytes[record_start..]
+            .windows(string_value.len())
+            .position(|window| window == string_value)
+            .expect("expected terminal string payload in fixture record");
+        let string_ctrl_offset = record_start + relative_value_offset - 1;
+        assert_eq!(
+            bytes[string_ctrl_offset], 0x48,
+            "unexpected string control byte in source fixture"
+        );
+
+        // Inflate the terminal string from length 8 to length 28 without adding
+        // bytes, so verification must catch the truncated payload.
+        bytes[string_ctrl_offset] = 0x5c;
+
+        let reader = Reader::from_source(bytes).unwrap();
+        let result = reader.verify();
+        assert!(
+            matches!(
+                result,
+                Err(MaxMindDbError::InvalidDatabase {
+                    offset: Some(offset),
+                    ..
+                }) if offset == string_ctrl_offset + 1
+            ),
+            "Expected InvalidDatabase error for truncated scalar payload, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_decode_rejects_truncated_ignored_scalar_value() {
+        let source_path = "test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb";
+        let reader = open_test_reader("MaxMind-DB-test-ipv4-24.mmdb");
+        let lookup = reader.lookup("1.1.1.32".parse().unwrap()).unwrap();
+        let data_offset = lookup.offset().expect("expected data offset");
+        let mut bytes = std::fs::read(source_path).unwrap();
+        let record_start = reader.pointer_base + data_offset;
+        let string_value = b"1.1.1.32";
+        let relative_value_offset = bytes[record_start..]
+            .windows(string_value.len())
+            .position(|window| window == string_value)
+            .expect("expected terminal string payload in fixture record");
+        let string_ctrl_offset = record_start + relative_value_offset - 1;
+        assert_eq!(
+            bytes[string_ctrl_offset], 0x48,
+            "unexpected string control byte in source fixture"
+        );
+
+        // Inflate the terminal string from length 8 to length 28 without adding
+        // bytes. Decoding into a struct with no fields forces serde to skip the
+        // corrupt value as unknown data.
+        bytes[string_ctrl_offset] = 0x5c;
+
+        #[derive(Deserialize, Debug)]
+        struct Empty {}
+
+        let reader = Reader::from_source(bytes).unwrap();
+        let lookup = reader.lookup("1.1.1.32".parse().unwrap()).unwrap();
+        let err = lookup.decode::<Empty>().unwrap_err();
+
+        assert!(matches!(
+            err,
+            MaxMindDbError::InvalidDatabase {
+                offset: Some(offset),
+                ..
+            } if offset == string_ctrl_offset + 1
+        ));
+
+        let err = lookup
+            .decode_path::<String>(&[PathElement::Key("ip")])
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            MaxMindDbError::InvalidDatabase {
+                offset: Some(offset),
+                ..
+            } if offset == string_ctrl_offset + 1
+        ));
+    }
+
+    #[test]
+    fn test_network_iteration_rejects_internal_node_cycle() {
+        let mut reader = open_test_reader("MaxMind-DB-test-ipv4-24.mmdb");
+
+        // Make both branches of the root node point back to the root. Opening the
+        // original database already populated all layout invariants, so this
+        // isolates iterator behavior on a corrupt tree without building a fixture.
+        reader.buf[..6].fill(0);
+
+        let err = reader
+            .networks(Default::default())
+            .unwrap()
+            .next()
+            .expect("cyclic tree should yield an error")
+            .unwrap_err();
+        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+        assert!(err.to_string().contains("address bit length"));
+    }
+
+    #[test]
+    fn test_verify_follows_and_rejects_invalid_data_pointers() {
+        let mut reader = open_test_reader("MaxMind-DB-test-ipv4-24.mmdb");
+        let data_offset = reader
+            .lookup("1.1.1.1".parse().unwrap())
+            .unwrap()
+            .offset()
+            .unwrap();
+        let record_start = reader.pointer_base + data_offset;
+
+        // Replace the record with a four-byte data pointer to u32::MAX, which is
+        // outside this database's data section.
+        reader.buf[record_start..record_start + 5].copy_from_slice(&[0x38, 0xff, 0xff, 0xff, 0xff]);
+
+        let err = reader.verify().unwrap_err();
+        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+        assert!(err.to_string().contains("unexpected end of buffer"));
+    }
+
+    #[test]
+    fn test_decode_path_navigation_shares_logical_value_budget_across_hops() {
+        let mut reader = open_test_reader("MaxMind-DB-test-ipv4-24.mmdb");
+        let ip = "1.1.1.1".parse().unwrap();
+        let data_offset = reader.lookup(ip).unwrap().offset().unwrap();
+        let record_start = reader.pointer_base + data_offset;
+
+        // Replace the record with two nested arrays that each declare 32,768
+        // children. Either declaration fits independently, but their cumulative
+        // reservations plus the top-level value exceed the 65,536-value budget by
+        // one. The second header is reached through a real, nonempty path.
+        let array_header = [0x1e, 0x04, 0x7e, 0xe3];
+        reader.buf[record_start..record_start + 4].copy_from_slice(&array_header);
+        reader.buf[record_start + 4..record_start + 8].copy_from_slice(&array_header);
+
+        let err = reader
+            .lookup(ip)
+            .unwrap()
+            .decode_path::<u16>(&[PathElement::Index(0), PathElement::Index(0)])
+            .unwrap_err();
+
+        assert!(
+            matches!(
+                &err,
+                MaxMindDbError::ResourceLimit {
+                    message,
+                    path: Some(path),
+                    ..
+                } if message.contains("maximum number of data structure values")
+                    && path == "/0/0"
+            ),
+            "unexpected cumulative decode_path result: {err}"
+        );
+    }
+
+    #[test]
+    fn test_lookup_network_uses_measured_ipv4_subtree_depth() {
+        let mut reader =
+            Reader::open_readfile("test-data/test-data/MaxMind-DB-test-ipv6-32.mmdb").unwrap();
+        assert_eq!(reader.metadata().ip_version, 6);
+
+        // Simulate a valid IPv6 database whose IPv4 subtree starts somewhere
+        // other than bit 96. Using a shallow subtree depth keeps the combined
+        // prefix length <= 32, which would be ambiguous without an explicit
+        // Lookup vs Iter source flag.
+        reader.ipv4_start_bit_depth = 16;
+
+        let result = reader.lookup("1.1.1.1".parse().unwrap()).unwrap();
+        assert_eq!(result.network().unwrap().to_string(), "1.0.0.0/8");
+    }
+
     fn open_test_reader(name: &str) -> Reader<Vec<u8>> {
-        Reader::open_readfile(format!("test-data/test-data/{name}")).unwrap()
+        Reader::open_readfile(format!("test-data/test-data/{name}"))
+            .unwrap_or_else(|e| panic!("failed to open test database '{name}': {e}"))
+    }
+
+    /// Returns the node at `depth` on the all-zero path, if the path reaches it.
+    fn zero_path_node(reader: &Reader<Vec<u8>>, depth: usize) -> Option<usize> {
+        let mut node = 0;
+        for _ in 0..depth {
+            node = reader.read_node(node, 0);
+            if node >= reader.metadata().node_count as usize {
+                return None;
+            }
+        }
+        Some(node)
+    }
+
+    fn write_record(bytes: &mut [u8], record_size: usize, node: usize, side: usize, value: usize) {
+        let value = u32::try_from(value).unwrap().to_be_bytes();
+        match record_size {
+            24 => {
+                let offset = node * 6 + side * 3;
+                bytes[offset..offset + 3].copy_from_slice(&value[1..]);
+            }
+            28 => {
+                // The middle byte holds the high nibble of each record.
+                let offset = node * 7;
+                let shared = offset + 3;
+                if side == 0 {
+                    bytes[offset..offset + 3].copy_from_slice(&value[1..]);
+                    bytes[shared] = (bytes[shared] & 0x0f) | (value[0] << 4);
+                } else {
+                    bytes[shared + 1..shared + 4].copy_from_slice(&value[1..]);
+                    bytes[shared] = (bytes[shared] & 0xf0) | (value[0] & 0x0f);
+                }
+            }
+            32 => {
+                let offset = node * 8 + side * 4;
+                bytes[offset..offset + 4].copy_from_slice(&value);
+            }
+            _ => unreachable!("test record sizes are 24, 28, or 32"),
+        }
+    }
+
+    fn four_byte_pointer(target: usize) -> [u8; 5] {
+        let target = u32::try_from(target).expect("test pointer target must fit in four bytes");
+        let bytes = target.to_be_bytes();
+        [0x38, bytes[0], bytes[1], bytes[2], bytes[3]]
     }
 }

@@ -95,7 +95,7 @@ fn reader_with_data(data: &[u8]) -> Reader<Vec<u8>> {
         .rposition(|bytes| bytes == marker)
         .unwrap();
     let mut bytes = source[..data_start].to_vec();
-    let pointer = (metadata.node_count as u32 + 16).to_be_bytes();
+    let pointer = (metadata.node_count + 16).to_be_bytes();
     bytes[..3].copy_from_slice(&pointer[1..]);
     bytes[3..6].copy_from_slice(&pointer[1..]);
     bytes.extend_from_slice(data);
