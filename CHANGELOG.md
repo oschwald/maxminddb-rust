@@ -1,5 +1,12 @@
 # Change Log
 
+## Unreleased
+
+- Fixed opening databases whose metadata `description` map repeats a language
+  key. The reader kept the last value; it now returns a decoding error, as it
+  already did for repeated top-level metadata keys. The spec requires unique
+  metadata keys. Maps in the data section are unchanged.
+
 ## 0.33.0 - 2026-11-12
 
 - **Breaking:** `deserialize_newtype_struct` now calls the visitor's

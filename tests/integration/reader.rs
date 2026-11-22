@@ -143,6 +143,28 @@ fn test_metadata_build_time_rejects_uint64_max_epoch() {
 }
 
 #[test]
+fn test_reader_rejects_repeated_metadata_keys() {
+    for (file, key) in [
+        ("libmaxminddb-repeated-metadata-key.mmdb", "database_type"),
+        ("libmaxminddb-repeated-node-count.mmdb", "node_count"),
+        ("libmaxminddb-repeated-pointer-key.mmdb", "database_type"),
+        ("libmaxminddb-repeated-description-key.mmdb", "en"),
+    ] {
+        let path = format!("test-data/bad-data/libmaxminddb/{file}");
+        let err = Reader::open_readfile(&path).unwrap_err();
+
+        assert!(
+            matches!(
+                err,
+                MaxMindDbError::Decoding { ref message, .. }
+                    if message.contains("duplicate") && message.contains(key)
+            ),
+            "Expected duplicate key error for {file}, got {err:?}"
+        );
+    }
+}
+
+#[test]
 fn test_reader_metadata_accessor_returns_validated_metadata() {
     let reader = open_test_data_reader("MaxMind-DB-test-ipv4-24.mmdb");
 
