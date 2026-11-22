@@ -1,9 +1,12 @@
 //! Database metadata types.
 
+use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
+use std::fmt;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use serde::{Deserialize, Serialize};
+use serde::de::{self, MapAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::error::MaxMindDbError;
 
@@ -20,6 +23,7 @@ pub struct Metadata {
     /// Database type (e.g., "GeoIP2-City", "GeoLite2-Country").
     pub database_type: String,
     /// Map of language codes to database descriptions.
+    #[serde(deserialize_with = "deserialize_description")]
     pub description: BTreeMap<String, String>,
     /// IP version supported (4 or 6).
     pub ip_version: u16,
@@ -29,6 +33,50 @@ pub struct Metadata {
     pub node_count: u32,
     /// Size of each record in bits (24, 28, or 32).
     pub record_size: u16,
+}
+
+/// Deserializes the `description` map, rejecting repeated language keys.
+///
+/// The spec requires metadata keys to be unique. Serde's derived struct
+/// deserializer already rejects repeated top-level keys, but a plain
+/// `BTreeMap` would silently keep the last value for a repeated key in the
+/// nested `description` map.
+fn deserialize_description<'de, D>(deserializer: D) -> Result<BTreeMap<String, String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct DescriptionVisitor;
+
+    impl<'de> Visitor<'de> for DescriptionVisitor {
+        type Value = BTreeMap<String, String>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a map of language codes to descriptions")
+        }
+
+        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where
+            A: MapAccess<'de>,
+        {
+            let mut description = BTreeMap::new();
+            while let Some((language, text)) = map.next_entry::<String, String>()? {
+                match description.entry(language) {
+                    Entry::Vacant(entry) => {
+                        entry.insert(text);
+                    }
+                    Entry::Occupied(entry) => {
+                        return Err(de::Error::custom(format!(
+                            "duplicate key `{}` in metadata field `description`",
+                            entry.key()
+                        )));
+                    }
+                }
+            }
+            Ok(description)
+        }
+    }
+
+    deserializer.deserialize_map(DescriptionVisitor)
 }
 
 impl Metadata {
