@@ -2,9 +2,15 @@ name: Rust
 
 on:
   push:
-    branches-ignore:
-      - "dependabot/**"
+    branches:
+      - main
   pull_request:
+
+# Cancel superseded runs for the same pull request. Other events get a
+# unique group so they never cancel each other.
+concurrency:
+  group: rust-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
