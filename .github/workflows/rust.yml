@@ -81,6 +81,30 @@ jobs:
       - name: Run cargo test
         run: cargo test --target i686-unknown-linux-gnu --features mmap
 
+  miri:
+    name: Miri
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      # The miri branch installs the newest nightly that ships Miri.
+      - name: Install nightly toolchain with Miri
+        uses: dtolnay/rust-toolchain@miri
+
+      - name: Set up Miri
+        run: cargo miri setup
+
+      # Isolation is disabled so the tests can read databases from test-data.
+      # Tests that are too slow under Miri are marked `cfg_attr(miri, ignore)`.
+      - name: Run decoder unit tests under Miri
+        run: cargo miri test --lib decoder::tests
+        env:
+          MIRIFLAGS: -Zmiri-disable-isolation
+
   msrv:
     name: MSRV
     runs-on: ubuntu-latest
