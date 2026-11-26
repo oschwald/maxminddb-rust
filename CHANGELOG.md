@@ -6,6 +6,10 @@
   key. The reader kept the last value; it now returns a decoding error, as it
   already did for repeated top-level metadata keys. The spec requires unique
   metadata keys. Maps in the data section are unchanged.
+- `lookup()` now returns an `InvalidDatabase` error when the search tree uses
+  every address bit without reaching a record, for example because a record
+  points back to an ancestor node. Before, it reported the address as not
+  found. Only corrupt databases are affected.
 
 ## 0.33.0 - 2026-11-12
 
