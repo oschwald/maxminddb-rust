@@ -37,6 +37,13 @@
   when the slice no longer covers the whole data section. Other operations on
   such a source, such as reading the search tree, can still panic, as before.
   `Vec<u8>`, `&[u8]`, and `Mmap` sources were not affected.
+- Fixed `Reader::verify()` giving different results on repeated calls for
+  databases with deeply nested data reached through shared pointers. A pointer
+  target already verified from a shallow position was accepted from a deeper
+  one without checking the combined depth, so the outcome depended on which
+  record was checked first. Verification now checks the combined depth and
+  checks the data records the search tree points to in order of their data
+  section offset, so the same database reports the same error on every call.
 
 ## 0.33.0 - 2026-11-12
 

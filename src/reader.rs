@@ -870,8 +870,14 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         let data_section = &self.buf.as_ref()[self.pointer_base..data_section_end];
         let mut verification_state = decoder::VerificationState::new(data_section.len());
 
+        // Visit roots in offset order so that, when a database has more than
+        // one problem, every call reports the same one.
+        let mut offsets: Vec<usize> = offsets.into_iter().collect();
+        offsets.sort_unstable();
+        verification_state.reserve_roots(offsets.len());
+
         // Verify each offset from the search tree points to valid, decodable data
-        for &offset in &offsets {
+        for offset in offsets {
             if offset >= data_section.len() {
                 return Err(MaxMindDbError::invalid_database_at(
                     format!(
@@ -1622,13 +1628,18 @@ mod tests {
 
         // Repeated references to one root fit because verification caches it.
         make_reader(1).verify().unwrap();
-        let err = make_reader(ROOT_COUNT).verify().unwrap_err();
-        // Root iteration uses a HashSet, so the failing offset is unspecified.
+        let reader = make_reader(ROOT_COUNT);
+        let err = reader.verify().unwrap_err();
+        // Overlapping roots share the allowance, so verification must fail.
         assert!(matches!(
-            err,
-            MaxMindDbError::ResourceLimit { message, .. }
+            &err,
+            MaxMindDbError::ResourceLimit { message, offset: Some(_), .. }
                 if message == "exceeded maximum verification work"
         ));
+        // Roots are visited in offset order, so the failing offset is stable.
+        for _ in 0..4 {
+            assert_eq!(reader.verify().unwrap_err().to_string(), err.to_string());
+        }
     }
 
     #[test]
@@ -1899,6 +1910,76 @@ mod tests {
                     "{name}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn test_verify_enforces_depth_through_shared_targets() {
+        let original = open_test_reader("MaxMind-DB-test-ipv4-24.mmdb");
+        let source = &original.buf;
+        assert_eq!(original.metadata().record_size, 24);
+        let node_count = original.metadata().node_count as usize;
+
+        // One-element arrays, each holding a pointer to the next, ending in a
+        // false boolean. Each link adds two skip-depth levels. Links are laid
+        // out last first, so the middle link has a lower offset than the first
+        // and roots visited in offset order verify the middle link first.
+        let make_reader = |links: usize| {
+            let mut data = vec![0x00, 0x07];
+            let mut offsets = Vec::with_capacity(links);
+            for _ in 0..links {
+                let target = offsets.last().copied().unwrap_or(0);
+                offsets.push(data.len());
+                assert!(target < 2048);
+                data.extend_from_slice(&[0x01, 0x04, 0x20 | (target >> 8) as u8, target as u8]);
+            }
+            let first = *offsets.last().unwrap();
+            let middle = offsets[links / 2];
+            assert!(middle < first);
+
+            let mut bytes = source[..original.pointer_base].to_vec();
+            let mut leaf_count = 0;
+            for record in bytes[..node_count * 6].as_chunks_mut::<3>().0 {
+                let pointer = u32::from_be_bytes([0, record[0], record[1], record[2]]) as usize;
+                if pointer >= node_count {
+                    // Alternate both empty and data leaves between the roots.
+                    let root = if leaf_count % 2 == 0 { first } else { middle };
+                    let target = u32::try_from(node_count + 16 + root).unwrap();
+                    record.copy_from_slice(&target.to_be_bytes()[1..]);
+                    leaf_count += 1;
+                }
+            }
+            assert!(leaf_count >= 2);
+            bytes.extend_from_slice(&data);
+            bytes.extend_from_slice(&source[original.pointer_base + original.data_section_len..]);
+            Reader::from_source(bytes).unwrap()
+        };
+
+        // 64 links are 128 levels deep, which is the limit.
+        make_reader(64).verify().unwrap();
+
+        // 80 links are 160 levels deep. Before verification rechecked the
+        // depth of cached targets, this passed or failed depending on which
+        // root was verified first.
+        let reader = make_reader(80);
+        let first_err = reader.verify().unwrap_err();
+        assert!(matches!(
+            first_err,
+            MaxMindDbError::InvalidDatabase {
+                offset: Some(_),
+                ..
+            }
+        ));
+        assert!(first_err
+            .to_string()
+            .contains("exceeded maximum data structure depth"));
+        // Roots are visited in a fixed order, so every call reports the same
+        // error at the same offset.
+        for _ in 0..8 {
+            assert_eq!(
+                reader.verify().unwrap_err().to_string(),
+                first_err.to_string()
+            );
         }
     }
 
