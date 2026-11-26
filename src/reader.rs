@@ -162,6 +162,11 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// 1,280 bytes for IPv4 and 80 bytes for IPv6. Decoding stays lazy, and
     /// the reader can still be shared across threads.
     ///
+    /// The source's `as_ref()` should return the same bytes on every call. If
+    /// it later returns a slice that no longer covers the whole data section,
+    /// decoding a record returns an `InvalidDatabase` error, and other
+    /// operations on a shorter slice, such as lookups, may panic.
+    ///
     /// # Example
     ///
     /// ```
@@ -693,6 +698,20 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         }
     }
 
+    /// Returns the data section, excluding the metadata marker.
+    ///
+    /// `AsRef` is a safe trait, so a source may return a different slice on
+    /// each call. Slicing with checked bounds here keeps every decoder within
+    /// the slice it reads, even if the source shrank after the reader was
+    /// opened.
+    #[inline]
+    pub(crate) fn data_section(&self) -> Result<&[u8], MaxMindDbError> {
+        self.buf
+            .as_ref()
+            .get(self.pointer_base..self.pointer_base + self.data_section_len)
+            .ok_or_else(source_shrank_error)
+    }
+
     /// Resolves a pointer from the search tree to an offset in the data section.
     #[inline]
     pub(crate) fn resolve_data_pointer(&self, pointer: usize) -> Result<usize, MaxMindDbError> {
@@ -1084,6 +1103,14 @@ fn metadata_marker_start(metadata_start: usize) -> Result<usize, MaxMindDbError>
     metadata_start
         .checked_sub(METADATA_START_MARKER.len())
         .ok_or_else(|| MaxMindDbError::invalid_database("invalid metadata marker location"))
+}
+
+#[cold]
+#[inline(never)]
+fn source_shrank_error() -> MaxMindDbError {
+    MaxMindDbError::invalid_database(
+        "the MaxMind DB source returned a shorter buffer than when the reader was opened",
+    )
 }
 
 #[cfg(test)]
