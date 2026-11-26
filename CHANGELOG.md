@@ -16,6 +16,14 @@
   inlined, so unoptimized builds keep them out of the recursive decode path.
   Builds without debug assertions force the inlining as before, so an
   unoptimized build with debug assertions turned off still needs about 3 MiB.
+- Fixed decoding of enum variants that carry data. The decoder read the
+  variant name and then took the payload from the next value in the data,
+  which could be a sibling value or data outside the enclosing array or map.
+  A data variant now decodes from a single-entry map from the variant name to
+  its payload, the standard Serde form, and a string naming a data variant
+  returns a decoding error. Unit variants still decode from a string name or
+  an integer index. A unit variant in map form skips the map's value, so a
+  `#[serde(other)]` variant can absorb an unknown data variant.
 - Fixed opening databases whose metadata `description` map repeats a language
   key. The reader kept the last value; it now returns a decoding error, as it
   already did for repeated top-level metadata keys. The spec requires unique

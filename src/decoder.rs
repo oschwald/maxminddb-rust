@@ -1488,7 +1488,30 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
         V: Visitor<'de>,
     {
         self.activate_budget();
-        visitor.visit_enum(EnumAccessor { de: self })
+        // MMDB has no enum type. Accept the externally tagged forms that the
+        // format can express: a map with a single entry maps a variant name
+        // to its payload, and any other value names a unit variant. The
+        // variant visitor decides which other values it accepts, such as a
+        // string name or an integer index.
+        let (_, type_num) = self.peek_type()?;
+        match type_num {
+            TYPE_MAP => {
+                let (size, type_num) = self.size_and_type()?;
+                self.decode_direct(size, type_num, TYPE_MAP, "map", |de, size| {
+                    if size != 1 {
+                        return Err(de.decode_error(&format!(
+                            "expected a single-entry map for an enum variant, got a map with {size} entries"
+                        )));
+                    }
+                    de.reserve_container_values(size, TYPE_MAP)?;
+                    de.enter_nested()?;
+                    let res = visitor.visit_enum(MapVariantAccess { de });
+                    de.exit_nested();
+                    res
+                })
+            }
+            _ => visitor.visit_enum(UnitVariantAccess { de: self }),
+        }
     }
 
     fn deserialize_identifier<V>(self, visitor: V) -> DecodeResult<V::Value>
@@ -1651,11 +1674,13 @@ impl<'de, const BUDGETED: bool> MapAccess<'de> for MapAccessor<'_, 'de, BUDGETED
     }
 }
 
-struct EnumAccessor<'a, 'de: 'a> {
+/// Enum access for a variant encoded as a single value, usually a string.
+/// Only unit variants can be encoded this way; there is no payload to read.
+struct UnitVariantAccess<'a, 'de: 'a> {
     de: &'a mut Decoder<'de>,
 }
 
-impl<'de> de::EnumAccess<'de> for EnumAccessor<'_, 'de> {
+impl<'de> de::EnumAccess<'de> for UnitVariantAccess<'_, 'de> {
     type Error = DecoderError;
     type Variant = Self;
 
@@ -1663,28 +1688,89 @@ impl<'de> de::EnumAccess<'de> for EnumAccessor<'_, 'de> {
     where
         V: DeserializeSeed<'de>,
     {
-        // Deserialize the variant identifier (string)
         let variant = seed.deserialize(&mut *self.de)?;
         Ok((variant, self))
     }
 }
 
-impl<'de> de::VariantAccess<'de> for EnumAccessor<'_, 'de> {
+impl UnitVariantAccess<'_, '_> {
+    #[cold]
+    #[inline(never)]
+    fn data_variant_error(&self) -> DecoderError {
+        self.de.decode_error(
+            "expected a single-entry map for an enum variant with data, got a value with no payload",
+        )
+    }
+}
+
+impl<'de> de::VariantAccess<'de> for UnitVariantAccess<'_, 'de> {
     type Error = DecoderError;
 
     fn unit_variant(self) -> DecodeResult<()> {
         Ok(())
     }
 
+    fn newtype_variant_seed<T>(self, _seed: T) -> DecodeResult<T::Value>
+    where
+        T: DeserializeSeed<'de>,
+    {
+        Err(self.data_variant_error())
+    }
+
+    fn tuple_variant<V>(self, _len: usize, _visitor: V) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        Err(self.data_variant_error())
+    }
+
+    fn struct_variant<V>(
+        self,
+        _fields: &'static [&'static str],
+        _visitor: V,
+    ) -> DecodeResult<V::Value>
+    where
+        V: Visitor<'de>,
+    {
+        Err(self.data_variant_error())
+    }
+}
+
+/// Enum access for a variant encoded as a single-entry map. The key names
+/// the variant and the value holds its payload. The caller has already
+/// checked the entry count, reserved both values, and entered the map.
+struct MapVariantAccess<'a, 'de: 'a> {
+    de: &'a mut Decoder<'de>,
+}
+
+impl<'de> de::EnumAccess<'de> for MapVariantAccess<'_, 'de> {
+    type Error = DecoderError;
+    type Variant = Self;
+
+    fn variant_seed<V>(self, seed: V) -> DecodeResult<(V::Value, Self::Variant)>
+    where
+        V: DeserializeSeed<'de>,
+    {
+        let variant = seed.deserialize(&mut *self.de)?;
+        Ok((variant, self))
+    }
+}
+
+impl<'de> de::VariantAccess<'de> for MapVariantAccess<'_, 'de> {
+    type Error = DecoderError;
+
+    fn unit_variant(self) -> DecodeResult<()> {
+        // MMDB has no null to use as a unit payload. Skip whatever value is
+        // present so a `#[serde(other)]` variant can absorb an unknown data
+        // variant from a newer database.
+        self.de.skip_value()
+    }
+
     fn newtype_variant_seed<T>(self, seed: T) -> DecodeResult<T::Value>
     where
         T: DeserializeSeed<'de>,
     {
-        self.de.reserve_values(1)?;
-        self.de.enter_nested()?;
-        let result = seed.deserialize(&mut *self.de);
-        self.de.exit_nested();
-        result
+        seed.deserialize(&mut *self.de)
     }
 
     fn tuple_variant<V>(self, len: usize, visitor: V) -> DecodeResult<V::Value>
@@ -3219,15 +3305,15 @@ mod tests {
     }
 
     fn recursive_enum_chain(in_array: bool) -> (Vec<u8>, usize) {
-        let mut buf = vec![0x44, b'N', b'e', b'x', b't'];
+        // {"Next": <pointer to this map>}
+        let mut buf = vec![0xe1, 0x44, b'N', b'e', b'x', b't'];
+        append_pointer(&mut buf, 0);
+        if !in_array {
+            return (buf, 0);
+        }
         let start = buf.len();
-        if in_array {
-            buf.extend_from_slice(&[0x01, 0x04]); // one-element array
-        }
-        for _ in 0..=super::MAXIMUM_DATA_STRUCTURE_DEPTH {
-            append_pointer(&mut buf, 0);
-        }
-        buf.extend_from_slice(&[0x43, b'E', b'n', b'd']);
+        buf.extend_from_slice(&[0x01, 0x04]); // one-element array
+        append_pointer(&mut buf, 0);
         (buf, start)
     }
 
@@ -3381,6 +3467,165 @@ mod tests {
                 assert!(matches!(*error, MaxMindDbError::InvalidDatabase { .. }));
             }
         });
+    }
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    enum DataEnum {
+        N(u32),
+        T(u32, u32),
+        S { a: u32 },
+        U,
+    }
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct EnumField {
+        e: DataEnum,
+    }
+
+    fn decode_enum_at<'de, T: Deserialize<'de>>(
+        buf: &'de [u8],
+        start: usize,
+    ) -> Result<T, super::DecoderError> {
+        let mut decoder = Decoder::new(buf, start);
+        T::deserialize(&mut decoder)
+    }
+
+    #[test]
+    fn enum_unit_variant_decodes_from_string() {
+        let buf = [0x41, b'U'];
+        assert_eq!(decode_enum_at::<DataEnum>(&buf, 0).unwrap(), DataEnum::U);
+    }
+
+    #[test]
+    fn enum_data_variants_decode_from_single_entry_map() {
+        // {"N": 5}
+        let buf = [0xe1, 0x41, b'N', 0xc1, 0x05];
+        assert_eq!(decode_enum_at::<DataEnum>(&buf, 0).unwrap(), DataEnum::N(5));
+
+        // {"T": [1, 2]}
+        let buf = [0xe1, 0x41, b'T', 0x02, 0x04, 0xc1, 0x01, 0xc1, 0x02];
+        assert_eq!(
+            decode_enum_at::<DataEnum>(&buf, 0).unwrap(),
+            DataEnum::T(1, 2)
+        );
+
+        // {"S": {"a": 3}}
+        let buf = [0xe1, 0x41, b'S', 0xe1, 0x41, b'a', 0xc1, 0x03];
+        assert_eq!(
+            decode_enum_at::<DataEnum>(&buf, 0).unwrap(),
+            DataEnum::S { a: 3 }
+        );
+    }
+
+    #[test]
+    fn enum_variants_inside_array_stay_inside_array() {
+        // [{"N": 5}, "U"] followed by an unrelated uint32 7
+        let buf = [
+            0x02, 0x04, 0xe1, 0x41, b'N', 0xc1, 0x05, 0x41, b'U', 0xc1, 0x07,
+        ];
+        let mut decoder = Decoder::new(&buf, 0);
+        let decoded = Vec::<DataEnum>::deserialize(&mut decoder).unwrap();
+        assert_eq!(decoded, vec![DataEnum::N(5), DataEnum::U]);
+        assert_eq!(decoder.offset(), buf.len() - 2);
+    }
+
+    #[test]
+    fn enum_variants_follow_pointers_and_restore_continuation() {
+        // Offset 0: {"N": 5}. Offset 5: "U".
+        let mut buf = vec![0xe1, 0x41, b'N', 0xc1, 0x05, 0x41, b'U'];
+        let start = buf.len();
+        // [pointer to {"N": 5}, pointer to "U", "U"]
+        buf.extend_from_slice(&[0x03, 0x04]);
+        append_pointer(&mut buf, 0);
+        append_pointer(&mut buf, 5);
+        buf.extend_from_slice(&[0x41, b'U']);
+
+        let decoded = decode_enum_at::<Vec<DataEnum>>(&buf, start).unwrap();
+        assert_eq!(decoded, vec![DataEnum::N(5), DataEnum::U, DataEnum::U]);
+    }
+
+    #[test]
+    fn enum_data_variant_from_string_is_rejected() {
+        // An array with a declared length of 2 holding "N", 5, followed
+        // outside the array by "N", 7. The payload must not be read from
+        // the next value in the stream.
+        let buf = [0x02, 0x04, 0x41, b'N', 0xc1, 0x05, 0x41, b'N', 0xc1, 0x07];
+        let err = decode_enum_at::<Vec<DataEnum>>(&buf, 0).unwrap_err();
+        assert!(matches!(*err, MaxMindDbError::Decoding { .. }));
+        assert!(err
+            .to_string()
+            .contains("expected a single-entry map for an enum variant with data"));
+
+        // {"e": "N"} followed by an unrelated uint32 9.
+        let buf = [0xe1, 0x41, b'e', 0x41, b'N', 0xc1, 0x09];
+        let err = decode_enum_at::<EnumField>(&buf, 0).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("expected a single-entry map for an enum variant with data"));
+
+        for variant in *b"TS" {
+            let buf = [0x41, variant];
+            let err = decode_enum_at::<DataEnum>(&buf, 0).unwrap_err();
+            assert!(err
+                .to_string()
+                .contains("expected a single-entry map for an enum variant with data"));
+        }
+    }
+
+    #[test]
+    fn enum_unit_variant_decodes_from_index() {
+        // uint16 3, the index of `U`.
+        let buf = [0xa1, 0x03];
+        assert_eq!(decode_enum_at::<DataEnum>(&buf, 0).unwrap(), DataEnum::U);
+    }
+
+    #[test]
+    fn enum_unit_variant_in_map_form_skips_payload() {
+        #[derive(Debug, Deserialize, PartialEq)]
+        enum Kind {
+            A,
+            #[serde(other)]
+            Unknown,
+        }
+
+        // [{"Z": [1, {"x": 2}]}, "A"]: an unknown data variant from a newer
+        // database falls back to the catch-all, and the payload is skipped.
+        let buf = [
+            0x02, 0x04, 0xe1, 0x41, b'Z', 0x02, 0x04, 0xc1, 0x01, 0xe1, 0x41, b'x', 0xc1, 0x02,
+            0x41, b'A',
+        ];
+        let mut decoder = Decoder::new(&buf, 0);
+        let decoded = Vec::<Kind>::deserialize(&mut decoder).unwrap();
+        assert_eq!(decoded, vec![Kind::Unknown, Kind::A]);
+        assert_eq!(decoder.offset(), buf.len());
+
+        // {"U": 1}: a known unit variant in map form.
+        let buf = [0xe1, 0x41, b'U', 0xc1, 0x01];
+        assert_eq!(decode_enum_at::<DataEnum>(&buf, 0).unwrap(), DataEnum::U);
+    }
+
+    #[test]
+    fn enum_rejects_other_encodings() {
+        // {"N": 5, "U": 1}: more than one entry.
+        let buf = [0xe2, 0x41, b'N', 0xc1, 0x05, 0x41, b'U', 0xc1, 0x01];
+        let err = decode_enum_at::<DataEnum>(&buf, 0).unwrap_err();
+        assert!(err.to_string().contains("got a map with 2 entries"));
+
+        // {}: no entries.
+        let buf = [0xe0];
+        let err = decode_enum_at::<DataEnum>(&buf, 0).unwrap_err();
+        assert!(err.to_string().contains("got a map with 0 entries"));
+
+        // ["U"]: an array is not an enum encoding.
+        let buf = [0x01, 0x04, 0x41, b'U'];
+        let err = decode_enum_at::<DataEnum>(&buf, 0).unwrap_err();
+        assert!(err.to_string().contains("invalid type: sequence"));
+
+        // An unknown variant name in either form.
+        for buf in [&[0x41, b'X'][..], &[0xe1, 0x41, b'X', 0xc1, 0x01][..]] {
+            let err = decode_enum_at::<DataEnum>(buf, 0).unwrap_err();
+            assert!(err.to_string().contains("unknown variant"));
+        }
     }
 
     #[test]
