@@ -120,8 +120,13 @@ jobs:
       - name: Run cargo fmt
         run: cargo fmt --all -- --check
 
+      # unsafe-str-decode replaces the default string decoding and fuzzing
+      # adds entry points, so lint the usual build and every feature.
       - name: Run cargo clippy
         run: cargo clippy --all-targets --features mmap -- -D warnings
+
+      - name: Run cargo clippy with all features
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Test release helpers
         run: bash dev-bin/release-lib-test.sh
