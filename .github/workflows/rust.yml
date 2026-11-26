@@ -89,6 +89,8 @@ jobs:
             features: unsafe-str-decode
           - platform: ubuntu-latest
             features: mmap,unsafe-str-decode
+          - platform: ubuntu-latest
+            features: mmap,unsafe-str-decode,fuzzing
           - platform: macos-latest
             features: mmap
           - platform: windows-latest
