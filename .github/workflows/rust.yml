@@ -59,6 +59,28 @@ jobs:
       - name: Run cargo test
         run: cargo test
 
+  test-32bit:
+    name: Test Suite (32-bit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-unknown-linux-gnu
+
+      - name: Install 32-bit C toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib
+
+      - name: Run cargo test
+        run: cargo test --target i686-unknown-linux-gnu --features mmap
+
   msrv:
     name: MSRV
     runs-on: ubuntu-latest
