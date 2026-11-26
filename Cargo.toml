@@ -13,6 +13,12 @@ edition = "2021"
 rust-version = "1.77"
 autobenches = false
 
+[package.metadata.docs.rs]
+# Document the optional memory-mapped reader API. Do not use all-features:
+# that would also enable the internal `fuzzing` feature. Keep the docs-rs job in
+# .github/workflows/doc.yml building the same features.
+features = ["mmap"]
+
 [features]
 default = []
 # Memory-mapped file access for better performance in long-running applications

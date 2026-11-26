@@ -23,6 +23,33 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  docs-rs:
+    name: docs.rs build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install nightly Rust toolchain
+        uses: dtolnay/rust-toolchain@2c76c034f9e32a5d6e2c104dc4df23a22476db04 # nightly
+
+      # Approximates docs.rs's main build: nightly rustdoc with `--cfg docsrs`
+      # and the features listed under [package.metadata.docs.rs] in Cargo.toml.
+      # Keep --features below in step with that list.
+      # No `-D warnings` here: docs.rs doesn't deny warnings, and a nightly
+      # warning such as `stable_features` should not fail CI. The Rustdoc job
+      # above already denies warnings on stable.
+      - name: Build documentation as docs.rs does
+        run: cargo doc --no-deps --features mmap
+        env:
+          RUSTDOCFLAGS: --cfg docsrs
+
   deploy:
     name: GitHub Pages
     runs-on: ubuntu-latest
