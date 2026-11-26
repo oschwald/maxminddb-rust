@@ -239,8 +239,11 @@ fn derived_newtypes_preserve_errors() {
 
 #[test]
 fn derived_newtypes_preserve_pointer_depth_limit() {
+    // The default stack size for spawned threads. An unoptimized build with
+    // debug assertions off needs more, as the CHANGELOG notes.
+    let mib = if cfg!(debug_assertions) { 2 } else { 4 };
     std::thread::Builder::new()
-        .stack_size(8 * 1024 * 1024)
+        .stack_size(mib * 1024 * 1024)
         .spawn(|| {
             let reader = reader_with_data(&[0x20, 0x00]); // cyclic pointer
             let lookup = reader.lookup("1.1.1.0".parse().unwrap()).unwrap();
