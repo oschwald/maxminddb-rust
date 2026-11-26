@@ -424,3 +424,84 @@ fn test_source_that_shrinks_during_within() {
         assert_shrunk_source_error(err);
     }
 }
+
+/// Builds a one-node IPv4 database with 24-bit records and no data. Both
+/// records point at the no-data sentinel. `languages` is written to the
+/// metadata only when it is `Some`.
+fn one_node_database(languages: Option<&[&str]>) -> Vec<u8> {
+    fn header(kind: u8, size: usize, bytes: &mut Vec<u8>) {
+        assert!(size < 29);
+        if kind < 8 {
+            bytes.push((kind << 5) | size as u8);
+        } else {
+            bytes.push(size as u8);
+            bytes.push(kind - 7);
+        }
+    }
+    fn string(value: &str, bytes: &mut Vec<u8>) {
+        header(2, value.len(), bytes);
+        bytes.extend_from_slice(value.as_bytes());
+    }
+    fn uint(kind: u8, value: u64, bytes: &mut Vec<u8>) {
+        let be = value.to_be_bytes();
+        let skip = be.iter().take_while(|&&b| b == 0).count();
+        header(kind, be.len() - skip, bytes);
+        bytes.extend_from_slice(&be[skip..]);
+    }
+
+    // One node; both 24-bit records equal node_count, meaning no data.
+    let mut bytes = vec![0, 0, 1, 0, 0, 1];
+    bytes.extend_from_slice(&[0; 16]);
+    bytes.extend_from_slice(b"\xab\xcd\xefMaxMind.com");
+
+    header(7, if languages.is_some() { 9 } else { 8 }, &mut bytes);
+    string("binary_format_major_version", &mut bytes);
+    uint(5, 2, &mut bytes);
+    string("binary_format_minor_version", &mut bytes);
+    uint(5, 0, &mut bytes);
+    string("build_epoch", &mut bytes);
+    uint(9, 1_700_000_000, &mut bytes);
+    string("database_type", &mut bytes);
+    string("Test", &mut bytes);
+    string("description", &mut bytes);
+    header(7, 1, &mut bytes);
+    string("en", &mut bytes);
+    string("Test Database", &mut bytes);
+    string("ip_version", &mut bytes);
+    uint(5, 4, &mut bytes);
+    if let Some(languages) = languages {
+        string("languages", &mut bytes);
+        header(11, languages.len(), &mut bytes);
+        for language in languages {
+            string(language, &mut bytes);
+        }
+    }
+    string("node_count", &mut bytes);
+    uint(6, 1, &mut bytes);
+    string("record_size", &mut bytes);
+    uint(5, 24, &mut bytes);
+    bytes
+}
+
+#[test]
+fn test_reader_opens_database_without_languages() {
+    let reader = Reader::from_source(one_node_database(None)).unwrap();
+
+    let metadata = reader.metadata();
+    assert!(metadata.languages.is_empty());
+    assert_eq!(metadata.database_type, "Test");
+    assert_eq!(metadata.node_count, 1);
+    assert!(!reader
+        .lookup("1.1.1.1".parse().unwrap())
+        .unwrap()
+        .has_data());
+    reader.verify().unwrap();
+}
+
+#[test]
+fn test_reader_reads_languages_when_present() {
+    let reader = Reader::from_source(one_node_database(Some(&["en", "zh"]))).unwrap();
+
+    assert_eq!(reader.metadata().languages, vec!["en", "zh"]);
+    reader.verify().unwrap();
+}

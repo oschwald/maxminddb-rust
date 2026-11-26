@@ -24,6 +24,9 @@
   returns a decoding error. Unit variants still decode from a string name or
   an integer index. A unit variant in map form skips the map's value, so a
   `#[serde(other)]` variant can absorb an unknown data variant.
+- Fixed opening databases whose metadata omits the optional `languages` key.
+  The reader returned a "missing field" decoding error; it now opens them and
+  `Metadata::languages` is empty.
 - Fixed opening databases whose metadata `description` map repeats a language
   key. The reader kept the last value; it now returns a decoding error, as it
   already did for repeated top-level metadata keys. The spec requires unique
