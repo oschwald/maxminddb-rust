@@ -1,6 +1,6 @@
 use std::net::IpAddr;
 
-use maxminddb::{geoip2, MaxMindDbError, Reader};
+use maxminddb::{geoip2, LookupResult, MaxMindDbError, Reader};
 
 use crate::common::open_test_data_reader;
 
@@ -353,4 +353,52 @@ fn test_ipv6_in_ipv4_database() {
         ),
         Ok(_) => panic!("Expected error for IPv6 lookup in IPv4-only database"),
     }
+}
+
+fn assert_clone_copy_debug<T: Clone + Copy + std::fmt::Debug>() {}
+
+// A source that implements only `AsRef<[u8]>`, so the result's traits cannot
+// come from the source type.
+struct OnlyAsRef(Vec<u8>);
+
+impl AsRef<[u8]> for OnlyAsRef {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+#[test]
+fn test_lookup_result_is_copy_for_any_source() {
+    assert_clone_copy_debug::<LookupResult<'static, Vec<u8>>>();
+    assert_clone_copy_debug::<LookupResult<'static, &'static [u8]>>();
+    assert_clone_copy_debug::<LookupResult<'static, OnlyAsRef>>();
+    #[cfg(feature = "mmap")]
+    assert_clone_copy_debug::<LookupResult<'static, maxminddb::Mmap>>();
+}
+
+#[test]
+fn test_lookup_result_copy_and_debug() {
+    let buf = std::fs::read("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    let reader = Reader::from_source(OnlyAsRef(buf)).unwrap();
+    let ip: IpAddr = "89.160.20.112".parse().unwrap();
+
+    let first = reader.lookup(ip).unwrap();
+    let second = first;
+    #[allow(clippy::clone_on_copy)]
+    let third = first.clone();
+
+    // `first` stays usable after being copied.
+    for result in [first, second, third] {
+        assert!(result.has_data());
+        let city: geoip2::City = result.decode().unwrap().unwrap();
+        assert_eq!(city.country.iso_code, Some("SE"));
+        assert_eq!(result.network().unwrap(), first.network().unwrap());
+    }
+
+    let debug = format!("{first:?}");
+    assert!(
+        debug.starts_with("LookupResult { reader: Reader {"),
+        "{debug}"
+    );
+    assert!(debug.contains("ip: 89.160.20.112"), "{debug}");
 }
