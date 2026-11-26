@@ -9,8 +9,39 @@ permissions:
   contents: read
 
 jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: true
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+
+      - name: Check that the tag matches Cargo.toml
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 |
+            jq -r '.packages[] | select(.name == "maxminddb") | .version')
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::Release tag $TAG does not match Cargo.toml version $version (expected v$version)."
+            exit 1
+          fi
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Run tests with all features
+        run: cargo test --all-features
+
   publish:
     name: Publish
+    needs: verify
     runs-on: ubuntu-latest
     environment: release
     permissions:

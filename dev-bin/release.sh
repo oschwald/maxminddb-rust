@@ -68,6 +68,7 @@ update_readme_dependency_versions README.md "$readme_version"
 
 echo "Running tests..."
 cargo test
+cargo test --all-features
 
 echo $'\nDiff:'
 git diff
