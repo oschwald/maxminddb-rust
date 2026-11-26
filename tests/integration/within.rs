@@ -135,6 +135,7 @@ fn test_ipv6_root_cycle_is_not_filtered_as_an_alias() {
             let err = iter.next().unwrap().unwrap_err();
             assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
             assert!(err.to_string().contains("address bit length"));
+            assert!(iter.next().is_none());
         }
     }
     assert!(matches!(

@@ -1066,7 +1066,7 @@ fn find_address_in_tree_v6<R: SearchTreeRecord>(
 /// a data record or the empty terminal. A valid tree is at most as deep as the
 /// address, so this means the tree is corrupt, usually through a cycle.
 #[cold]
-fn search_tree_too_deep_error() -> MaxMindDbError {
+pub(crate) fn search_tree_too_deep_error() -> MaxMindDbError {
     MaxMindDbError::invalid_database(
         "search tree appears to have a cycle or invalid structure (used the full address bit length without reaching a record)",
     )
@@ -1755,14 +1755,48 @@ mod tests {
         // isolates iterator behavior on a corrupt tree without building a fixture.
         reader.buf[..6].fill(0);
 
-        let err = reader
-            .networks(Default::default())
-            .unwrap()
-            .next()
-            .expect("cyclic tree should yield an error")
-            .unwrap_err();
-        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
-        assert!(err.to_string().contains("address bit length"));
+        for options in [
+            WithinOptions::default(),
+            WithinOptions::default().include_networks_without_data(),
+        ] {
+            let mut networks = reader.networks(options).unwrap();
+            let err = networks
+                .next()
+                .expect("cyclic tree should yield an error")
+                .unwrap_err();
+            assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+            assert!(err.to_string().contains("address bit length"));
+            // The cycle repeats for every remaining network, so iteration
+            // must end after one error rather than run 2^32 times.
+            assert!(networks.next().is_none());
+        }
+    }
+
+    #[test]
+    fn test_network_iteration_ends_at_first_cycle_error() {
+        for &bits in TEST_RECORD_SIZES {
+            let name = format!("MaxMind-DB-test-ipv4-{bits}.mmdb");
+            let original = open_test_reader(&name);
+
+            // Move the root's original 0 branch to its 1 branch and make the
+            // 0 branch loop. 129.1.1.1 then reaches 1.1.1.1's record, but
+            // iteration walks the 0 branch first and must stop at its error
+            // instead of returning the valid 1 branch.
+            let left = original.read_node(0, 0);
+            let mut bytes = original.buf.clone();
+            write_record(&mut bytes, bits, 0, 0, 0);
+            write_record(&mut bytes, bits, 0, 1, left);
+            let reader = Reader::from_source(bytes.as_slice()).unwrap();
+            assert!(reader
+                .lookup("129.1.1.1".parse().unwrap())
+                .unwrap()
+                .has_data());
+
+            let mut networks = reader.networks(Default::default()).unwrap();
+            let err = networks.next().unwrap().unwrap_err();
+            assert!(err.to_string().contains("address bit length"), "{err}");
+            assert!(networks.next().is_none(), "{name}");
+        }
     }
 
     #[test]
