@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- docs.rs now builds the documentation with the `mmap` feature, so it
+  includes `Reader::open_mmap` and the other memory-mapped reader items. Those
+  items are marked as needing the `mmap` feature.
 - Fixed opening databases whose metadata `description` map repeats a language
   key. The reader kept the last value; it now returns a decoding error, as it
   already did for repeated top-level metadata keys. The spec requires unique

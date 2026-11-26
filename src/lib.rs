@@ -1,4 +1,7 @@
 #![deny(trivial_casts, trivial_numeric_casts, unused_import_braces)]
+// docs.rs builds on nightly with `--cfg docsrs`. `doc_cfg` labels items gated
+// on a feature, such as the `mmap` API, with the feature they need.
+#![cfg_attr(docsrs, feature(doc_cfg))]
 //! # MaxMind DB Reader
 //!
 //! This library reads the MaxMind DB format, including the GeoIP2 and GeoLite2 databases.
