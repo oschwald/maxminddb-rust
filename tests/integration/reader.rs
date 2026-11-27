@@ -1,9 +1,11 @@
+use std::cell::Cell;
 use std::net::IpAddr;
+use std::rc::Rc;
 use std::time::{Duration, UNIX_EPOCH};
 
 use serde::Deserialize;
 
-use maxminddb::{MaxMindDbError, Reader};
+use maxminddb::{geoip2, MaxMindDbError, Reader, WithinOptions};
 
 use crate::common::{open_test_data_reader, TEST_DATABASE_CONFIGS};
 
@@ -285,5 +287,140 @@ fn check_ip<S: AsRef<[u8]>>(reader: &Reader<S>, ip_version: usize) {
             "Expected not found for address {}, but it was found",
             address
         );
+    }
+}
+
+/// A source whose `as_ref` returns a shorter slice once `shrunk` is set.
+///
+/// `AsRef` is a safe trait, so nothing stops a source from doing this. The
+/// reader must not trust lengths it cached when it was opened.
+#[derive(Debug)]
+struct ShrinkingSource {
+    bytes: Vec<u8>,
+    shrunk_len: usize,
+    shrunk: Rc<Cell<bool>>,
+}
+
+impl AsRef<[u8]> for ShrinkingSource {
+    fn as_ref(&self) -> &[u8] {
+        if self.shrunk.get() {
+            &self.bytes[..self.shrunk_len]
+        } else {
+            &self.bytes
+        }
+    }
+}
+
+/// Opens `database` with a source that, once the returned flag is set, keeps
+/// only the search tree, the data section separator, and the first
+/// `data_bytes` bytes of the data section.
+fn open_shrinking_reader(
+    database: &str,
+    data_bytes: usize,
+) -> (Reader<ShrinkingSource>, Rc<Cell<bool>>) {
+    let bytes = std::fs::read(format!("test-data/test-data/{database}")).unwrap();
+    let metadata = Reader::from_source(bytes.as_slice())
+        .unwrap()
+        .metadata()
+        .clone();
+    let tree_size = metadata.node_count as usize * metadata.record_size as usize / 4;
+    let shrunk = Rc::new(Cell::new(false));
+    let reader = Reader::from_source(ShrinkingSource {
+        bytes,
+        shrunk_len: tree_size + 16 + data_bytes,
+        shrunk: Rc::clone(&shrunk),
+    })
+    .unwrap();
+    (reader, shrunk)
+}
+
+fn assert_shrunk_source_error(err: MaxMindDbError) {
+    assert!(
+        matches!(err, MaxMindDbError::InvalidDatabase { .. }),
+        "expected InvalidDatabase, got {err:?}"
+    );
+    assert!(
+        err.to_string().contains("shorter"),
+        "unexpected error message: {err}"
+    );
+}
+
+#[test]
+fn test_source_that_shrinks_after_lookup() {
+    // 0 drops the whole data section; 1 and 100 cut into it. Each is
+    // rejected by the data section bounds check before decoding starts.
+    for data_bytes in [0, 1, 100] {
+        let (reader, shrunk) = open_shrinking_reader("GeoIP2-City-Test.mmdb", data_bytes);
+        let ip: IpAddr = "89.160.20.128".parse().unwrap();
+        let result = reader.lookup(ip).unwrap();
+        assert!(result.has_data());
+
+        shrunk.set(true);
+
+        let err = result.decode::<geoip2::City>().unwrap_err();
+        assert_shrunk_source_error(err);
+
+        let err = result
+            .decode_path::<String>(&maxminddb::path!["city", "names", "en"])
+            .unwrap_err();
+        assert_shrunk_source_error(err);
+    }
+}
+
+#[test]
+fn test_source_that_drops_only_metadata_still_decodes() {
+    let bytes = std::fs::read("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
+    let marker = b"\xab\xcd\xefMaxMind.com";
+    let data_section_end = bytes
+        .windows(marker.len())
+        .rposition(|w| w == marker)
+        .expect("metadata marker");
+    let metadata = Reader::from_source(bytes.as_slice())
+        .unwrap()
+        .metadata()
+        .clone();
+    let pointer_base = metadata.node_count as usize * metadata.record_size as usize / 4 + 16;
+
+    // Keeping exactly the data section, without the metadata marker or the
+    // metadata, is still enough to decode records.
+    let (reader, shrunk) =
+        open_shrinking_reader("GeoIP2-City-Test.mmdb", data_section_end - pointer_base);
+    let ip: IpAddr = "89.160.20.128".parse().unwrap();
+    let result = reader.lookup(ip).unwrap();
+
+    shrunk.set(true);
+
+    let city = result.decode::<geoip2::City>().unwrap().unwrap();
+    assert_eq!(city.city.names.english, Some("Linköping"));
+    let name: Option<String> = result
+        .decode_path(&maxminddb::path!["city", "names", "en"])
+        .unwrap();
+    assert_eq!(name.as_deref(), Some("Linköping"));
+}
+
+#[test]
+fn test_source_that_shrinks_during_within() {
+    for data_bytes in [0, 1, 100] {
+        // Skipping empty values decodes each record while iterating.
+        let (reader, shrunk) = open_shrinking_reader("GeoIP2-City-Test.mmdb", data_bytes);
+        let mut iter = reader
+            .networks(WithinOptions::default().skip_empty_values())
+            .unwrap();
+
+        shrunk.set(true);
+
+        let err = iter.next().expect("the database has networks").unwrap_err();
+        assert_shrunk_source_error(err);
+
+        // With default options, iteration only reads the tree, and decoding
+        // the yielded result hits the check.
+        let (reader, shrunk) = open_shrinking_reader("GeoIP2-City-Test.mmdb", data_bytes);
+        let mut iter = reader.networks(WithinOptions::default()).unwrap();
+
+        shrunk.set(true);
+
+        let result = iter.next().expect("the database has networks").unwrap();
+        let err = result.decode::<geoip2::City>().unwrap_err();
+        assert_shrunk_source_error(err);
     }
 }

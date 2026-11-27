@@ -19,6 +19,13 @@
   for IPv6, so a loop that skipped errors did not finish. The error message now
   ends in "(used the full address bit length without reaching a record)"
   instead of "(traversal exceeded the address bit length)".
+- Fixed undefined behavior when a custom source's `AsRef<[u8]>` returns a
+  shorter slice after the reader was opened. Decoding a record could read past
+  the end of the slice in release builds. `decode()`, `decode_path()`, and
+  `skip_empty_values()` iteration now return an `InvalidDatabase` error instead
+  when the slice no longer covers the whole data section. Other operations on
+  such a source, such as reading the search tree, can still panic, as before.
+  `Vec<u8>`, `&[u8]`, and `Mmap` sources were not affected.
 
 ## 0.33.0 - 2026-11-12
 

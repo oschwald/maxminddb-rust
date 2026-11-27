@@ -181,18 +181,36 @@ pub(crate) struct Decoder<'de> {
 }
 
 impl<'de> Decoder<'de> {
+    /// Creates a decoder over all of `buf`.
+    ///
+    /// `slice` and `eat_byte` use unchecked reads that rely on
+    /// `limit <= buf.len()`. Taking the limit from `buf` itself keeps that
+    /// invariant true without a separate check.
     pub(crate) fn new(buf: &'de [u8], start_ptr: usize) -> Decoder<'de> {
-        Decoder::new_with_limit(buf, start_ptr, buf.len())
-    }
-
-    pub(crate) fn new_with_limit(buf: &'de [u8], start_ptr: usize, limit: usize) -> Decoder<'de> {
-        debug_assert!(limit <= buf.len());
         Decoder {
             buf,
-            limit,
+            limit: buf.len(),
             current_ptr: start_ptr,
             state: 0,
             payload_remaining: MAXIMUM_DATA_STRUCTURE_BYTES as u32,
+        }
+    }
+
+    /// Creates a decoder that reads no further than `limit`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `limit > buf.len()`.
+    #[cfg(test)]
+    pub(crate) fn new_with_limit(buf: &'de [u8], start_ptr: usize, limit: usize) -> Decoder<'de> {
+        assert!(
+            limit <= buf.len(),
+            "decoder limit {limit} exceeds buffer length {}",
+            buf.len()
+        );
+        Decoder {
+            limit,
+            ..Decoder::new(buf, start_ptr)
         }
     }
 
@@ -397,8 +415,9 @@ impl<'de> Decoder<'de> {
         debug_assert!(start <= end);
         debug_assert!(end <= self.limit);
         debug_assert!(self.limit <= self.buf.len());
-        // SAFETY: Decoder constructors ensure `limit <= buf.len()`, and all
-        // callers reach this helper only after checking `end <= limit`.
+        // SAFETY: `Decoder::new` sets `limit` to `buf.len()`, and the
+        // test-only `new_with_limit` asserts `limit <= buf.len()`. All callers
+        // reach this helper only after checking `end <= limit`.
         unsafe { self.buf.get_unchecked(start..end) }
     }
 
@@ -418,8 +437,9 @@ impl<'de> Decoder<'de> {
             return Err(self.invalid_db_error("unexpected end of buffer"));
         }
         debug_assert!(self.limit <= self.buf.len());
-        // SAFETY: The check above proves `current_ptr < limit`, and decoder
-        // construction guarantees `limit <= buf.len()`.
+        // SAFETY: The check above proves `current_ptr < limit`. `Decoder::new`
+        // sets `limit` to `buf.len()`, and the test-only `new_with_limit`
+        // asserts `limit <= buf.len()`.
         let b = unsafe { *self.buf.get_unchecked(self.current_ptr) };
         self.current_ptr += 1;
         Ok(b)

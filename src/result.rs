@@ -72,9 +72,11 @@ pub(crate) enum NetworkKind {
 
 impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     #[inline]
-    fn decoder(&self, offset: usize) -> super::decoder::Decoder<'a> {
-        let buf = &self.reader.buf.as_ref()[self.reader.pointer_base..];
-        super::decoder::Decoder::new_with_limit(buf, offset, self.reader.data_section_len)
+    fn decoder(&self, offset: usize) -> Result<super::decoder::Decoder<'a>, MaxMindDbError> {
+        Ok(super::decoder::Decoder::new(
+            self.reader.data_section()?,
+            offset,
+        ))
     }
 
     /// Creates a new LookupResult for a found IP.
@@ -232,7 +234,7 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
             return Ok(None);
         };
 
-        let mut decoder = self.decoder(offset);
+        let mut decoder = self.decoder(offset)?;
         T::deserialize(&mut decoder)
             .map(Some)
             .map_err(|error| error.with_invalid_database_offset_base(self.reader.pointer_base))
@@ -295,7 +297,7 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
             return Ok(None);
         };
 
-        let mut decoder = self.decoder(offset);
+        let mut decoder = self.decoder(offset)?;
 
         // Navigate through the path, tracking position for error context
         for (i, element) in path.iter().enumerate() {
