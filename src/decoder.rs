@@ -2395,6 +2395,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
     fn key_decoding_preserves_values_errors_cursors_and_budgets() {
         let mut buf = [0x61; 80];
         buf[..2].copy_from_slice(&[0x20, 10]);
@@ -2405,20 +2406,6 @@ mod tests {
                     compare_key_decoders(&buf, 0, limit, remaining);
                     compare_key_decoders(&buf, 10, limit, remaining);
                 }
-            }
-        }
-
-        let mut state = 0x4D59_5DF4_D0F3_3173_u64;
-        for _ in 0..8192 {
-            for byte in &mut buf {
-                state = state
-                    .wrapping_mul(6_364_136_223_846_793_005)
-                    .wrapping_add(1_442_695_040_888_963_407);
-                *byte = (state >> 32) as u8;
-            }
-            for start in [0, 1, 10, 79, 80, usize::MAX] {
-                compare_key_decoders(&buf, start, buf.len(), 0);
-                compare_key_decoders(&buf, start, buf.len(), 4096);
             }
         }
 
@@ -2433,7 +2420,43 @@ mod tests {
         }
     }
 
+    // Kept out of the exhaustive test above so Miri still checks the
+    // unchecked reads at the buffer edges, on fewer random buffers.
     #[test]
+    fn key_decoding_preserves_edge_cursors_on_random_buffers() {
+        let rounds = if cfg!(miri) { 4 } else { 8192 };
+        let mut buf = [0; 80];
+        let mut state = 0x4D59_5DF4_D0F3_3173_u64;
+        for _ in 0..rounds {
+            for byte in &mut buf {
+                state = state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                *byte = (state >> 32) as u8;
+            }
+            for start in [0, 1, 10, 79, 80, usize::MAX] {
+                compare_key_decoders(&buf, start, buf.len(), 0);
+                compare_key_decoders(&buf, start, buf.len(), 4096);
+            }
+        }
+    }
+
+    // Each control byte as the last or second-to-last byte, where a read past
+    // the limit would leave the buffer. Small enough to run under Miri.
+    #[test]
+    fn key_decoding_handles_every_control_byte_at_the_buffer_end() {
+        let mut buf = [0x61; 80];
+        for control in 0..=255 {
+            for start in [78, 79] {
+                buf[start] = control;
+                compare_key_decoders(&buf, start, buf.len(), 4096);
+                buf[start] = 0x61;
+            }
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
     fn key_decoders_agree_on_pointer_widths_and_extended_strings() {
         let pointers: &[(&[u8], usize)] = &[
             (&[0x20, 8], 8),
@@ -2516,6 +2539,7 @@ mod tests {
 
     #[cfg(not(feature = "unsafe-str-decode"))]
     #[test]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
     fn ascii_check_covers_every_byte_at_word_boundaries() {
         for len in 0..=80 {
             let mut storage = vec![0x7f; len + 7];
@@ -2707,6 +2731,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
     fn concrete_sequence_charges_repeated_shared_struct_maps() {
         #[derive(Debug, Deserialize)]
         struct EmptyRecord {}
@@ -2736,6 +2761,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
     fn concrete_sequence_charges_repeated_string_payloads() {
         // One 4 KiB string followed by an array of 600 pointers to it. The
         // array activates the operation budget, and direct &str decoding must
@@ -2790,6 +2816,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
     fn partial_struct_skips_unknown_inline_payload_over_budget() {
         #[derive(Deserialize)]
         struct PartialRecord {
@@ -2815,6 +2842,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
     fn budgeted_standalone_scalar_entry_points_enforce_payload_limit() {
         // The enum identifier receives the 32-byte allowance, so exceed both
         // that allowance and the ordinary 2 MiB payload budget by one byte.
@@ -2843,6 +2871,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
     fn standalone_scalar_retains_unbudgeted_fast_path() {
         let size = super::MAXIMUM_DATA_STRUCTURE_BYTES + 1;
         let buf = large_string(size);
@@ -2977,6 +3006,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
     fn cached_map_keys_preserve_values_errors_cursors_and_budgets() {
         let mut buf = [0x61; 80];
         buf[..2].copy_from_slice(&[0x20, 10]);
@@ -3053,6 +3083,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
     fn dynamic_any_map_keys_are_charged_once() {
         // deserialize_any activates the budget itself. The map accessor's
         // precharge must still suppress exactly one payload charge rather than
@@ -3093,6 +3124,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
     fn flattened_pointer_keys_cannot_bypass_payload_budget() {
         #[derive(Debug, Deserialize)]
         struct Flattened {
@@ -3121,6 +3153,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
     fn repeated_maps_with_inline_keys_cannot_bypass_payload_budget() {
         #[derive(Debug, Deserialize)]
         struct Flattened {
@@ -3239,6 +3272,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "too slow under Miri")]
     fn verification_allows_large_nonoverlapping_payloads() {
         let size = super::MAXIMUM_DATA_STRUCTURE_BYTES + 1;
         let mut buf = vec![0x5f];

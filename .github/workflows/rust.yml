@@ -12,6 +12,9 @@ concurrency:
   group: rust-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -56,6 +59,52 @@ jobs:
       - name: Run cargo test
         run: cargo test
 
+  test-32bit:
+    name: Test Suite (32-bit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-unknown-linux-gnu
+
+      - name: Install 32-bit C toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib
+
+      - name: Run cargo test
+        run: cargo test --target i686-unknown-linux-gnu --features mmap
+
+  miri:
+    name: Miri
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      # The miri branch installs the newest nightly that ships Miri.
+      - name: Install nightly toolchain with Miri
+        uses: dtolnay/rust-toolchain@miri
+
+      - name: Set up Miri
+        run: cargo miri setup
+
+      # Isolation is disabled so the tests can read databases from test-data.
+      # Tests that are too slow under Miri are marked `cfg_attr(miri, ignore)`.
+      - name: Run decoder unit tests under Miri
+        run: cargo miri test --lib decoder::tests
+        env:
+          MIRIFLAGS: -Zmiri-disable-isolation
+
   msrv:
     name: MSRV
     runs-on: ubuntu-latest
@@ -86,6 +135,8 @@ jobs:
             features: unsafe-str-decode
           - platform: ubuntu-latest
             features: mmap,unsafe-str-decode
+          - platform: ubuntu-latest
+            features: mmap,unsafe-str-decode,fuzzing
           - platform: macos-latest
             features: mmap
           - platform: windows-latest
@@ -117,8 +168,13 @@ jobs:
       - name: Run cargo fmt
         run: cargo fmt --all -- --check
 
+      # unsafe-str-decode replaces the default string decoding and fuzzing
+      # adds entry points, so lint the usual build and every feature.
       - name: Run cargo clippy
         run: cargo clippy --all-targets --features mmap -- -D warnings
+
+      - name: Run cargo clippy with all features
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Test release helpers
         run: bash dev-bin/release-lib-test.sh

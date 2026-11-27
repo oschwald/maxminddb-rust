@@ -1372,7 +1372,8 @@ mod tests {
                         node_count,
                         node_count + 1,
                         node_count + 15,
-                        (1 << bits) - 1,
+                        // Largest record value; `1 << 32` overflows a 32-bit usize.
+                        (u32::MAX >> (32 - bits)) as usize,
                     ]
                     .into_iter()
                     .flat_map(|pointer| [&[0][..], &[1], &[0, 1]].map(|sides| (pointer, sides)))
