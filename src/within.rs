@@ -5,7 +5,7 @@ use std::net::{IpAddr, Ipv6Addr};
 
 use crate::decoder;
 use crate::error::MaxMindDbError;
-use crate::reader::Reader;
+use crate::reader::{search_tree_too_deep_error, Reader};
 use crate::result::{LookupResult, LookupSource, NetworkKind};
 
 /// Options for network iteration.
@@ -96,6 +96,10 @@ pub(crate) struct WithinNode {
 /// Networks are yielded in depth-first order through the search tree.
 /// Use [`LookupResult::decode()`](crate::LookupResult::decode) to
 /// deserialize the data for each result.
+///
+/// If the search tree contains a cycle, or any branch is deeper than the
+/// address, the iterator yields one [`MaxMindDbError::InvalidDatabase`] error
+/// and then ends, so later networks are not returned.
 ///
 /// # Example
 ///
@@ -229,9 +233,10 @@ impl<'de, S: AsRef<[u8]>> Iterator for Within<'de, S> {
                 }
                 Ordering::Less => {
                     if current.prefix_len >= bit_count {
-                        return Some(Err(MaxMindDbError::invalid_database(
-                            "search tree appears to have a cycle or invalid structure (traversal exceeded the address bit length)",
-                        )));
+                        // A cyclic tree can repeat this for every remaining
+                        // network, up to 2^128 times, so end the iteration.
+                        self.stack.clear();
+                        return Some(Err(search_tree_too_deep_error()));
                     }
                     // In order traversal of our children
                     // right/1-bit

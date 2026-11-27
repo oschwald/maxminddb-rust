@@ -233,6 +233,13 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// - Decode the full record with [`decode()`](LookupResult::decode)
     /// - Decode a specific path with [`decode_path()`](LookupResult::decode_path)
     ///
+    /// # Errors
+    ///
+    /// Returns [`MaxMindDbError::InvalidInput`] for an IPv6 address in an
+    /// IPv4-only database. Returns [`MaxMindDbError::InvalidDatabase`] if the
+    /// search tree is corrupt, for example if it contains a cycle, or if the
+    /// record points outside the data section.
+    ///
     /// # Examples
     ///
     /// Basic city lookup:
@@ -537,11 +544,12 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         Ok(within)
     }
 
-    // Pointer 0 means "not found" because normalize_lookup_result collapses both
-    // the placeholder empty node (`node == node_count`) and an unfinished internal
-    // terminal (`node < node_count`, i.e. bits exhausted while still on a tree
-    // node) into 0, so neither path reaches resolve_data_pointer with a non-data
-    // value.
+    // `pointer` is the node where the tree walk stopped:
+    //   - `> node_count`: a data-section pointer to resolve.
+    //   - `== node_count`: the placeholder empty terminal, so no data.
+    //   - `< node_count`: the walk used every address bit and is still on an
+    //     internal node. A valid tree cannot do this, so the tree is corrupt,
+    //     for example because a record points back to an ancestor.
     #[inline(always)]
     fn lookup_result(
         &'de self,
@@ -557,15 +565,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
             IpAddr::V4(_) => NetworkKind::V4,
             IpAddr::V6(_) => NetworkKind::V6,
         };
-        if pointer == 0 {
-            Ok(LookupResult::new_not_found(
-                self,
-                prefix_len,
-                address,
-                LookupSource::Lookup,
-                network_kind,
-            ))
-        } else {
+        if pointer > self.node_count {
             let data_offset = self.resolve_data_pointer(pointer)?;
             Ok(LookupResult::new_found(
                 self,
@@ -575,6 +575,16 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
                 LookupSource::Lookup,
                 network_kind,
             ))
+        } else if pointer == self.node_count {
+            Ok(LookupResult::new_not_found(
+                self,
+                prefix_len,
+                address,
+                LookupSource::Lookup,
+                network_kind,
+            ))
+        } else {
+            Err(search_tree_too_deep_error())
         }
     }
 
@@ -1024,7 +1034,7 @@ fn find_address_in_tree_v4<R: SearchTreeRecord>(
         node = R::read_node(buf, node, bit);
     }
 
-    normalize_lookup_result(node, node_count, prefix_len)
+    (node, prefix_len)
 }
 
 #[inline(always)]
@@ -1043,28 +1053,23 @@ fn find_address_in_tree_v6<R: SearchTreeRecord>(
         let mut bits = (word as u64) << depth;
         for i in depth..64 {
             if node >= node_count {
-                return normalize_lookup_result(node, node_count, base + i);
+                return (node, base + i);
             }
             node = R::read_node(buf, node, (bits >> 63) as usize);
             bits <<= 1;
         }
     }
-    normalize_lookup_result(node, node_count, 128)
+    (node, 128)
 }
 
-// Map both "not found" outcomes onto pointer 0:
-//   - `node == node_count`: the placeholder empty terminal in the search tree.
-//   - `node < node_count`: bits exhausted while still on an internal node
-//     (a partially-specified address that did not reach a record).
-// Anything strictly greater than `node_count` is a data-section pointer that
-// the caller must resolve via `resolve_data_pointer`.
-#[inline(always)]
-fn normalize_lookup_result(node: usize, node_count: usize, prefix_len: usize) -> (usize, usize) {
-    if node <= node_count {
-        (0, prefix_len)
-    } else {
-        (node, prefix_len)
-    }
+/// Error for a search-tree walk that uses every address bit without reaching
+/// a data record or the empty terminal. A valid tree is at most as deep as the
+/// address, so this means the tree is corrupt, usually through a cycle.
+#[cold]
+pub(crate) fn search_tree_too_deep_error() -> MaxMindDbError {
+    MaxMindDbError::invalid_database(
+        "search tree appears to have a cycle or invalid structure (used the full address bit length without reaching a record)",
+    )
 }
 
 fn find_metadata_start(buf: &[u8]) -> Result<usize, MaxMindDbError> {
@@ -1084,9 +1089,8 @@ fn metadata_marker_start(metadata_start: usize) -> Result<usize, MaxMindDbError>
 #[cfg(test)]
 mod tests {
     use super::{
-        find_address_in_tree_v6, normalize_lookup_result, validate_metadata_for_reader, IndexEntry,
-        Reader, RecordSize24, RecordSize28, RecordSize32, SearchTreeRecord, LOOKUP_INDEX_BITS_V4,
-        LOOKUP_INDEX_BITS_V6,
+        find_address_in_tree_v6, validate_metadata_for_reader, IndexEntry, Reader, RecordSize24,
+        RecordSize28, RecordSize32, SearchTreeRecord, LOOKUP_INDEX_BITS_V4, LOOKUP_INDEX_BITS_V6,
     };
     use crate::{MaxMindDbError, PathElement, WithinOptions};
     use ipnetwork::IpNetwork;
@@ -1124,11 +1128,11 @@ mod tests {
             let mut node = 0;
             for i in 0..128 {
                 if node >= reader.node_count {
-                    return normalize_lookup_result(node, reader.node_count, i);
+                    return (node, i);
                 }
                 node = reader.read_node(node, ((ip >> (127 - i)) & 1) as usize);
             }
-            normalize_lookup_result(node, reader.node_count, 128)
+            (node, 128)
         }
 
         for bits in [24, 28, 32] {
@@ -1195,7 +1199,7 @@ mod tests {
                 let ip = 1u128 << (127 - bit);
                 assert_eq!(
                     find_address_in_tree_v6::<RecordSize32>(&tree, 0, 0, node_count, ip),
-                    (0, bit + 1)
+                    (node_count, bit + 1)
                 );
             }
             if depth > 12 {
@@ -1752,14 +1756,123 @@ mod tests {
         // isolates iterator behavior on a corrupt tree without building a fixture.
         reader.buf[..6].fill(0);
 
-        let err = reader
-            .networks(Default::default())
-            .unwrap()
-            .next()
-            .expect("cyclic tree should yield an error")
-            .unwrap_err();
-        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
-        assert!(err.to_string().contains("address bit length"));
+        for options in [
+            WithinOptions::default(),
+            WithinOptions::default().include_networks_without_data(),
+        ] {
+            let mut networks = reader.networks(options).unwrap();
+            let err = networks
+                .next()
+                .expect("cyclic tree should yield an error")
+                .unwrap_err();
+            assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+            assert!(err.to_string().contains("address bit length"));
+            // The cycle repeats for every remaining network, so iteration
+            // must end after one error rather than run 2^32 times.
+            assert!(networks.next().is_none());
+        }
+    }
+
+    #[test]
+    fn test_network_iteration_ends_at_first_cycle_error() {
+        for &bits in TEST_RECORD_SIZES {
+            let name = format!("MaxMind-DB-test-ipv4-{bits}.mmdb");
+            let original = open_test_reader(&name);
+
+            // Move the root's original 0 branch to its 1 branch and make the
+            // 0 branch loop. 129.1.1.1 then reaches 1.1.1.1's record, but
+            // iteration walks the 0 branch first and must stop at its error
+            // instead of returning the valid 1 branch.
+            let left = original.read_node(0, 0);
+            let mut bytes = original.buf.clone();
+            write_record(&mut bytes, bits, 0, 0, 0);
+            write_record(&mut bytes, bits, 0, 1, left);
+            let reader = Reader::from_source(bytes.as_slice()).unwrap();
+            assert!(reader
+                .lookup("129.1.1.1".parse().unwrap())
+                .unwrap()
+                .has_data());
+
+            let mut networks = reader.networks(Default::default()).unwrap();
+            let err = networks.next().unwrap().unwrap_err();
+            assert!(err.to_string().contains("address bit length"), "{err}");
+            assert!(networks.next().is_none(), "{name}");
+        }
+    }
+
+    #[test]
+    fn test_lookup_rejects_internal_node_cycle() {
+        for &bits in TEST_RECORD_SIZES {
+            for family in ["ipv4", "ipv6", "mixed"] {
+                let name = format!("MaxMind-DB-test-{family}-{bits}.mmdb");
+                let original = open_test_reader(&name);
+                let addresses: &[&str] = if family == "ipv4" {
+                    &["0.0.0.0", "1.1.1.1", "255.255.255.255"]
+                } else {
+                    &["0.0.0.0", "1.1.1.1", "::", "::1:ffff:ffff", "ffff::"]
+                };
+
+                // Point both records of the root back at the root, so every
+                // walk uses all address bits without leaving node 0.
+                let mut bytes = original.buf.clone();
+                write_record(&mut bytes, bits, 0, 0, 0);
+                write_record(&mut bytes, bits, 0, 1, 0);
+                let indexed = Reader::from_source(bytes.as_slice()).unwrap();
+                let direct = Reader::from_source(bytes.as_slice())
+                    .unwrap()
+                    .without_lookup_index();
+                for reader in [&indexed, &direct] {
+                    for address in addresses {
+                        let err = reader.lookup(address.parse().unwrap()).unwrap_err();
+                        assert!(
+                            matches!(err, MaxMindDbError::InvalidDatabase { .. }),
+                            "{name} {address}: {err}"
+                        );
+                        assert!(
+                            err.to_string().contains("address bit length"),
+                            "{name} {address}: {err}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_lookup_rejects_one_sided_cycle_and_keeps_other_side() {
+        for &bits in TEST_RECORD_SIZES {
+            let name = format!("MaxMind-DB-test-ipv4-{bits}.mmdb");
+            let original = open_test_reader(&name);
+
+            // Move the root's original 0 branch to its 1 branch and make only
+            // the 0 branch loop. 0.0.0.0 follows the loop for all 32 bits, so
+            // it must fail; 129.1.1.1 takes the 1 branch first and must still
+            // reach the record that 1.1.1.1 had.
+            let left = original.read_node(0, 0);
+            let mut bytes = original.buf.clone();
+            write_record(&mut bytes, bits, 0, 0, 0);
+            write_record(&mut bytes, bits, 0, 1, left);
+            let before = original.lookup("1.1.1.1".parse().unwrap()).unwrap();
+            assert!(before.has_data(), "{name}");
+            for reader in [
+                Reader::from_source(bytes.as_slice()).unwrap(),
+                Reader::from_source(bytes.as_slice())
+                    .unwrap()
+                    .without_lookup_index(),
+            ] {
+                let err = reader.lookup("0.0.0.0".parse().unwrap()).unwrap_err();
+                assert!(err.to_string().contains("address bit length"), "{err}");
+
+                let after = reader.lookup("129.1.1.1".parse().unwrap()).unwrap();
+                assert!(after.has_data(), "{name}");
+                assert_eq!(after.offset(), before.offset(), "{name}");
+                assert_eq!(
+                    after.network().unwrap().prefix(),
+                    before.network().unwrap().prefix(),
+                    "{name}"
+                );
+            }
+        }
     }
 
     #[test]

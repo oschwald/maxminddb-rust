@@ -9,6 +9,16 @@
   key. The reader kept the last value; it now returns a decoding error, as it
   already did for repeated top-level metadata keys. The spec requires unique
   metadata keys. Maps in the data section are unchanged.
+- `lookup()` now returns an `InvalidDatabase` error when the search tree uses
+  every address bit without reaching a record, for example because a record
+  points back to an ancestor node. Before, it reported the address as not
+  found. Only corrupt databases are affected.
+- `networks()` and `within()` now end after reporting a search tree cycle, as
+  the Go reader does, so networks after the error are not returned. Before,
+  they kept returning the same error, up to 2^32 times for IPv4 or 2^128 times
+  for IPv6, so a loop that skipped errors did not finish. The error message now
+  ends in "(used the full address bit length without reaching a record)"
+  instead of "(traversal exceeded the address bit length)".
 
 ## 0.33.0 - 2026-11-12
 
