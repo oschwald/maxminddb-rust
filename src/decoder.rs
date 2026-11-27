@@ -40,6 +40,17 @@ const RAW_STRINGS_NEWTYPE: &str = "$maxminddb::raw_strings";
 
 /// Maximum recursion depth for nested data structures.
 /// This matches the value used in libmaxminddb and the Go reader.
+///
+/// Decoding recurses once per level. An unoptimized build gives every local
+/// of an inlined callee its own stack slot, so the `inline(always)` header
+/// and scalar helpers made each level take about 5 KiB there, and 512 levels
+/// overflowed a 2 MiB thread stack. Builds with debug assertions mark three of
+/// them only `#[inline]`: the header reader, the pointer decoder, and the
+/// dynamic value decoder. An unoptimized build does not inline a hint, and an
+/// optimized one with debug assertions, such as a fuzz build, still may. Rust
+/// has no `cfg` for the optimization level, and debug assertions are on in
+/// Cargo's unoptimized profiles and off in its optimized ones, so release
+/// builds still force the inlining.
 const MAXIMUM_DATA_STRUCTURE_DEPTH: u16 = 512;
 
 /// Maximum number of logical values decoded in one container-shaped operation.
@@ -480,7 +491,9 @@ impl<'de> Decoder<'de> {
         }
     }
 
-    #[inline(always)]
+    // Only a hint in debug builds. See MAXIMUM_DATA_STRUCTURE_DEPTH.
+    #[cfg_attr(debug_assertions, inline)]
+    #[cfg_attr(not(debug_assertions), inline(always))]
     fn size_and_type(&mut self) -> DecodeResult<(usize, usize)> {
         let ctrl_byte = self.eat_byte()?;
         let mut type_num = usize::from(ctrl_byte >> 5);
@@ -558,7 +571,9 @@ impl<'de> Decoder<'de> {
         })
     }
 
-    #[inline(always)]
+    // Only a hint in debug builds. See MAXIMUM_DATA_STRUCTURE_DEPTH.
+    #[cfg_attr(debug_assertions, inline)]
+    #[cfg_attr(not(debug_assertions), inline(always))]
     fn decode_any_value<const RAW_STRINGS: bool>(&mut self) -> DecodeResult<Value<'_, 'de>> {
         let (size, type_num) = self.size_and_type()?;
 
@@ -718,7 +733,9 @@ impl<'de> Decoder<'de> {
         })
     }
 
-    #[inline(always)]
+    // Only a hint in debug builds. See MAXIMUM_DATA_STRUCTURE_DEPTH.
+    #[cfg_attr(debug_assertions, inline)]
+    #[cfg_attr(not(debug_assertions), inline(always))]
     fn decode_pointer(&mut self, size: usize) -> usize {
         let pointer_size = ((size >> 3) & 0x3) + 1;
         let p = self.current_ptr;
@@ -2064,18 +2081,13 @@ mod tests {
 
     #[test]
     fn raw_string_mode_rejects_excessive_pointer_depth_and_unknown_types() {
-        std::thread::Builder::new()
-            .stack_size(8 * 1024 * 1024)
-            .spawn(|| {
-                let mut cyclic_decoder = Decoder::new(&[0x20, 0x00], 0);
-                let depth_err = RawValueSeed.deserialize(&mut cyclic_decoder).unwrap_err();
-                assert!(depth_err
-                    .to_string()
-                    .contains("exceeded maximum data structure depth"));
-            })
-            .unwrap()
-            .join()
-            .unwrap();
+        run_on_bounded_stack(|| {
+            let mut cyclic_decoder = Decoder::new(&[0x20, 0x00], 0);
+            let depth_err = RawValueSeed.deserialize(&mut cyclic_decoder).unwrap_err();
+            assert!(depth_err
+                .to_string()
+                .contains("exceeded maximum data structure depth"));
+        });
 
         let mut unknown_decoder = Decoder::new(&[0x00, 0x06], 0);
         let type_err = RawValueSeed.deserialize(&mut unknown_decoder).unwrap_err();
@@ -3221,24 +3233,154 @@ mod tests {
 
     #[test]
     fn recursive_newtype_enum_is_depth_bounded() {
-        let (buf, start) = recursive_enum_chain(false);
-        let mut decoder = Decoder::new(&buf, start);
-        let err = RecursiveEnum::deserialize(&mut decoder).unwrap_err();
+        run_on_bounded_stack(|| {
+            let (buf, start) = recursive_enum_chain(false);
+            let mut decoder = Decoder::new(&buf, start);
+            let err = RecursiveEnum::deserialize(&mut decoder).unwrap_err();
 
-        assert!(err
-            .to_string()
-            .contains("exceeded maximum data structure depth"));
+            assert!(err
+                .to_string()
+                .contains("exceeded maximum data structure depth"));
+        });
     }
 
     #[test]
     fn recursive_newtype_enum_inside_array_is_depth_bounded() {
-        let (buf, start) = recursive_enum_chain(true);
-        let mut decoder = Decoder::new(&buf, start);
-        let err = Vec::<RecursiveEnum>::deserialize(&mut decoder).unwrap_err();
+        run_on_bounded_stack(|| {
+            let (buf, start) = recursive_enum_chain(true);
+            let mut decoder = Decoder::new(&buf, start);
+            let err = Vec::<RecursiveEnum>::deserialize(&mut decoder).unwrap_err();
 
-        assert!(err
-            .to_string()
-            .contains("exceeded maximum data structure depth"));
+            assert!(err
+                .to_string()
+                .contains("exceeded maximum data structure depth"));
+        });
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct NestedHashMap(#[allow(dead_code)] std::collections::HashMap<String, NestedHashMap>);
+    #[derive(Debug, Deserialize)]
+    struct NestedArray(#[allow(dead_code)] Vec<NestedArray>);
+
+    #[derive(Debug, Deserialize)]
+    struct NestedMap {
+        #[allow(dead_code)]
+        a: Option<Box<NestedMap>>,
+    }
+
+    /// `depth` nested arrays, each holding the next. The innermost is empty.
+    fn nested_arrays(depth: usize) -> Vec<u8> {
+        let mut buf = [0x01, 0x04].repeat(depth - 1); // one-element array
+        buf.extend_from_slice(&[0x00, 0x04]); // empty array
+        buf
+    }
+
+    /// `depth` nested maps, each holding the next under the key "a". The
+    /// innermost map is `innermost`.
+    fn nested_maps(depth: usize, innermost: &[u8]) -> Vec<u8> {
+        let mut buf = [0xe1, 0x41, b'a'].repeat(depth - 1);
+        buf.extend_from_slice(innermost);
+        buf
+    }
+
+    /// Pointer and array pairs, each adding two levels. The innermost array
+    /// holds `innermost` as its one element, or nothing.
+    fn nested_pointer_arrays(pairs: usize, innermost: Option<&[u8]>) -> Vec<u8> {
+        let mut buf = Vec::new();
+        for pair in 0..pairs {
+            let target = pair * 4 + 2;
+            // One-byte pointer offsets stop at 2047.
+            assert!(target < 2048);
+            buf.extend_from_slice(&[0x20 | (target >> 8) as u8, target as u8]);
+            if pair + 1 < pairs || innermost.is_some() {
+                buf.extend_from_slice(&[0x01, 0x04]);
+            } else {
+                buf.extend_from_slice(&[0x00, 0x04]);
+            }
+        }
+        buf.extend_from_slice(innermost.unwrap_or_default());
+        buf
+    }
+
+    /// Spawned threads, including test threads, default to 2 MiB stacks, and
+    /// builds with debug assertions check against that. Setting it here keeps
+    /// the check independent of RUST_MIN_STACK. Builds without debug
+    /// assertions force the decoder's inlining, and an unoptimized one needs
+    /// about 3 MiB, so they get 4 MiB.
+    fn run_on_bounded_stack(f: impl FnOnce() + Send + 'static) {
+        let mib = if cfg!(debug_assertions) { 2 } else { 4 };
+        std::thread::Builder::new()
+            .stack_size(mib * 1024 * 1024)
+            .spawn(f)
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    fn maximum_depth_fits_bounded_stack() {
+        run_on_bounded_stack(|| {
+            let depth = usize::from(super::MAXIMUM_DATA_STRUCTURE_DEPTH);
+            let arrays = nested_arrays(depth);
+            let maps = nested_maps(depth, &[0xe0]);
+            // Ignored values have their own, lower skip limit. Put the deepest
+            // skip below the deepest typed map.
+            let mut ignored = vec![0xe1, 0x41, b'x'];
+            ignored.extend(nested_arrays(usize::from(
+                super::MAXIMUM_SKIPPED_DATA_STRUCTURE_DEPTH,
+            )));
+            let maps_with_ignored = nested_maps(depth, &ignored);
+            let pointers = nested_pointer_arrays(depth / 2, None);
+
+            for buf in [&arrays, &maps, &pointers] {
+                serde_json::Value::deserialize(&mut Decoder::new(buf, 0)).unwrap();
+                RawValue::deserialize(&mut Decoder::new(buf, 0)).unwrap();
+            }
+            NestedArray::deserialize(&mut Decoder::new(&arrays, 0)).unwrap();
+            NestedArray::deserialize(&mut Decoder::new(&pointers, 0)).unwrap();
+            NestedMap::deserialize(&mut Decoder::new(&maps, 0)).unwrap();
+            NestedMap::deserialize(&mut Decoder::new(&maps_with_ignored, 0)).unwrap();
+            NestedHashMap::deserialize(&mut Decoder::new(&maps, 0)).unwrap();
+        });
+    }
+
+    #[test]
+    fn depth_limit_applies_before_the_stack_runs_out() {
+        run_on_bounded_stack(|| {
+            let depth = usize::from(super::MAXIMUM_DATA_STRUCTURE_DEPTH) + 1;
+            let arrays = nested_arrays(depth);
+            let maps = nested_maps(depth, &[0xe0]);
+            // One level past the skip limit, under the deepest allowed map.
+            let mut ignored = vec![0xe1, 0x41, b'x'];
+            ignored.extend(nested_arrays(
+                usize::from(super::MAXIMUM_SKIPPED_DATA_STRUCTURE_DEPTH) + 1,
+            ));
+            let maps_with_ignored = nested_maps(depth - 1, &ignored);
+            // 256 pairs plus one empty array: 513 levels.
+            let pointers = nested_pointer_arrays(depth / 2, Some(&[0x00, 0x04]));
+            let errors = [
+                serde_json::Value::deserialize(&mut Decoder::new(&pointers, 0)).unwrap_err(),
+                RawValue::deserialize(&mut Decoder::new(&pointers, 0)).unwrap_err(),
+                NestedArray::deserialize(&mut Decoder::new(&pointers, 0)).unwrap_err(),
+                serde_json::Value::deserialize(&mut Decoder::new(&arrays, 0)).unwrap_err(),
+                serde_json::Value::deserialize(&mut Decoder::new(&maps, 0)).unwrap_err(),
+                RawValue::deserialize(&mut Decoder::new(&arrays, 0)).unwrap_err(),
+                RawValue::deserialize(&mut Decoder::new(&maps, 0)).unwrap_err(),
+                NestedArray::deserialize(&mut Decoder::new(&arrays, 0)).unwrap_err(),
+                NestedMap::deserialize(&mut Decoder::new(&maps, 0)).unwrap_err(),
+                NestedMap::deserialize(&mut Decoder::new(&maps_with_ignored, 0)).unwrap_err(),
+                NestedHashMap::deserialize(&mut Decoder::new(&maps, 0)).unwrap_err(),
+            ];
+            for error in errors {
+                assert!(
+                    error
+                        .to_string()
+                        .contains("exceeded maximum data structure depth"),
+                    "unexpected error: {error}"
+                );
+                assert!(matches!(*error, MaxMindDbError::InvalidDatabase { .. }));
+            }
+        });
     }
 
     #[test]

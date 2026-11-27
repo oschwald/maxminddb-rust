@@ -197,6 +197,31 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// for custom identifier visitors. A scalar-only typed decode remains
     /// limited only by the MMDB format's maximum encoded payload size.
     ///
+    /// Maps, arrays, and pointers may nest at most 512 levels deep, the limit
+    /// libmaxminddb and the Go reader use. Each map, array, and pointer counts
+    /// as one level, so a pointer and the container it points to take two,
+    /// and a pointer to a string or number takes one. Pointers to struct field
+    /// or enum variant names do not count. Decoding into a newtype enum
+    /// variant adds one level of its own. The decoder reports deeper data as
+    /// [`MaxMindDbError::InvalidDatabase`], though a `Deserialize` impl that
+    /// catches errors, such as an untagged enum, may replace that error.
+    /// Values skipped as unknown fields or [`serde::de::IgnoredAny`] have a
+    /// separate limit of 128 levels, counted from where skipping starts.
+    ///
+    /// Decoding recurses once per level, so the stack it needs grows with
+    /// nesting and with the target type's own `Deserialize` frames. In Cargo's
+    /// default `dev` profile on x86-64 Linux, decoding 512 levels takes about
+    /// 0.6 to 0.8 MiB of stack for `serde_json::Value`, 0.85 MiB for a
+    /// one-field derived recursive struct, 1.2 MiB for one that also skips a
+    /// 128-level unknown field, and 1.3 MiB for a derived newtype over a
+    /// `HashMap`. These fit the 2 MiB default for spawned threads. A derived
+    /// struct's own frame grows with its field count in that profile, so a
+    /// recursive struct with a dozen fields can need 2.5 MiB or more. An
+    /// optimized build needs a small fraction of these figures. A main thread
+    /// with a smaller stack, such as the usual 1 MiB on Windows, a wide or
+    /// custom recursive `Deserialize`, or an unoptimized build with debug
+    /// assertions turned off may need a larger stack.
+    ///
     /// These general limits do not replace tighter bounds implied by an
     /// application's schema. A collection with a small semantic maximum should
     /// enforce it in its `Deserialize` implementation or a Serde

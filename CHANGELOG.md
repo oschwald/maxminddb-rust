@@ -5,6 +5,17 @@
 - docs.rs now builds the documentation with the `mmap` feature, so it
   includes `Reader::open_mmap` and the other memory-mapped reader items. Those
   items are marked as needing the `mmap` feature.
+- Reduced the stack that unoptimized builds need for deeply nested data. A
+  record nested 512 levels deep, the maximum, could overflow a 2 MiB thread
+  stack in a debug build and abort the process, including a test thread.
+  Decoding it into `serde_json::Value`, a recursive `Vec` or `HashMap`
+  newtype, or a one-field recursive struct now takes about 0.6 to 1.3 MiB of
+  stack there, measured on x86-64 Linux. Wide derived structs still need
+  more, because serde's generated code adds stack for each field. Builds with
+  debug assertions enabled now only hint that three decoder helpers should be
+  inlined, so unoptimized builds keep them out of the recursive decode path.
+  Builds without debug assertions force the inlining as before, so an
+  unoptimized build with debug assertions turned off still needs about 3 MiB.
 - Fixed opening databases whose metadata `description` map repeats a language
   key. The reader kept the last value; it now returns a decoding error, as it
   already did for repeated top-level metadata keys. The spec requires unique
