@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Breaking:** `deserialize_u8`, `deserialize_i8`, `deserialize_i16`, and
+  `deserialize_i64` now pass a uint128 value that fits in a `u64` to the
+  visitor's `visit_u64` instead of `visit_u128`. This lets Serde's own
+  visitors for those types accept it when the value fits the field. A
+  hand-written visitor driven through one of these methods that implements
+  only `visit_u128` now gets an invalid type error for such values. See
+  `UPGRADING.md`.
 - docs.rs now builds the documentation with the `mmap` feature, so it
   includes `Reader::open_mmap` and the other memory-mapped reader items. Those
   items are marked as needing the `mmap` feature.

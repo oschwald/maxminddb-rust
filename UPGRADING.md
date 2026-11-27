@@ -1,5 +1,26 @@
 # Upgrading Guide
 
+## 0.33 to 0.34
+
+### uint128 Values in Narrower Integer Fields
+
+`deserialize_u8`, `deserialize_i8`, `deserialize_i16`, and `deserialize_i64`
+now pass a uint128 value that fits in a `u64` to `Visitor::visit_u64`.
+Before, they passed it to `visit_u128`, which Serde's visitors for those
+types reject. Derived types need no change.
+
+If you wrote a visitor that one of these methods drives and that implements
+only `visit_u128`, also implement `visit_u64`:
+
+```rust
+fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+where
+    E: serde::de::Error,
+{
+    self.visit_u128(u128::from(value))
+}
+```
+
 ## 0.32 to 0.33
 
 ### Newtype Deserialization

@@ -12,6 +12,7 @@ use serde::de::{
     Visitor,
 };
 use serde::forward_to_deserialize_any;
+use std::fmt;
 
 use crate::error::MaxMindDbError;
 
@@ -143,6 +144,131 @@ macro_rules! deserialize_direct_scalar {
             })
         }
     };
+}
+
+/// Rust integer types without an MMDB type of their own. They decode like
+/// `deserialize_any`, so a stored integer reaches the visitor method for its
+/// stored type and Serde's visitor checks its range, except that a uint128
+/// value that fits in a `u64` reaches `visit_u64`; see [`U128Visitor`].
+macro_rules! deserialize_integer_any {
+    ($($name:ident),+ $(,)?) => {
+        $(fn $name<V>(self, visitor: V) -> DecodeResult<V::Value>
+        where
+            V: Visitor<'de>,
+        {
+            self.decode_any(U128Visitor(visitor))
+        })+
+    };
+}
+
+/// Wraps the visitor of a Rust integer type that has no MMDB type of its own.
+/// A uint128 value that fits in a `u64` goes to `visit_u64`, because Serde's
+/// narrower integer visitors reject `visit_u128` whatever the value. Every
+/// other value reaches the wrapped visitor unchanged, as `deserialize_any`
+/// would pass it.
+struct U128Visitor<V>(V);
+
+macro_rules! forward_visits {
+    ($($visit:ident: $ty:ty),+ $(,)?) => {
+        $(fn $visit<E>(self, v: $ty) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.0.$visit(v)
+        })+
+    };
+}
+
+impl<'de, V> Visitor<'de> for U128Visitor<V>
+where
+    V: Visitor<'de>,
+{
+    type Value = V::Value;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.expecting(formatter)
+    }
+
+    fn visit_u128<E>(self, v: u128) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        match u64::try_from(v) {
+            Ok(v) => self.0.visit_u64(v),
+            Err(_) => self.0.visit_u128(v),
+        }
+    }
+
+    forward_visits!(
+        visit_bool: bool,
+        visit_i8: i8,
+        visit_i16: i16,
+        visit_i32: i32,
+        visit_i64: i64,
+        visit_i128: i128,
+        visit_u8: u8,
+        visit_u16: u16,
+        visit_u32: u32,
+        visit_u64: u64,
+        visit_f32: f32,
+        visit_f64: f64,
+        visit_char: char,
+        visit_str: &str,
+        visit_borrowed_str: &'de str,
+        visit_string: String,
+        visit_bytes: &[u8],
+        visit_borrowed_bytes: &'de [u8],
+        visit_byte_buf: Vec<u8>,
+    );
+
+    fn visit_none<E>(self) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        self.0.visit_none()
+    }
+
+    fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        self.0.visit_some(deserializer)
+    }
+
+    fn visit_unit<E>(self) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        self.0.visit_unit()
+    }
+
+    fn visit_newtype_struct<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        self.0.visit_newtype_struct(deserializer)
+    }
+
+    fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        self.0.visit_seq(seq)
+    }
+
+    fn visit_map<A>(self, map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        self.0.visit_map(map)
+    }
+
+    fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
+    where
+        A: de::EnumAccess<'de>,
+    {
+        self.0.visit_enum(data)
+    }
 }
 
 macro_rules! deserialize_direct_payload {
@@ -1514,8 +1640,16 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
         }
     }
 
+    deserialize_integer_any!(
+        deserialize_u8,
+        deserialize_i8,
+        deserialize_i16,
+        deserialize_i64
+    );
+
+    // `i128` accepts every MMDB integer that fits through Serde's own visitor.
     forward_to_deserialize_any! {
-        i8 i16 i64 i128 u8 char unit unit_struct
+        i128 char unit unit_struct
     }
 }
 
@@ -3538,5 +3672,52 @@ mod tests {
 
         assert!(matches!(*err, MaxMindDbError::InvalidDatabase { .. }));
         assert!(err.to_string().contains("cyclic data pointer"));
+    }
+
+    #[test]
+    fn narrower_integer_types_get_fitting_uint128_values_as_u64() {
+        fn encode(value: u128) -> Vec<u8> {
+            let mut encoded = vec![0x10, 0x03];
+            encoded.extend_from_slice(&value.to_be_bytes());
+            encoded
+        }
+        fn decode<T: serde::de::DeserializeOwned>(value: u128) -> Result<T, String> {
+            let encoded = encode(value);
+            let mut decoder = Decoder::new(&encoded, 0);
+            T::deserialize(&mut decoder).map_err(|err| err.to_string())
+        }
+
+        assert_eq!(decode::<u8>(255).unwrap(), 255);
+        assert_eq!(decode::<i8>(42).unwrap(), 42);
+        assert_eq!(decode::<i16>(42).unwrap(), 42);
+        assert_eq!(decode::<i64>(i64::MAX as u128).unwrap(), i64::MAX);
+        assert_eq!(decode::<i128>(u128::from(u64::MAX) + 1).unwrap(), 1 << 64);
+
+        let err = decode::<u8>(256).unwrap_err();
+        assert!(
+            err.contains("invalid value: integer `256`, expected u8"),
+            "{err}"
+        );
+        let err = decode::<i64>(u128::from(u64::MAX) + 1).unwrap_err();
+        assert!(err.contains("as u128"), "{err}");
+
+        // Visitors that rely on Serde's default methods see a `u64`.
+        struct DefaultsToU64;
+
+        impl<'de> Visitor<'de> for DefaultsToU64 {
+            type Value = u64;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("u64")
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<u64, E> {
+                Ok(value)
+            }
+        }
+
+        let encoded = encode(7);
+        let mut decoder = Decoder::new(&encoded, 0);
+        assert_eq!(decoder.deserialize_i64(DefaultsToU64).unwrap(), 7);
     }
 }
