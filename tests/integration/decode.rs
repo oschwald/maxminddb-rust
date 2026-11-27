@@ -76,10 +76,12 @@ fn test_decoder() {
     );
 }
 
+#[allow(clippy::float_cmp)]
 #[test]
 fn test_decoder_converts_numbers_that_fit() {
     #[derive(Deserialize, Debug)]
     struct WideType {
+        float: f64,
         int32: i64,
         uint16: i32,
         uint32: u64,
@@ -90,6 +92,7 @@ fn test_decoder_converts_numbers_that_fit() {
     let lookup = r.lookup("1.1.1.0".parse::<IpAddr>().unwrap()).unwrap();
     let result: WideType = lookup.decode().unwrap().unwrap();
 
+    assert_eq!(result.float, f64::from(1.1_f32));
     assert_eq!(result.int32, -268_435_456);
     assert_eq!(result.uint16, 100);
     assert_eq!(result.uint32, 268_435_456);

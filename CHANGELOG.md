@@ -40,6 +40,9 @@
   uint128 above `u64::MAX` and the field is narrower than 128 bits. See the
   `LookupResult::decode()` documentation. Metadata still requires the exact
   types the spec gives.
+- `f64` fields now also accept MMDB float values. Integers and
+  floating-point values decoded directly still do not convert into each
+  other.
 - Fixed opening databases whose metadata `description` map repeats a language
   key. The reader kept the last value; it now returns a decoding error, as it
   already did for repeated top-level metadata keys. The spec requires unique

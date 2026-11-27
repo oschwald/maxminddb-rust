@@ -151,6 +151,71 @@ macro_rules! deserialize_direct_scalar {
     };
 }
 
+/// Like `deserialize_direct_scalar!`, but also accepts one narrower MMDB type
+/// and widens it losslessly with `From`, unless the decoder was created with
+/// `new_exact_scalars`. The widening path is cold so values
+/// stored as the requested type decode exactly as before. Integer types use
+/// `deserialize_integer!` instead, which converts by value.
+macro_rules! deserialize_widening_scalar {
+    (
+        $name:ident,
+        $expected_type:expr,
+        $label:literal,
+        $visit:ident,
+        $decode:ident,
+        $ty:ty,
+        $narrow_type:expr => $narrow_decode:ident
+    ) => {
+        fn $name<V>(self, visitor: V) -> DecodeResult<V::Value>
+        where
+            V: Visitor<'de>,
+        {
+            #[cold]
+            #[inline(never)]
+            fn widen<'de, V>(
+                de: &mut Decoder<'de>,
+                size: usize,
+                type_num: usize,
+                visitor: V,
+            ) -> DecodeResult<V::Value>
+            where
+                V: Visitor<'de>,
+            {
+                if de.state & EXACT_SCALARS_MASK != 0 {
+                    return Err(de.type_mismatch($label, type_num));
+                }
+                if type_num != $narrow_type {
+                    return Err(de.type_mismatch($label, type_num));
+                }
+                let offset = de.current_ptr;
+                visitor
+                    .$visit(<$ty>::from(de.$narrow_decode(size)?))
+                    .map_err(|err| with_decoding_offset(err, offset))
+            }
+
+            let (size, type_num) = self.size_and_type()?;
+            self.decode_direct_or(
+                size,
+                type_num,
+                $expected_type,
+                visitor,
+                |de, size, visitor| visitor.$visit(de.$decode(size)?),
+                widen,
+            )
+        }
+    };
+}
+
+/// Gives a decoding error from a visitor the offset of the value it rejected,
+/// as a type mismatch at the same place would report.
+#[cold]
+fn with_decoding_offset(mut err: DecoderError, offset: usize) -> DecoderError {
+    if let MaxMindDbError::Decoding { offset: o, .. } = &mut *err {
+        o.get_or_insert(offset);
+    }
+    err
+}
+
 /// Rust integer types that have their own MMDB type. The matching type is
 /// decoded on the hot path. Any other MMDB integer goes to a cold path that
 /// accepts it when its value fits; see [`Decoder::decode_integer`].
@@ -439,7 +504,7 @@ impl<'de> Decoder<'de> {
     }
 
     /// Creates a decoder whose typed numeric entry points with their own MMDB
-    /// type (`u16`, `u32`, `u64`, `u128` and `i32`) accept only that
+    /// type (`u16`, `u32`, `u64`, `u128`, `i32` and `f64`) accept only that
     /// type, as metadata decoding requires.
     pub(crate) fn new_exact_scalars(buf: &'de [u8], start_ptr: usize) -> Decoder<'de> {
         let mut decoder = Decoder::new(buf, start_ptr);
@@ -1224,12 +1289,7 @@ impl<'de> Decoder<'de> {
         };
         // An out-of-range value fails in the visitor, which has no offset.
         // Add the one a type mismatch here would have reported.
-        result.map_err(|mut err| {
-            if let MaxMindDbError::Decoding { offset: o, .. } = &mut *err {
-                o.get_or_insert(offset);
-            }
-            err
-        })
+        result.map_err(|err| with_decoding_offset(err, offset))
     }
 
     #[inline(always)]
@@ -1724,12 +1784,14 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
         decode_float
     );
 
-    deserialize_direct_scalar!(
+    deserialize_widening_scalar!(
         deserialize_f64,
         TYPE_DOUBLE,
         "double",
         visit_f64,
-        decode_double
+        decode_double,
+        f64,
+        TYPE_FLOAT => decode_float
     );
 
     deserialize_direct_payload!(
@@ -3994,6 +4056,17 @@ mod tests {
             assert_eq!(result.unwrap(), 7);
         }
 
+        for value in [1.1_f32, f32::MAX, f32::INFINITY, -0.0] {
+            for result in decode_inline_and_pointer::<f64>(&float(value)) {
+                let decoded = result.unwrap();
+                assert_eq!(decoded, f64::from(value));
+                assert_eq!(decoded.is_sign_negative(), value.is_sign_negative());
+            }
+        }
+        for result in decode_inline_and_pointer::<f64>(&float(f32::NAN)) {
+            assert!(result.unwrap().is_nan());
+        }
+
         // Exact types still decode through the direct path.
         for result in decode_inline_and_pointer::<u64>(&uint64(u64::MAX)) {
             assert_eq!(result.unwrap(), u64::MAX);
@@ -4320,6 +4393,36 @@ mod tests {
     }
 
     #[test]
+    fn widened_float_errors_report_the_value_offset() {
+        struct RejectsF64;
+
+        impl<'de> Visitor<'de> for RejectsF64 {
+            type Value = f64;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a small f64")
+            }
+
+            fn visit_f64<E: serde::de::Error>(self, _: f64) -> Result<f64, E> {
+                Err(E::custom("too big"))
+            }
+        }
+
+        // The offset is the payload's, also behind a pointer.
+        let encoded = float(1.0);
+        let mut pointer = vec![0x20, 0x02];
+        pointer.extend_from_slice(&encoded);
+        for (buf, offset) in [(&encoded, 2), (&pointer, 4)] {
+            let mut decoder = Decoder::new(buf, 0);
+            let err = decoder.deserialize_f64(RejectsF64).unwrap_err();
+            assert!(
+                matches!(*err, MaxMindDbError::Decoding { offset: Some(o), .. } if o == offset),
+                "unexpected error: {err:?}"
+            );
+        }
+    }
+
+    #[test]
     fn integer_conversion_calls_the_requested_visit_method() {
         struct OnlyU64;
 
@@ -4372,12 +4475,17 @@ mod tests {
 
     #[test]
     fn typed_scalar_conversion_rejects_truncated_values() {
-        let cases: [(&[u8], DecodeFn, &str); 5] = [
+        let cases: [(&[u8], DecodeFn, &str); 6] = [
             (&[0xa2, 0x01], |de| u64::deserialize(de).map(|_| ()), "u16"),
             (
                 &[0xc4, 0x01, 0x02],
                 |de| u128::deserialize(de).map(|_| ()),
                 "u32",
+            ),
+            (
+                &[0x04, 0x08, 0x00],
+                |de| f64::deserialize(de).map(|_| ()),
+                "float",
             ),
             (
                 &[0x08, 0x02, 0x01],

@@ -249,7 +249,7 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// above `u64::MAX` and the field is narrower than 128 bits.
     ///
     /// Floating-point fields accept only floating-point MMDB types: `f32`
-    /// accepts float, and `f64` accepts double. Integers do not
+    /// accepts float, and `f64` accepts float or double. Integers do not
     /// convert to floating-point fields, and floating-point values do not
     /// convert to integer fields.
     ///
