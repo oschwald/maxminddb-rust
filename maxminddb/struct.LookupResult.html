@@ -25,7 +25,7 @@ without immediately decoding the data. You can:</p>
         .decode_path(<span class="kw-2">&amp;</span><span class="macro">path!</span>[<span class="string">"country"</span>, <span class="string">"iso_code"</span>])
         .unwrap();
     <span class="macro">println!</span>(<span class="string">"Country: {:?}"</span>, country_code);
-}</code></pre></div></div></details><h2 id="implementations" class="section-header">Implementations<a href="#implementations" class="anchor">§</a></h2><div id="implementations-list"><details class="toggle implementors-toggle" open><summary><section id="impl-LookupResult%3C'a,+S%3E" class="impl"><a class="src rightside" href="../src/maxminddb/result.rs.html#73-379">Source</a><a href="#impl-LookupResult%3C'a,+S%3E" class="anchor">§</a><h3 class="code-header">impl&lt;'a, S: <a class="trait" href="https://doc.rust-lang.org/1.100.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;[<a class="primitive" href="https://doc.rust-lang.org/1.100.0/std/primitive.u8.html">u8</a>]&gt;&gt; <a class="struct" href="struct.LookupResult.html" title="struct maxminddb::LookupResult">LookupResult</a>&lt;'a, S&gt;</h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.has_data" class="method"><a class="src rightside" href="../src/maxminddb/result.rs.html#124-126">Source</a><h4 class="code-header">pub fn <a href="#method.has_data" class="fn">has_data</a>(&amp;self) -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.100.0/std/primitive.bool.html">bool</a></h4></section></summary><div class="docblock"><p>Returns true if the database contains data for this IP address.</p>
+}</code></pre></div></div></details><h2 id="implementations" class="section-header">Implementations<a href="#implementations" class="anchor">§</a></h2><div id="implementations-list"><details class="toggle implementors-toggle" open><summary><section id="impl-LookupResult%3C'a,+S%3E" class="impl"><a class="src rightside" href="../src/maxminddb/result.rs.html#73-404">Source</a><a href="#impl-LookupResult%3C'a,+S%3E" class="anchor">§</a><h3 class="code-header">impl&lt;'a, S: <a class="trait" href="https://doc.rust-lang.org/1.100.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;[<a class="primitive" href="https://doc.rust-lang.org/1.100.0/std/primitive.u8.html">u8</a>]&gt;&gt; <a class="struct" href="struct.LookupResult.html" title="struct maxminddb::LookupResult">LookupResult</a>&lt;'a, S&gt;</h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.has_data" class="method"><a class="src rightside" href="../src/maxminddb/result.rs.html#124-126">Source</a><h4 class="code-header">pub fn <a href="#method.has_data" class="fn">has_data</a>(&amp;self) -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.100.0/std/primitive.bool.html">bool</a></h4></section></summary><div class="docblock"><p>Returns true if the database contains data for this IP address.</p>
 <p>Note that <code>false</code> means the database has no data for this IP,
 which is different from an error during lookup.</p>
 </div></details><details class="toggle method-toggle" open><summary><section id="method.network" class="method"><a class="src rightside" href="../src/maxminddb/result.rs.html#142-160">Source</a><h4 class="code-header">pub fn <a href="#method.network" class="fn">network</a>(&amp;self) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.100.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;IpNetwork, <a class="enum" href="enum.MaxMindDbError.html" title="enum maxminddb::MaxMindDbError">MaxMindDbError</a>&gt;</h4></section></summary><div class="docblock"><p>Returns the network containing the looked-up IP address.</p>
@@ -45,7 +45,7 @@ IPv4 representation.</p>
 <p>Multiple IP addresses often point to the same data record. This
 offset can be used to deduplicate decoding or cache results.</p>
 <p>Returns <code>None</code> if the IP was not found.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.decode" class="method"><a class="src rightside" href="../src/maxminddb/result.rs.html#229-241">Source</a><h4 class="code-header">pub fn <a href="#method.decode" class="fn">decode</a>&lt;T&gt;(&amp;self) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.100.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="enum" href="https://doc.rust-lang.org/1.100.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;T&gt;, <a class="enum" href="enum.MaxMindDbError.html" title="enum maxminddb::MaxMindDbError">MaxMindDbError</a>&gt;<div class="where">where
+</div></details><details class="toggle method-toggle" open><summary><section id="method.decode" class="method"><a class="src rightside" href="../src/maxminddb/result.rs.html#254-266">Source</a><h4 class="code-header">pub fn <a href="#method.decode" class="fn">decode</a>&lt;T&gt;(&amp;self) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.100.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="enum" href="https://doc.rust-lang.org/1.100.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;T&gt;, <a class="enum" href="enum.MaxMindDbError.html" title="enum maxminddb::MaxMindDbError">MaxMindDbError</a>&gt;<div class="where">where
     T: <a class="trait" href="https://docs.rs/serde_core/1.0.229/serde_core/de/trait.Deserialize.html" title="trait serde_core::de::Deserialize">Deserialize</a>&lt;'a&gt;,</div></h4></section></summary><div class="docblock"><p>Decodes the full record into the specified type.</p>
 <p>Returns:</p>
 <ul>
@@ -71,6 +71,29 @@ to another 2 MiB. Thus, after an operation activates its budget,
 expanded string and byte payload remains bounded to at most 4 MiB even
 for custom identifier visitors. A scalar-only typed decode remains
 limited only by the MMDB format’s maximum encoded payload size.</p>
+<p>Maps, arrays, and pointers may nest at most 512 levels deep, the limit
+libmaxminddb and the Go reader use. Each map, array, and pointer counts
+as one level, so a pointer and the container it points to take two,
+and a pointer to a string or number takes one. Pointers to struct field
+or enum variant names do not count. Decoding into a newtype enum
+variant adds one level of its own. The decoder reports deeper data as
+<a href="enum.MaxMindDbError.html#variant.InvalidDatabase" title="variant maxminddb::MaxMindDbError::InvalidDatabase"><code>MaxMindDbError::InvalidDatabase</code></a>, though a <code>Deserialize</code> impl that
+catches errors, such as an untagged enum, may replace that error.
+Values skipped as unknown fields or <a href="https://docs.rs/serde_core/1.0.229/serde_core/de/ignored_any/struct.IgnoredAny.html" title="struct serde_core::de::ignored_any::IgnoredAny"><code>serde::de::IgnoredAny</code></a> have a
+separate limit of 128 levels, counted from where skipping starts.</p>
+<p>Decoding recurses once per level, so the stack it needs grows with
+nesting and with the target type’s own <code>Deserialize</code> frames. In Cargo’s
+default <code>dev</code> profile on x86-64 Linux, decoding 512 levels takes about
+0.6 to 0.8 MiB of stack for <code>serde_json::Value</code>, 0.85 MiB for a
+one-field derived recursive struct, 1.2 MiB for one that also skips a
+128-level unknown field, and 1.3 MiB for a derived newtype over a
+<code>HashMap</code>. These fit the 2 MiB default for spawned threads. A derived
+struct’s own frame grows with its field count in that profile, so a
+recursive struct with a dozen fields can need 2.5 MiB or more. An
+optimized build needs a small fraction of these figures. A main thread
+with a smaller stack, such as the usual 1 MiB on Windows, a wide or
+custom recursive <code>Deserialize</code>, or an unoptimized build with debug
+assertions turned off may need a larger stack.</p>
 <p>These general limits do not replace tighter bounds implied by an
 application’s schema. A collection with a small semantic maximum should
 enforce it in its <code>Deserialize</code> implementation or a Serde
@@ -93,7 +116,7 @@ remain responsible for bounding their own traversal over untrusted data.</p>
 <span class="kw">let </span>result = reader.lookup(ip).unwrap();
 <span class="kw">if let </span><span class="prelude-val">Some</span>(city) = result.decode::&lt;geoip2::City&gt;()<span class="question-mark">? </span>{
     <span class="macro">println!</span>(<span class="string">"Found city data"</span>);
-}</code></pre></div></div></details><details class="toggle method-toggle" open><summary><section id="method.decode_path" class="method"><a class="src rightside" href="../src/maxminddb/result.rs.html#283-289">Source</a><h4 class="code-header">pub fn <a href="#method.decode_path" class="fn">decode_path</a>&lt;T&gt;(
+}</code></pre></div></div></details><details class="toggle method-toggle" open><summary><section id="method.decode_path" class="method"><a class="src rightside" href="../src/maxminddb/result.rs.html#308-314">Source</a><h4 class="code-header">pub fn <a href="#method.decode_path" class="fn">decode_path</a>&lt;T&gt;(
     &amp;self,
     path: &amp;[<a class="enum" href="enum.PathElement.html" title="enum maxminddb::PathElement">PathElement</a>&lt;'_&gt;],
 ) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.100.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="enum" href="https://doc.rust-lang.org/1.100.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;T&gt;, <a class="enum" href="enum.MaxMindDbError.html" title="enum maxminddb::MaxMindDbError">MaxMindDbError</a>&gt;<div class="where">where
