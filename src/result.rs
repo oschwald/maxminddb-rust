@@ -235,6 +235,36 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// Custom deserializers that bypass Serde's map and sequence entry points
     /// remain responsible for bounding their own traversal over untrusted data.
     ///
+    /// # Numeric types
+    ///
+    /// An integer field (`u8` through `u128`, `i8` through `i128`, `usize`,
+    /// `isize`, and the `NonZero` integer types) accepts any MMDB integer type
+    /// (uint16, uint32, uint64, uint128, or int32) whose value fits the field
+    /// and, for a `NonZero` type, is not zero. For example, a uint32 value of
+    /// 443 decodes into a `u16` field, and a uint16 value decodes into an `i64`
+    /// field. A value that does not fit, such as a uint32 value of 70000 into a
+    /// `u16` field or a negative int32 into a `u64` field, returns
+    /// [`MaxMindDbError::Decoding`]. A `std::num::Saturating` field clamps such
+    /// a value instead, as Serde's visitor for it does, unless it is a uint128
+    /// above `u64::MAX` and the field is narrower than 128 bits.
+    ///
+    /// Floating-point fields accept only floating-point MMDB types: `f32`
+    /// accepts float, and `f64` accepts double. Integers do not
+    /// convert to floating-point fields, and floating-point values do not
+    /// convert to integer fields.
+    ///
+    /// Any other combination is a type mismatch and returns
+    /// [`MaxMindDbError::Decoding`]. Corrupt type information can instead
+    /// return [`MaxMindDbError::InvalidDatabase`].
+    ///
+    /// These rules hold when Serde decodes a field directly. When Serde
+    /// buffers a value first, as it does for `#[serde(flatten)]` fields and
+    /// untagged or internally tagged enums, Serde's own conversions apply
+    /// instead. Integers still convert when the value fits, and
+    /// floating-point fields also accept integers and doubles. Current Serde
+    /// versions cannot buffer a uint128 value, so it fails there for every
+    /// field type.
+    ///
     /// # Example
     ///
     /// ```
@@ -273,6 +303,10 @@ impl<'a, S: AsRef<[u8]>> LookupResult<'a, S> {
     /// - `Err(...)` if there's a type mismatch during navigation (e.g., `Key` on an array)
     ///
     /// If `has_data() == false`, returns `Ok(None)`.
+    ///
+    /// The selected value follows the numeric type rules in the "Numeric
+    /// types" section of [`decode()`](Self::decode).
+    ///
     /// Path traversal does not expand skipped pointer targets. Navigation and
     /// the selected value share the container and payload budgets described by
     /// [`decode()`](Self::decode); resource-limit errors include the path reached

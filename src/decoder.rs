@@ -12,6 +12,7 @@ use serde::de::{
     Visitor,
 };
 use serde::forward_to_deserialize_any;
+
 use std::fmt;
 
 use crate::error::MaxMindDbError;
@@ -82,6 +83,10 @@ const DEPTH_MASK: u32 = (1 << 10) - 1;
 const BUDGET_VALUES_SHIFT: u32 = 10;
 const BUDGET_VALUES_MASK: u32 = ((1 << 17) - 1) << BUDGET_VALUES_SHIFT;
 const BUDGET_ACTIVE_MASK: u32 = 1 << 27;
+/// Makes the typed numeric entry points that have their own MMDB type accept
+/// only that type. The spec fixes the type of each metadata field, so
+/// metadata is decoded with exact types.
+const EXACT_SCALARS_MASK: u32 = 1 << 28;
 
 /// Lower limit for values skipped through unknown fields or IgnoredAny.
 /// Skipping is recursive and can be reached by corrupt data that callers did
@@ -146,6 +151,45 @@ macro_rules! deserialize_direct_scalar {
     };
 }
 
+/// Rust integer types that have their own MMDB type. The matching type is
+/// decoded on the hot path. Any other MMDB integer goes to a cold path that
+/// accepts it when its value fits; see [`Decoder::decode_integer`].
+macro_rules! deserialize_integer {
+    ($name:ident, $expected_type:expr, $label:literal, $visit:ident, $decode:ident, $ty:ty) => {
+        fn $name<V>(self, visitor: V) -> DecodeResult<V::Value>
+        where
+            V: Visitor<'de>,
+        {
+            #[cold]
+            #[inline(never)]
+            fn convert<'de, V>(
+                de: &mut Decoder<'de>,
+                size: usize,
+                type_num: usize,
+                visitor: V,
+            ) -> DecodeResult<V::Value>
+            where
+                V: Visitor<'de>,
+            {
+                if de.state & EXACT_SCALARS_MASK != 0 {
+                    return Err(de.type_mismatch($label, type_num));
+                }
+                de.decode_integer::<$ty, V>(size, type_num, $label, visitor)
+            }
+
+            let (size, type_num) = self.size_and_type()?;
+            self.decode_direct_or(
+                size,
+                type_num,
+                $expected_type,
+                visitor,
+                |de, size, visitor| visitor.$visit(de.$decode(size)?),
+                convert,
+            )
+        }
+    };
+}
+
 /// Rust integer types without an MMDB type of their own. They decode like
 /// `deserialize_any`, so a stored integer reaches the visitor method for its
 /// stored type and Serde's visitor checks its range, except that a uint128
@@ -159,6 +203,67 @@ macro_rules! deserialize_integer_any {
             self.decode_any(U128Visitor(visitor))
         })+
     };
+}
+
+/// A Rust integer type with its own MMDB type, which typed decoding converts
+/// other MMDB integers into.
+trait IntegerTarget:
+    Sized + TryFrom<u16> + TryFrom<u32> + TryFrom<u64> + TryFrom<u128> + TryFrom<i32>
+{
+    /// Calls the visitor method for this type.
+    fn visit<'de, V, E>(self, visitor: V) -> Result<V::Value, E>
+    where
+        V: Visitor<'de>,
+        E: de::Error;
+}
+
+macro_rules! integer_targets {
+    ($($ty:ty => $visit:ident),+ $(,)?) => {
+        $(impl IntegerTarget for $ty {
+            #[inline]
+            fn visit<'de, V, E>(self, visitor: V) -> Result<V::Value, E>
+            where
+                V: Visitor<'de>,
+                E: de::Error,
+            {
+                visitor.$visit(self)
+            }
+        })+
+    };
+}
+
+integer_targets!(
+    u16 => visit_u16,
+    u32 => visit_u32,
+    u64 => visit_u64,
+    u128 => visit_u128,
+    i32 => visit_i32,
+);
+
+/// Passes a stored MMDB integer to a visitor that asked for `T`. A value that
+/// fits in `T` goes to the visitor method for `T`. A value that does not fit
+/// goes to `visit_stored`, the visitor method for its stored type, as
+/// `deserialize_any` would pass it. Serde's integer visitors then reject it
+/// with their usual out-of-range error, or clamp it for `Saturating`, except
+/// that Serde's visitors narrower than 128 bits reject any `visit_u128`. The
+/// uint128 caller passes a value that fits in a `u64` to `visit_u64` instead,
+/// as [`U128Visitor`] does.
+#[inline]
+fn visit_integer<'de, T, S, V, E>(
+    value: S,
+    visitor: V,
+    visit_stored: impl FnOnce(V, S) -> Result<V::Value, E>,
+) -> Result<V::Value, E>
+where
+    T: IntegerTarget + TryFrom<S>,
+    S: Copy,
+    V: Visitor<'de>,
+    E: de::Error,
+{
+    match T::try_from(value) {
+        Ok(value) => value.visit(visitor),
+        Err(_) => visit_stored(visitor, value),
+    }
 }
 
 /// Wraps the visitor of a Rust integer type that has no MMDB type of its own.
@@ -331,6 +436,15 @@ impl<'de> Decoder<'de> {
             state: 0,
             payload_remaining: MAXIMUM_DATA_STRUCTURE_BYTES as u32,
         }
+    }
+
+    /// Creates a decoder whose typed numeric entry points with their own MMDB
+    /// type (`u16`, `u32`, `u64`, `u128` and `i32`) accept only that
+    /// type, as metadata decoding requires.
+    pub(crate) fn new_exact_scalars(buf: &'de [u8], start_ptr: usize) -> Decoder<'de> {
+        let mut decoder = Decoder::new(buf, start_ptr);
+        decoder.state |= EXACT_SCALARS_MASK;
+        decoder
     }
 
     /// Creates a decoder that reads no further than `limit`.
@@ -988,6 +1102,36 @@ impl<'de> Decoder<'de> {
     where
         F: FnOnce(&mut Self, usize) -> DecodeResult<T>,
     {
+        self.decode_direct_or(
+            size,
+            type_num,
+            expected_type,
+            (),
+            |de, size, ()| decode(de, size),
+            |de, _, type_num, ()| Err(de.type_mismatch(label, type_num)),
+        )
+    }
+
+    /// Decodes a value of `expected_type`, following one pointer. Values of
+    /// any other type go to `mismatch` with their size and type, positioned at
+    /// their payload. A pointer to another pointer is rejected as an invalid
+    /// database without calling `mismatch`. `context` is passed to whichever
+    /// closure runs, so both can take ownership of the same visitor.
+    #[inline(always)]
+    fn decode_direct_or<C, T, F, M>(
+        &mut self,
+        size: usize,
+        type_num: usize,
+        expected_type: usize,
+        context: C,
+        decode: F,
+        mismatch: M,
+    ) -> DecodeResult<T>
+    where
+        F: FnOnce(&mut Self, usize, C) -> DecodeResult<T>,
+        M: FnOnce(&mut Self, usize, usize, C) -> DecodeResult<T>,
+    {
+        debug_assert_ne!(expected_type, TYPE_POINTER);
         let (size, continuation) = match type_num {
             TYPE_POINTER => {
                 let new_ptr = self.decode_pointer(size);
@@ -997,35 +1141,95 @@ impl<'de> Decoder<'de> {
                     self.current_ptr = saved_ptr;
                     return Err(error);
                 }
-                let header = self.size_and_type().and_then(|(size, type_num)| {
-                    if type_num == TYPE_POINTER {
-                        Err(self.invalid_db_error("pointer points to another pointer"))
-                    } else if type_num != expected_type {
-                        Err(self.type_mismatch(label, type_num))
-                    } else {
-                        Ok(size)
-                    }
-                });
-                match header {
-                    Ok(size) => (size, Some(saved_ptr)),
+                let (size, type_num) = match self.size_and_type() {
+                    Ok(header) => header,
                     Err(error) => {
                         self.exit_nested();
                         self.current_ptr = saved_ptr;
                         return Err(error);
                     }
+                };
+                if type_num == expected_type {
+                    (size, Some(saved_ptr))
+                } else {
+                    // `expected_type` is never a pointer, so this branch also
+                    // covers pointers to pointers.
+                    let result = if type_num == TYPE_POINTER {
+                        Err(self.invalid_db_error("pointer points to another pointer"))
+                    } else {
+                        mismatch(self, size, type_num, context)
+                    };
+                    self.exit_nested();
+                    self.current_ptr = saved_ptr;
+                    return result;
                 }
             }
             t if t == expected_type => (size, None),
-            _ => return Err(self.type_mismatch(label, type_num)),
+            _ => return mismatch(self, size, type_num, context),
         };
         // One payload call lets visitor code inline without duplicating it
         // for pointers and inline values.
-        let result = decode(self, size);
+        let result = decode(self, size, context);
         if let Some(saved_ptr) = continuation {
             self.exit_nested();
             self.current_ptr = saved_ptr;
         }
         result
+    }
+
+    /// Decodes a value of MMDB type `type_num` for a field of integer type
+    /// `T`, positioned at its payload. Any MMDB integer type is accepted, and
+    /// [`visit_integer`] decides by value. Other types are a type mismatch.
+    fn decode_integer<T, V>(
+        &mut self,
+        size: usize,
+        type_num: usize,
+        label: &str,
+        visitor: V,
+    ) -> DecodeResult<V::Value>
+    where
+        T: IntegerTarget,
+        V: Visitor<'de>,
+    {
+        let offset = self.current_ptr;
+        let result: DecodeResult<V::Value> = match type_num {
+            TYPE_UINT16 => {
+                visit_integer::<T, _, _, _>(self.decode_uint16(size)?, visitor, |visitor, v| {
+                    visitor.visit_u16(v)
+                })
+            }
+            TYPE_UINT32 => {
+                visit_integer::<T, _, _, _>(self.decode_uint32(size)?, visitor, |visitor, v| {
+                    visitor.visit_u32(v)
+                })
+            }
+            TYPE_UINT64 => {
+                visit_integer::<T, _, _, _>(self.decode_uint64(size)?, visitor, |visitor, v| {
+                    visitor.visit_u64(v)
+                })
+            }
+            TYPE_UINT128 => {
+                // `U128Visitor` sends a value that fits in a `u64` to
+                // `visit_u64`, which Serde's narrower visitors implement.
+                visit_integer::<T, _, _, _>(self.decode_uint128(size)?, visitor, |visitor, v| {
+                    U128Visitor(visitor).visit_u128(v)
+                })
+            }
+            TYPE_INT32 => {
+                visit_integer::<T, _, _, _>(self.decode_int(size)?, visitor, |visitor, v| {
+                    visitor.visit_i32(v)
+                })
+            }
+            _ => return Err(self.type_mismatch(label, type_num)),
+        };
+        // An out-of-range value fails in the visitor, which has no offset.
+        // Add the one a type mismatch here would have reported.
+        result.map_err(|mut err| {
+            if let MaxMindDbError::Decoding { offset: o, .. } = &mut *err {
+                o.get_or_insert(offset);
+            }
+            err
+        })
     }
 
     #[inline(always)]
@@ -1460,39 +1664,57 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
 
     deserialize_direct_scalar!(deserialize_bool, TYPE_BOOL, "bool", visit_bool, decode_bool);
 
-    deserialize_direct_scalar!(
+    deserialize_integer!(
         deserialize_u16,
         TYPE_UINT16,
         "u16",
         visit_u16,
-        decode_uint16
+        decode_uint16,
+        u16
     );
 
-    deserialize_direct_scalar!(
+    deserialize_integer!(
         deserialize_u32,
         TYPE_UINT32,
         "u32",
         visit_u32,
-        decode_uint32
+        decode_uint32,
+        u32
     );
 
-    deserialize_direct_scalar!(
+    deserialize_integer!(
         deserialize_u64,
         TYPE_UINT64,
         "u64",
         visit_u64,
-        decode_uint64
+        decode_uint64,
+        u64
     );
 
-    deserialize_direct_scalar!(
+    deserialize_integer!(
         deserialize_u128,
         TYPE_UINT128,
         "u128",
         visit_u128,
-        decode_uint128
+        decode_uint128,
+        u128
     );
 
-    deserialize_direct_scalar!(deserialize_i32, TYPE_INT32, "i32", visit_i32, decode_int);
+    deserialize_integer!(
+        deserialize_i32,
+        TYPE_INT32,
+        "i32",
+        visit_i32,
+        decode_int,
+        i32
+    );
+
+    deserialize_integer_any!(
+        deserialize_u8,
+        deserialize_i8,
+        deserialize_i16,
+        deserialize_i64
+    );
 
     deserialize_direct_scalar!(
         deserialize_f32,
@@ -1639,13 +1861,6 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Decoder<'de> {
             visitor.visit_newtype_struct(self)
         }
     }
-
-    deserialize_integer_any!(
-        deserialize_u8,
-        deserialize_i8,
-        deserialize_i16,
-        deserialize_i64
-    );
 
     // `i128` accepts every MMDB integer that fits through Serde's own visitor.
     forward_to_deserialize_any! {
@@ -3674,15 +3889,148 @@ mod tests {
         assert!(err.to_string().contains("cyclic data pointer"));
     }
 
+    fn uint16(value: u16) -> Vec<u8> {
+        let mut encoded = vec![0xa2];
+        encoded.extend_from_slice(&value.to_be_bytes());
+        encoded
+    }
+
+    fn uint32(value: u32) -> Vec<u8> {
+        let mut encoded = vec![0xc4];
+        encoded.extend_from_slice(&value.to_be_bytes());
+        encoded
+    }
+
+    fn uint64(value: u64) -> Vec<u8> {
+        let mut encoded = vec![0x08, 0x02];
+        encoded.extend_from_slice(&value.to_be_bytes());
+        encoded
+    }
+
+    fn uint128(value: u128) -> Vec<u8> {
+        let mut encoded = vec![0x10, 0x03];
+        encoded.extend_from_slice(&value.to_be_bytes());
+        encoded
+    }
+
+    fn int32(value: i32) -> Vec<u8> {
+        let mut encoded = vec![0x04, 0x01];
+        encoded.extend_from_slice(&value.to_be_bytes());
+        encoded
+    }
+
+    fn float(value: f32) -> Vec<u8> {
+        let mut encoded = vec![0x04, 0x08];
+        encoded.extend_from_slice(&value.to_be_bytes());
+        encoded
+    }
+
+    fn double(value: f64) -> Vec<u8> {
+        let mut encoded = vec![0x68];
+        encoded.extend_from_slice(&value.to_be_bytes());
+        encoded
+    }
+
+    /// Decodes `encoded` inline and through a pointer, checking that the
+    /// cursor ends after the inline value and after the pointer.
+    fn decode_inline_and_pointer<T>(encoded: &[u8]) -> [Result<T, String>; 2]
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let mut decoder = Decoder::new(encoded, 0);
+        let inline = T::deserialize(&mut decoder).map_err(|error| error.to_string());
+        if inline.is_ok() {
+            assert_eq!(decoder.offset(), encoded.len());
+        }
+
+        let mut pointer = vec![0x20, 0x02];
+        pointer.extend_from_slice(encoded);
+        let mut decoder = Decoder::new(&pointer, 0);
+        let via_pointer = T::deserialize(&mut decoder).map_err(|error| error.to_string());
+        assert_eq!(decoder.offset(), 2, "pointer continuation not restored");
+        assert_eq!(decoder.state & super::DEPTH_MASK, 0, "depth not restored");
+
+        [inline, via_pointer]
+    }
+
+    #[allow(clippy::float_cmp)]
+    #[test]
+    fn typed_scalars_widen_lossless_narrower_types() {
+        for result in decode_inline_and_pointer::<u32>(&uint16(0xfffe)) {
+            assert_eq!(result.unwrap(), 0xfffe);
+        }
+
+        for (encoded, expected) in [
+            (uint16(0xfffe), 0xfffe_u64),
+            (uint32(0xffff_fffe), 0xffff_fffe),
+        ] {
+            for result in decode_inline_and_pointer::<u64>(&encoded) {
+                assert_eq!(result.unwrap(), expected);
+            }
+        }
+
+        for (encoded, expected) in [
+            (uint16(0xfffe), 0xfffe_u128),
+            (uint32(0xffff_fffe), 0xffff_fffe),
+            (uint64(u64::MAX - 1), u128::from(u64::MAX - 1)),
+        ] {
+            for result in decode_inline_and_pointer::<u128>(&encoded) {
+                assert_eq!(result.unwrap(), expected);
+            }
+        }
+
+        for result in decode_inline_and_pointer::<i32>(&uint16(0xfffe)) {
+            assert_eq!(result.unwrap(), 0xfffe);
+        }
+
+        // Serde routes these through the same entry points.
+        for result in decode_inline_and_pointer::<usize>(&uint32(7)) {
+            assert_eq!(result.unwrap(), 7);
+        }
+        for result in decode_inline_and_pointer::<std::num::NonZeroU64>(&uint16(7)) {
+            assert_eq!(result.unwrap().get(), 7);
+        }
+        for result in decode_inline_and_pointer::<isize>(&uint32(7)) {
+            assert_eq!(result.unwrap(), 7);
+        }
+
+        // Exact types still decode through the direct path.
+        for result in decode_inline_and_pointer::<u64>(&uint64(u64::MAX)) {
+            assert_eq!(result.unwrap(), u64::MAX);
+        }
+        for result in decode_inline_and_pointer::<f64>(&double(42.5)) {
+            assert_eq!(result.unwrap(), 42.5);
+        }
+    }
+
+    /// A visitor that relies on Serde's default methods, which pass every
+    /// unsigned integer narrower than 128 bits to `visit_u64`.
+    struct DefaultsToU64;
+
+    impl<'de> Visitor<'de> for DefaultsToU64 {
+        type Value = u64;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("u64")
+        }
+
+        fn visit_u64<E>(self, value: u64) -> Result<u64, E> {
+            Ok(value)
+        }
+    }
+
+    type CheckFn = fn(&[u8]) -> [Result<(), String>; 2];
+
+    /// Decodes `encoded` as `T` inline and through a pointer, keeping only
+    /// whether each succeeded.
+    fn decode_unit<T: serde::de::DeserializeOwned>(encoded: &[u8]) -> [Result<(), String>; 2] {
+        decode_inline_and_pointer::<T>(encoded).map(|result| result.map(|_| ()))
+    }
+
     #[test]
     fn narrower_integer_types_get_fitting_uint128_values_as_u64() {
-        fn encode(value: u128) -> Vec<u8> {
-            let mut encoded = vec![0x10, 0x03];
-            encoded.extend_from_slice(&value.to_be_bytes());
-            encoded
-        }
         fn decode<T: serde::de::DeserializeOwned>(value: u128) -> Result<T, String> {
-            let encoded = encode(value);
+            let encoded = uint128(value);
             let mut decoder = Decoder::new(&encoded, 0);
             T::deserialize(&mut decoder).map_err(|err| err.to_string())
         }
@@ -3701,23 +4049,373 @@ mod tests {
         let err = decode::<i64>(u128::from(u64::MAX) + 1).unwrap_err();
         assert!(err.contains("as u128"), "{err}");
 
-        // Visitors that rely on Serde's default methods see a `u64`.
-        struct DefaultsToU64;
+        // `deserialize_i64` still passes each stored integer to the method
+        // for its stored type, so a visitor that relies on Serde's default
+        // methods sees a `u64`, including for a uint128 that fits.
+        for encoded in [uint16(7), uint32(7), uint64(7), uint128(7)] {
+            let mut decoder = Decoder::new(&encoded, 0);
+            assert_eq!(decoder.deserialize_i64(DefaultsToU64).unwrap(), 7);
+        }
+    }
 
-        impl<'de> Visitor<'de> for DefaultsToU64 {
+    #[test]
+    fn integer_types_accept_any_mmdb_integer_that_fits() {
+        fn ok<T>(encoded: &[u8], expected: T)
+        where
+            T: serde::de::DeserializeOwned + PartialEq + fmt::Debug,
+        {
+            for result in decode_inline_and_pointer::<T>(encoded) {
+                assert_eq!(result.unwrap(), expected);
+            }
+        }
+
+        // Wider stored types decode when the value fits, up to the edge of
+        // the field's range.
+        ok(&uint32(u16::MAX.into()), u16::MAX);
+        ok(&uint64(5), 5_u16);
+        ok(&uint128(5), 5_u16);
+        ok(&int32(5), 5_u16);
+        ok(&uint64(u32::MAX.into()), u32::MAX);
+        ok(&uint128(7), 7_u32);
+        ok(&int32(i32::MAX), i32::MAX as u32);
+        ok(&uint128(u64::MAX.into()), u64::MAX);
+        ok(&int32(3), 3_u64);
+        ok(&int32(0), 0_u128);
+        ok(&uint32(i32::MAX as u32), i32::MAX);
+        ok(&uint64(9), 9_i32);
+        ok(&uint128(9), 9_i32);
+
+        // Types without an MMDB type of their own follow the same rule.
+        ok(&uint128(255), 255_u8);
+        ok(&int32(-128), -128_i8);
+        ok(&uint64(32_767), 32_767_i16);
+        ok(&uint64(42), 42_i64);
+        ok(&uint128(i64::MAX as u128), i64::MAX);
+        ok(&uint128(42), 42_i128);
+        ok(&int32(-2), -2_i128);
+
+        // Serde routes these through the same entry points.
+        ok(&uint128(7), 7_usize);
+        ok(&uint128(7), 7_isize);
+        ok(&uint32(7), std::num::NonZeroU16::new(7).unwrap());
+    }
+
+    #[test]
+    fn integer_values_that_do_not_fit_return_decoding_errors() {
+        let cases: [(Vec<u8>, CheckFn, &str); 13] = [
+            (
+                uint32(u32::from(u16::MAX) + 1),
+                decode_unit::<u16>,
+                "invalid value: integer `65536`, expected u16",
+            ),
+            (
+                uint64(u64::from(u32::MAX) + 1),
+                decode_unit::<u32>,
+                "invalid value: integer `4294967296`, expected u32",
+            ),
+            (
+                uint128(u128::from(u64::MAX) + 1),
+                decode_unit::<u64>,
+                "integer `18446744073709551616` as u128, expected u64",
+            ),
+            (int32(-1), decode_unit::<u64>, "integer `-1`, expected u64"),
+            (
+                int32(-1),
+                decode_unit::<u128>,
+                "integer `-1`, expected u128",
+            ),
+            (
+                uint32(i32::MAX as u32 + 1),
+                decode_unit::<i32>,
+                "integer `2147483648`, expected i32",
+            ),
+            (uint16(256), decode_unit::<u8>, "integer `256`, expected u8"),
+            (
+                int32(-129),
+                decode_unit::<i8>,
+                "integer `-129`, expected i8",
+            ),
+            (
+                uint64(32_768),
+                decode_unit::<i16>,
+                "integer `32768`, expected i16",
+            ),
+            (
+                uint128(i64::MAX as u128 + 1),
+                decode_unit::<i64>,
+                "invalid value: integer `9223372036854775808`, expected i64",
+            ),
+            (
+                uint128(u128::from(u64::MAX) + 1),
+                decode_unit::<i64>,
+                "integer `18446744073709551616` as u128, expected i64",
+            ),
+            (
+                uint64(u64::MAX),
+                decode_unit::<i64>,
+                "integer `18446744073709551615`, expected i64",
+            ),
+            (
+                uint32(0),
+                decode_unit::<std::num::NonZeroU16>,
+                "expected a nonzero u16",
+            ),
+        ];
+
+        for (encoded, decode, expected) in cases {
+            for result in decode(&encoded) {
+                let err = result.unwrap_err();
+                assert!(err.contains(expected), "{err:?} lacks {expected:?}");
+            }
+        }
+
+        // A uint128 that fits in a `u64` gets the same range check.
+        for result in decode_unit::<u16>(&uint128(70_000)) {
+            let err = result.unwrap_err();
+            assert!(
+                err.contains("invalid value: integer `70000`, expected u16"),
+                "{err:?}"
+            );
+        }
+
+        // `Saturating` clamps instead, for any stored value up to u64::MAX.
+        use std::num::Saturating;
+        for encoded in [uint32(70_000), uint64(70_000), uint128(70_000)] {
+            for result in decode_inline_and_pointer::<Saturating<u16>>(&encoded) {
+                assert_eq!(result.unwrap(), Saturating(u16::MAX));
+            }
+        }
+        for result in decode_inline_and_pointer::<Saturating<u64>>(&int32(-5)) {
+            assert_eq!(result.unwrap(), Saturating(0));
+        }
+        for result in
+            decode_inline_and_pointer::<Saturating<u64>>(&uint128(u128::from(u64::MAX) + 1))
+        {
+            assert!(result.unwrap_err().contains("as u128"));
+        }
+
+        // The error is a decoding error, not a database error.
+        let encoded = uint16(256);
+        let mut decoder = Decoder::new(&encoded, 0);
+        let err = u8::deserialize(&mut decoder).unwrap_err();
+        assert!(
+            matches!(*err, MaxMindDbError::Decoding { .. }),
+            "unexpected error: {err}"
+        );
+
+        // A stored type that converts on the cold path keeps the offset a
+        // type mismatch there would report: the payload's, also behind a
+        // pointer.
+        let encoded = uint64(u64::from(u32::MAX) + 1);
+        let mut pointer = vec![0x20, 0x02];
+        pointer.extend_from_slice(&encoded);
+        for (buf, offset) in [(&encoded, 2), (&pointer, 4)] {
+            let mut decoder = Decoder::new(buf, 0);
+            let err = u32::deserialize(&mut decoder).unwrap_err();
+            assert!(
+                matches!(*err, MaxMindDbError::Decoding { offset: Some(o), .. } if o == offset),
+                "unexpected error: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn buffered_integers_convert_through_serde_visitors() {
+        // Serde buffers flattened fields, so they see the stored type, and
+        // Serde's integer visitors check its range.
+        #[derive(serde::Deserialize)]
+        struct Inner {
+            v: u16,
+        }
+        #[derive(serde::Deserialize)]
+        struct Outer {
+            #[serde(flatten)]
+            inner: Inner,
+        }
+
+        let mut encoded = vec![0xe1, 0x41, b'v'];
+        encoded.extend(uint32(5));
+        let mut decoder = Decoder::new(&encoded, 0);
+        assert_eq!(Outer::deserialize(&mut decoder).unwrap().inner.v, 5);
+
+        let mut encoded = vec![0xe1, 0x41, b'v'];
+        encoded.extend(uint32(70_000));
+        let mut decoder = Decoder::new(&encoded, 0);
+        let err = Outer::deserialize(&mut decoder).err().unwrap();
+        assert!(
+            err.to_string().contains("integer `70000`, expected u16"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn typed_scalars_reject_non_numeric_and_lossy_types() {
+        let cases: [(Vec<u8>, CheckFn, &str); 7] = [
+            (
+                double(1.0),
+                decode_unit::<f32>,
+                "expected float, got type 3",
+            ),
+            (uint32(1), decode_unit::<f64>, "expected double, got type 6"),
+            (uint16(1), decode_unit::<bool>, "expected bool, got type 5"),
+            (double(1.0), decode_unit::<u64>, "expected u64, got type 3"),
+            (float(1.0), decode_unit::<i32>, "expected i32, got type 15"),
+            (
+                vec![0x41, b'1'],
+                decode_unit::<u16>,
+                "expected u16, got type 2",
+            ),
+            (
+                double(1.0),
+                decode_unit::<i64>,
+                "invalid type: floating point",
+            ),
+        ];
+
+        for (encoded, decode, expected) in cases {
+            for result in decode(&encoded) {
+                let err = result.unwrap_err();
+                assert!(err.contains(expected), "{err:?} lacks {expected:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn exact_scalar_decoder_does_not_widen() {
+        fn check<T: serde::de::DeserializeOwned + fmt::Debug>(encoded: &[u8], expected: &str) {
+            let mut pointer = vec![0x20, 0x02];
+            pointer.extend_from_slice(encoded);
+            for buf in [encoded, &pointer] {
+                let mut decoder = Decoder::new_exact_scalars(buf, 0);
+                let err = T::deserialize(&mut decoder).unwrap_err();
+                assert!(
+                    matches!(*err, MaxMindDbError::Decoding { .. }),
+                    "unexpected error: {err}"
+                );
+                assert!(err.to_string().contains(expected), "{err} lacks {expected}");
+                assert_eq!(decoder.state & super::DEPTH_MASK, 0, "depth not restored");
+            }
+        }
+
+        check::<u32>(&uint16(1), "expected u32, got type 5");
+        check::<u64>(&uint16(1), "expected u64, got type 5");
+        check::<u64>(&uint32(1), "expected u64, got type 6");
+        check::<u128>(&uint16(1), "expected u128, got type 5");
+        check::<u128>(&uint32(1), "expected u128, got type 6");
+        check::<u128>(&uint64(1), "expected u128, got type 9");
+        check::<i32>(&uint16(1), "expected i32, got type 5");
+        check::<f64>(&float(1.0), "expected double, got type 15");
+        check::<u16>(&uint32(1), "expected u16, got type 6");
+        check::<u32>(&uint64(1), "expected u32, got type 9");
+        check::<u64>(&uint128(1), "expected u64, got type 10");
+        check::<i32>(&uint32(1), "expected i32, got type 6");
+
+        // Types without an MMDB type of their own still convert.
+        let mut decoder = Decoder::new_exact_scalars(&[0xc4, 0, 0, 0, 7], 0);
+        assert_eq!(u8::deserialize(&mut decoder).unwrap(), 7);
+
+        // The exact type still decodes.
+        let mut decoder = Decoder::new_exact_scalars(&[0xc4, 0, 0, 0, 7], 0);
+        assert_eq!(u32::deserialize(&mut decoder).unwrap(), 7);
+    }
+
+    #[test]
+    fn integer_conversion_calls_the_requested_visit_method() {
+        struct OnlyU64;
+
+        impl<'de> Visitor<'de> for OnlyU64 {
             type Value = u64;
 
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
                 formatter.write_str("u64")
             }
 
             fn visit_u64<E>(self, value: u64) -> Result<u64, E> {
                 Ok(value)
             }
+
+            fn visit_u16<E: serde::de::Error>(self, _: u16) -> Result<u64, E> {
+                Err(E::custom("visit_u16 called"))
+            }
+
+            fn visit_u32<E: serde::de::Error>(self, _: u32) -> Result<u64, E> {
+                Err(E::custom("visit_u32 called"))
+            }
         }
 
-        let encoded = encode(7);
+        for encoded in [uint16(7), uint32(7), uint128(7), int32(7)] {
+            let mut decoder = Decoder::new(&encoded, 0);
+            assert_eq!(decoder.deserialize_u64(OnlyU64).unwrap(), 7);
+        }
+
+        // A value that does not fit goes to the method for its stored type.
+        let encoded = uint128(u128::MAX);
         let mut decoder = Decoder::new(&encoded, 0);
-        assert_eq!(decoder.deserialize_i64(DefaultsToU64).unwrap(), 7);
+        let err = decoder.deserialize_u64(OnlyU64).unwrap_err();
+        assert!(
+            err.to_string().contains("as u128"),
+            "unexpected error: {err}"
+        );
+
+        // Types without an MMDB type of their own still pass a stored
+        // integer to the method for its stored type.
+        let encoded = uint32(7);
+        let mut decoder = Decoder::new(&encoded, 0);
+        let err = decoder.deserialize_i64(OnlyU64).unwrap_err();
+        assert!(
+            err.to_string().contains("visit_u32 called"),
+            "unexpected error: {err}"
+        );
+    }
+
+    type DecodeFn = fn(&mut Decoder<'_>) -> Result<(), super::DecoderError>;
+
+    #[test]
+    fn typed_scalar_conversion_rejects_truncated_values() {
+        let cases: [(&[u8], DecodeFn, &str); 5] = [
+            (&[0xa2, 0x01], |de| u64::deserialize(de).map(|_| ()), "u16"),
+            (
+                &[0xc4, 0x01, 0x02],
+                |de| u128::deserialize(de).map(|_| ()),
+                "u32",
+            ),
+            (
+                &[0x08, 0x02, 0x01],
+                |de| u32::deserialize(de).map(|_| ()),
+                "u64",
+            ),
+            (
+                &[0x04, 0x01, 0x00],
+                |de| u16::deserialize(de).map(|_| ()),
+                "i32",
+            ),
+            // A pointer to a pointer is rejected before any widening.
+            (
+                &[0x20, 0x00],
+                |de| u64::deserialize(de).map(|_| ()),
+                "pointer",
+            ),
+        ];
+        for (encoded, decode, expected) in cases {
+            let mut inline = Decoder::new(encoded, 0);
+            let mut pointer = vec![0x20, 0x02];
+            pointer.extend_from_slice(encoded);
+            let mut via_pointer = Decoder::new(&pointer, 0);
+
+            for decoder in [&mut inline, &mut via_pointer] {
+                let err = decode(decoder).unwrap_err();
+                assert!(
+                    matches!(*err, MaxMindDbError::InvalidDatabase { .. }),
+                    "unexpected error: {err}"
+                );
+                assert!(err.to_string().contains(expected), "{err} lacks {expected}");
+            }
+            assert_eq!(via_pointer.offset(), 2, "pointer continuation not restored");
+            assert_eq!(
+                via_pointer.state & super::DEPTH_MASK,
+                0,
+                "depth not restored"
+            );
+        }
     }
 }

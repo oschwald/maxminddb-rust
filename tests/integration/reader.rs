@@ -34,6 +34,32 @@ fn test_pointers_in_metadata() {
 }
 
 #[test]
+fn test_metadata_requires_exact_numeric_types() {
+    let mut bytes = std::fs::read("test-data/test-data/MaxMind-DB-test-ipv4-24.mmdb").unwrap();
+    let marker = b"\xab\xcd\xefMaxMind.com";
+    let metadata_start = bytes
+        .windows(marker.len())
+        .rposition(|window| window == marker)
+        .unwrap();
+    let key = b"\x4anode_count";
+    let value = metadata_start
+        + bytes[metadata_start..]
+            .windows(key.len())
+            .position(|window| window == key)
+            .unwrap()
+        + key.len();
+    // Re-encode node_count from a one-byte uint32 as a one-byte uint16.
+    assert_eq!(bytes[value], 0xc1);
+    bytes[value] = 0xa1;
+
+    let err = Reader::from_source(bytes).unwrap_err();
+    assert!(
+        err.to_string().contains("expected u32, got type 5"),
+        "{err}"
+    );
+}
+
+#[test]
 fn test_broken_database() {
     let r = open_test_data_reader("GeoIP2-City-Test-Broken-Double-Format.mmdb");
     let ip: IpAddr = "2001:220::".parse().unwrap();

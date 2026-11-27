@@ -77,6 +77,70 @@ fn test_decoder() {
 }
 
 #[test]
+fn test_decoder_converts_numbers_that_fit() {
+    #[derive(Deserialize, Debug)]
+    struct WideType {
+        int32: i64,
+        uint16: i32,
+        uint32: u64,
+        uint64: u128,
+    }
+
+    let r = open_test_data_reader("MaxMind-DB-test-decoder.mmdb");
+    let lookup = r.lookup("1.1.1.0".parse::<IpAddr>().unwrap()).unwrap();
+    let result: WideType = lookup.decode().unwrap().unwrap();
+
+    assert_eq!(result.int32, -268_435_456);
+    assert_eq!(result.uint16, 100);
+    assert_eq!(result.uint32, 268_435_456);
+    assert_eq!(result.uint64, 1_152_921_504_606_846_976);
+
+    let uint16: Option<u128> = lookup.decode_path(&[PathElement::Key("uint16")]).unwrap();
+    assert_eq!(uint16, Some(100));
+
+    // Wider stored types decode when the value fits.
+    #[derive(Deserialize, Debug)]
+    struct NarrowType {
+        uint16: u8,
+        uint32: i32,
+        uint64: i64,
+        uint128: u128,
+    }
+    let result: NarrowType = lookup.decode().unwrap().unwrap();
+    assert_eq!(result.uint16, 100);
+    assert_eq!(result.uint32, 268_435_456);
+    assert_eq!(result.uint64, 1_152_921_504_606_846_976);
+    assert_eq!(
+        result.uint128,
+        1_329_227_995_784_915_872_903_807_060_280_344_576
+    );
+
+    // A value that does not fit is a decoding error.
+    #[derive(Deserialize, Debug)]
+    struct TooNarrow {
+        #[allow(dead_code)]
+        uint32: u16,
+    }
+    let err = lookup.decode::<TooNarrow>().unwrap_err();
+    assert!(
+        matches!(err, MaxMindDbError::Decoding { .. })
+            && err
+                .to_string()
+                .contains("invalid value: integer `268435456`, expected u16"),
+        "unexpected error: {err}"
+    );
+
+    let err = lookup
+        .decode_path::<u32>(&[PathElement::Key("int32")])
+        .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("integer `-268435456`, expected u32"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
 fn test_json_serialize() {
     let reader = open_test_data_reader("GeoIP2-City-Test.mmdb");
 
