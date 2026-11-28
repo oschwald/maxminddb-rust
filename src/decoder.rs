@@ -1041,7 +1041,10 @@ impl<'de> Decoder<'de> {
         state: &mut VerificationState,
     ) -> DecodeResult<()> {
         let offset = self.current_ptr;
-        if state.validated.contains(&offset) {
+        let key = VerificationState::key(offset)?;
+        // A root starts at depth zero, and a cached height always fits there
+        // because it was validated at some depth of at least zero.
+        if state.validated.contains_key(&key) {
             return Ok(());
         }
         if !state.active.insert(offset) {
@@ -1050,6 +1053,7 @@ impl<'de> Decoder<'de> {
             );
         }
 
+        state.deepest = 0;
         let result = (|| {
             let (size, type_num) = self.size_and_type()?;
             self.skip_value_inner_for_verification(size, type_num, 0, state)?;
@@ -1057,10 +1061,9 @@ impl<'de> Decoder<'de> {
         })();
 
         state.active.remove(&offset);
-        if result.is_ok() {
-            state.validated.insert(offset);
-        }
-        result
+        result?;
+        state.validated.insert(key, state.deepest);
+        Ok(())
     }
 
     #[inline(always)]
@@ -1081,8 +1084,17 @@ impl<'de> Decoder<'de> {
 
     #[cold]
     fn skip_depth_error(&self) -> DecodeResult<u16> {
-        Err(self
-            .invalid_db_error("exceeded maximum data structure depth; database is likely corrupt"))
+        Self::skip_depth_error_at(self.current_ptr)
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn skip_depth_error_at<T>(offset: usize) -> DecodeResult<T> {
+        Err(MaxMindDbError::invalid_database_at(
+            "exceeded maximum data structure depth; database is likely corrupt",
+            offset,
+        )
+        .into())
     }
 
     #[inline(always)]
@@ -1186,6 +1198,13 @@ impl<'de> Decoder<'de> {
         self.skip_value_inner(size, type_num, skip_depth)
     }
 
+    /// Verifies the current value at `skip_depth`, raising `state.deepest` to
+    /// the deepest skip depth the value reaches. Maps, arrays and pointers,
+    /// even empty ones, reach one level below `skip_depth`; scalars add none.
+    /// A verified pointer target's height is the depth it reached minus the
+    /// depth it started at. A value at depth `d` with height `h` fits the skip
+    /// limit exactly when `d + h <= MAXIMUM_SKIPPED_DATA_STRUCTURE_DEPTH`, so a
+    /// cached target can be rechecked at a new depth without traversing it.
     fn skip_value_inner_for_verification(
         &mut self,
         size: usize,
@@ -1213,6 +1232,7 @@ impl<'de> Decoder<'de> {
             }
             TYPE_MAP => {
                 let child_depth = self.check_skip_depth(skip_depth)?;
+                state.deepest = state.deepest.max(child_depth);
                 for _ in 0..size {
                     self.skip_value_with_verification(child_depth, state)?;
                     self.skip_value_with_verification(child_depth, state)?;
@@ -1221,6 +1241,7 @@ impl<'de> Decoder<'de> {
             }
             TYPE_ARRAY => {
                 let child_depth = self.check_skip_depth(skip_depth)?;
+                state.deepest = state.deepest.max(child_depth);
                 for _ in 0..size {
                     self.skip_value_with_verification(child_depth, state)?;
                 }
@@ -1239,13 +1260,25 @@ impl<'de> Decoder<'de> {
         self.skip_value_inner_for_verification(size, type_num, skip_depth, state)
     }
 
+    /// Verifies the pointer target at `skip_depth`, caching its height and
+    /// raising `state.deepest` to the depth it reaches.
     fn verify_pointer_target(
         &mut self,
         target: usize,
         skip_depth: u16,
         state: &mut VerificationState,
     ) -> DecodeResult<()> {
-        if state.validated.contains(&target) {
+        let key = VerificationState::key(target)?;
+        if let Some(&height) = state.validated.get(&key) {
+            // The target itself is valid, but it must also fit below the depth
+            // at which this pointer reaches it. Without this check, the result
+            // would depend on which reference verified the target first. The
+            // cursor is already past the pointer, so report the target.
+            let reached = u32::from(skip_depth) + u32::from(height);
+            if reached > u32::from(MAXIMUM_SKIPPED_DATA_STRUCTURE_DEPTH) {
+                return Self::skip_depth_error_at(target);
+            }
+            state.deepest = state.deepest.max(skip_depth + height);
             return Ok(());
         }
         if !state.active.insert(target) {
@@ -1254,6 +1287,10 @@ impl<'de> Decoder<'de> {
             );
         }
 
+        // Measure the target on its own, then fold its depth back into the
+        // value that points to it.
+        let outer_deepest = state.deepest;
+        state.deepest = skip_depth;
         let continuation = self.current_ptr;
         self.current_ptr = target;
         let result = (|| {
@@ -1264,10 +1301,10 @@ impl<'de> Decoder<'de> {
         self.current_ptr = continuation;
 
         state.active.remove(&target);
-        if result.is_ok() {
-            state.validated.insert(target);
-        }
-        result
+        result?;
+        state.validated.insert(key, state.deepest - skip_depth);
+        state.deepest = state.deepest.max(outer_deepest);
+        Ok(())
     }
 }
 
@@ -3521,6 +3558,82 @@ mod tests {
 
         assert_eq!(state.validated.len(), LEVELS + 1);
         assert!(state.active.is_empty());
+    }
+
+    /// Builds one-element arrays that each hold a pointer to the next array,
+    /// ending in `terminal`. Returns the buffer and each array's offset, first
+    /// link first. A link adds two skip-depth levels: the array and its pointer.
+    fn pointer_linked_arrays(links: usize, terminal: &[u8]) -> (Vec<u8>, Vec<usize>) {
+        let mut buf = terminal.to_vec();
+        let mut offsets = Vec::with_capacity(links);
+        let mut target = 0;
+        for _ in 0..links {
+            let array = buf.len();
+            buf.extend_from_slice(&[0x01, 0x04]);
+            append_pointer(&mut buf, target);
+            offsets.push(array);
+            target = array;
+        }
+        offsets.reverse();
+        (buf, offsets)
+    }
+
+    fn verify_roots(buf: &[u8], roots: &[usize]) -> super::DecodeResult<VerificationState> {
+        let mut state = VerificationState::new(buf.len());
+        for &root in roots {
+            Decoder::new(buf, root).skip_value_for_verification(&mut state)?;
+        }
+        Ok(state)
+    }
+
+    #[test]
+    fn verification_allows_cached_targets_that_fit_the_skip_depth() {
+        // 64 links ending in a scalar are exactly 128 levels deep. The middle
+        // link is 64 levels deep and sits 64 levels below the first.
+        let (buf, offsets) = pointer_linked_arrays(64, &[0x00, 0x07]);
+        let (first, middle) = (offsets[0], offsets[32]);
+        for roots in [[first, middle], [middle, first]] {
+            let state = verify_roots(&buf, &roots).unwrap();
+            assert_eq!(state.validated[&(first as u32)], 128);
+            assert_eq!(state.validated[&(middle as u32)], 64);
+            assert!(state.active.is_empty());
+        }
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn verification_rejects_offsets_beyond_32_bits() {
+        let too_large = usize::try_from(u64::from(u32::MAX) + 1).unwrap();
+        assert_eq!(VerificationState::key(u32::MAX as usize).unwrap(), u32::MAX);
+        let err = VerificationState::key(too_large).unwrap_err();
+        assert!(err.to_string().contains("does not fit in 32 bits"), "{err}");
+    }
+
+    #[test]
+    fn verification_rechecks_depth_of_cached_pointer_targets() {
+        // Ending in a one-element array adds one level, for 129 in total. The
+        // middle link alone is 65 levels deep and valid as a root, but the
+        // first link reaches it 64 levels down, one level past the limit.
+        let (buf, offsets) = pointer_linked_arrays(64, &[0x01, 0x04, 0x00, 0x07]);
+        let (first, middle) = (offsets[0], offsets[32]);
+        verify_roots(&buf, &[middle]).unwrap();
+        // Before the depth of cached targets was rechecked, verifying the
+        // middle first let the first link pass.
+        for roots in [[first, middle], [middle, first]] {
+            let err = verify_roots(&buf, &roots).map(|_| ()).unwrap_err();
+            assert!(err
+                .to_string()
+                .contains("exceeded maximum data structure depth"));
+            if roots[0] == middle {
+                // A cached target that is too deep is reported at its offset.
+                assert!(matches!(
+                    *err,
+                    MaxMindDbError::InvalidDatabase { offset: Some(offset), .. } if offset == middle
+                ));
+            } else {
+                assert!(matches!(*err, MaxMindDbError::InvalidDatabase { .. }));
+            }
+        }
     }
 
     #[test]
