@@ -180,7 +180,7 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
         // bytes are not part of the data section and must stay out of limits.
         let data_section_end = metadata_marker_start(metadata_start)?;
         let metadata_bytes = &buf.as_ref()[metadata_start..];
-        let mut type_decoder = decoder::Decoder::new(metadata_bytes, 0);
+        let mut type_decoder = decoder::Decoder::new_exact_scalars(metadata_bytes, 0);
         let metadata = Metadata::deserialize(&mut type_decoder)
             .map_err(|error| error.with_invalid_database_offset_base(metadata_start))?;
         validate_metadata_for_reader(&metadata)?;

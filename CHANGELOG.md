@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **Breaking:** `deserialize_u8`, `deserialize_i8`, `deserialize_i16`, and
+  `deserialize_i64` now pass a uint128 value that fits in a `u64` to the
+  visitor's `visit_u64` instead of `visit_u128`. This lets Serde's own
+  visitors for those types accept it when the value fits the field. A
+  hand-written visitor driven through one of these methods that implements
+  only `visit_u128` now gets an invalid type error for such values. See
+  `UPGRADING.md`.
+- **Breaking:** `deserialize_u16`, `deserialize_u32`, `deserialize_u64`,
+  `deserialize_u128`, and `deserialize_i32` now pass a value stored as
+  another MMDB integer type to the visitor instead of returning a decoding
+  error. A hand-written visitor driven through one of these methods must now
+  check the range itself. For `deserialize_u128`, every value passed to
+  `visit_u128` fits, and only a negative int32, passed to `visit_i32`, needs
+  rejecting. See `UPGRADING.md`.
 - docs.rs now builds the documentation with the `mmap` feature, so it
   includes `Reader::open_mmap` and the other memory-mapped reader items. Those
   items are marked as needing the `mmap` feature.
@@ -16,6 +30,19 @@
   inlined, so unoptimized builds keep them out of the recursive decode path.
   Builds without debug assertions force the inlining as before, so an
   unoptimized build with debug assertions turned off still needs about 3 MiB.
+- Integer fields now accept any MMDB integer type whose value fits. For
+  example, a uint32 value decodes into a `u64` field, and a uint32 value of
+  443 decodes into a `u16` field. Before, `u16`, `u32`, `u64`, `u128`, `i32`,
+  and `usize` fields, and the `NonZero` and `Saturating` types built on them,
+  accepted only their own MMDB type, and no field narrower than 128 bits
+  accepted a uint128. A value that does not fit still returns a
+  decoding error, except that a `Saturating` field clamps it, unless it is a
+  uint128 above `u64::MAX` and the field is narrower than 128 bits. See the
+  `LookupResult::decode()` documentation. Metadata still requires the exact
+  types the spec gives.
+- `f64` fields now also accept MMDB float values. Integers and
+  floating-point values decoded directly still do not convert into each
+  other.
 - Fixed opening databases whose metadata `description` map repeats a language
   key. The reader kept the last value; it now returns a decoding error, as it
   already did for repeated top-level metadata keys. The spec requires unique

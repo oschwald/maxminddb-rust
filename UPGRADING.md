@@ -1,5 +1,53 @@
 # Upgrading Guide
 
+## 0.33 to 0.34
+
+### uint128 Values in Narrower Integer Fields
+
+`deserialize_u8`, `deserialize_i8`, `deserialize_i16`, and `deserialize_i64`
+now pass a uint128 value that fits in a `u64` to `Visitor::visit_u64`.
+Before, they passed it to `visit_u128`, which Serde's visitors for those
+types reject. Derived types need no change.
+
+If you wrote a visitor that one of these methods drives and that implements
+only `visit_u128`, also implement `visit_u64`:
+
+```rust
+fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+where
+    E: serde::de::Error,
+{
+    self.visit_u128(u128::from(value))
+}
+```
+
+### Typed Integer Methods Accept Other Integer Types
+
+`deserialize_u16`, `deserialize_u32`, `deserialize_u64`, `deserialize_u128`,
+and `deserialize_i32` used to return a decoding error for a value stored as
+any other MMDB type. They now pass other MMDB integer types to the visitor.
+A value that fits goes to the visit method for the requested type. A value
+that does not fit goes to the visit method for its stored type, such as
+`visit_u32`, except that a uint128 that fits in a `u64` goes to `visit_u64`.
+Derived types and Serde's own visitors need no change, because they check
+the range.
+
+If you wrote a visitor that one of these methods drives, check the range
+yourself instead of converting with `as`. For `deserialize_u128`, every value
+passed to `visit_u128` fits, and only a negative int32, passed to `visit_i32`,
+needs rejecting. For a `Port(u16)` type:
+
+```rust
+fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+where
+    E: serde::de::Error,
+{
+    u16::try_from(value)
+        .map(Port)
+        .map_err(|_| E::invalid_value(serde::de::Unexpected::Unsigned(value), &self))
+}
+```
+
 ## 0.32 to 0.33
 
 ### Newtype Deserialization
