@@ -55,6 +55,14 @@
   record was checked first. Verification now checks the combined depth and
   checks the data records the search tree points to in order of their data
   section offset, so the same database reports the same error on every call.
+- `Reader::verify()` now rejects a pointer that points to another pointer and
+  a map key that is not a string, either inline or behind a pointer, in both
+  the data and metadata sections. The spec forbids both. Before, `verify()`
+  could pass a database that `decode_path()` and many typed decodes, such as
+  `decode::<String>()`, reject. A data record that is itself a pointer is
+  still accepted. Lookups and decoding are unchanged, so some destinations
+  still decode these values. For example, `serde_json::Value` accepts a
+  pointer to a pointer, and a derived struct accepts a non-string key.
 
 ## 0.33.0 - 2026-11-12
 

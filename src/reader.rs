@@ -736,10 +736,13 @@ impl<'de, S: AsRef<[u8]>> Reader<S> {
     /// Performs comprehensive validation of the MaxMind DB file.
     ///
     /// This method validates:
-    /// - Metadata section: format versions, required fields, and value constraints
+    /// - Metadata section: format versions, required fields, and value constraints,
+    ///   plus the same value checks as the data section
     /// - Search tree: traverses all networks to verify tree structure integrity
     /// - Data section separator: validates the 16-byte separator between tree and data
-    /// - Data section: verifies all data records referenced by the search tree
+    /// - Data section: verifies all data records referenced by the search tree,
+    ///   including that no pointer points to another pointer and that every
+    ///   map key is a string, inline or behind one pointer
     ///
     /// The verifier is stricter than the MaxMind DB specification and may return
     /// errors on some databases that are still readable by normal operations.
@@ -1557,6 +1560,29 @@ mod tests {
     }
 
     #[test]
+    fn test_verify_rejects_non_string_key_in_unknown_metadata_field() {
+        let original = open_test_reader("MaxMind-DB-test-ipv4-24.mmdb");
+        let metadata_start = original.metadata_start;
+        let mut bytes = original.buf.clone();
+
+        assert_eq!(bytes[metadata_start], 0xe9, "unexpected metadata map size");
+        bytes[metadata_start] = 0xea; // add one map entry
+        bytes.push(0x47); // seven-byte string key
+        bytes.extend_from_slice(b"unknown");
+        bytes.extend_from_slice(&[0xe1, 0xc1, 0x05, 0x00, 0x07]); // {5: false}
+
+        // Typed metadata parsing skips the unknown value, so the reader opens.
+        let reader = Reader::from_source(bytes).unwrap();
+        let err = reader.verify().unwrap_err();
+        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+        assert!(
+            err.to_string()
+                .contains("expected string map key, got type 6"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
     fn test_verify_bounds_overlapping_strings_in_unknown_metadata() {
         let original = open_test_reader("MaxMind-DB-test-ipv4-24.mmdb");
         let metadata_start = original.metadata_start;
@@ -1986,8 +2012,10 @@ mod tests {
     #[test]
     fn test_verify_follows_and_rejects_invalid_data_pointers() {
         let mut reader = open_test_reader("MaxMind-DB-test-ipv4-24.mmdb");
+        // Other records' keys point into the 1.1.1.1 record, so use a record
+        // nothing else references.
         let data_offset = reader
-            .lookup("1.1.1.1".parse().unwrap())
+            .lookup("1.1.1.2".parse().unwrap())
             .unwrap()
             .offset()
             .unwrap();
@@ -2000,6 +2028,70 @@ mod tests {
         let err = reader.verify().unwrap_err();
         assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
         assert!(err.to_string().contains("unexpected end of buffer"));
+    }
+
+    #[test]
+    fn test_verify_rejects_non_string_map_key() {
+        let mut reader = open_test_reader("MaxMind-DB-test-ipv4-24.mmdb");
+        let ip = "1.1.1.1".parse().unwrap();
+        let data_offset = reader.lookup(ip).unwrap().offset().unwrap();
+        let record_start = reader.pointer_base + data_offset;
+        // The record is {"ip": "1.1.1.1"}. Retag the inline "ip" key as a
+        // two-byte uint32, keeping the record's length. Other records point
+        // to this key, so either the inline key or a pointer to it fails.
+        assert_eq!(
+            &reader.buf[record_start..record_start + 4],
+            &[0xe1, 0x42, b'i', b'p']
+        );
+        reader.buf[record_start + 1] = 0xc2;
+
+        let err = reader.verify().unwrap_err();
+        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+        assert!(
+            err.to_string()
+                .contains("expected string map key, got type 6"),
+            "unexpected error: {err}"
+        );
+        // Path decoding rejects the same key.
+        assert!(reader
+            .lookup(ip)
+            .unwrap()
+            .decode_path::<String>(&[PathElement::Key("ip")])
+            .is_err());
+    }
+
+    #[test]
+    fn test_verify_rejects_pointer_chain() {
+        let mut reader = open_test_reader("MaxMind-DB-test-ipv4-24.mmdb");
+        let ip = "1.1.1.2".parse().unwrap();
+        let data_offset = reader.lookup(ip).unwrap().offset().unwrap();
+        let record_start = reader.pointer_base + data_offset;
+        // The record is {"ip": "1.1.1.2"} with its key behind a pointer, and
+        // nothing else points into it. Point the value at that key pointer
+        // instead of the inline string. The rest of the old string stays as
+        // unreferenced bytes, which verification ignores.
+        assert_eq!(
+            &reader.buf[record_start..record_start + 4],
+            &[0xe1, 0x20, 0x01, 0x47]
+        );
+        let key_pointer = data_offset + 1;
+        assert!(key_pointer < 2048);
+        reader.buf[record_start + 3] = 0x20 | (key_pointer >> 8) as u8;
+        reader.buf[record_start + 4] = key_pointer as u8;
+
+        let err = reader.verify().unwrap_err();
+        assert!(matches!(err, MaxMindDbError::InvalidDatabase { .. }));
+        assert!(
+            err.to_string()
+                .contains("pointer points to another pointer"),
+            "unexpected error: {err}"
+        );
+        // Typed decoding rejects the same value.
+        assert!(reader
+            .lookup(ip)
+            .unwrap()
+            .decode_path::<String>(&[PathElement::Key("ip")])
+            .is_err());
     }
 
     #[test]

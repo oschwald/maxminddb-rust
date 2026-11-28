@@ -14,7 +14,10 @@ pub(crate) struct VerificationState {
     /// mapped to their skip-depth height so a later reference from a deeper
     /// position can still enforce the depth limit without re-traversal.
     /// Offsets are stored as `u32` (see [`Self::key`]) to keep entries at
-    /// eight bytes, since this map can hold one entry per data record.
+    /// eight bytes, since this map can hold one entry per data record. A
+    /// pointer offset is never cached, because a pointer is valid as a root
+    /// but not as a pointer target, and a cache hit skips the pointer-chain
+    /// check.
     pub(super) validated: HashMap<u32, u16>,
     pub(super) active: HashSet<usize>,
     /// Deepest skip depth reached by the root or pointer target being
@@ -39,8 +42,9 @@ impl VerificationState {
         }
     }
 
-    /// Reserves cache space for `roots` data records, which are all cached,
-    /// so a large database does not rehash the cache repeatedly as it grows.
+    /// Reserves cache space for `roots` data records, which are all cached
+    /// except those that are pointers, so a large database does not rehash
+    /// the cache repeatedly as it grows.
     pub(crate) fn reserve_roots(&mut self, roots: usize) {
         self.validated.reserve(roots);
     }

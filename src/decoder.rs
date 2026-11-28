@@ -87,6 +87,13 @@ const BUDGET_ACTIVE_MASK: u32 = 1 << 27;
 /// not explicitly request, so keep the limit below small default thread stacks.
 const MAXIMUM_SKIPPED_DATA_STRUCTURE_DEPTH: u16 = 128;
 
+/// Whether a type is a known data type that is not valid as a map key. A key
+/// of any other type, apart from a string or a pointer, has a type this
+/// decoder doesn't know.
+fn is_known_non_key_type(type_num: usize) -> bool {
+    matches!(type_num, TYPE_DOUBLE..=TYPE_ARRAY | TYPE_BOOL | TYPE_FLOAT)
+}
+
 #[cfg(not(feature = "unsafe-str-decode"))]
 #[inline]
 fn is_ascii(bytes: &[u8]) -> bool {
@@ -1054,15 +1061,21 @@ impl<'de> Decoder<'de> {
         }
 
         state.deepest = 0;
-        let result = (|| {
+        let result: DecodeResult<usize> = (|| {
             let (size, type_num) = self.size_and_type()?;
             self.skip_value_inner_for_verification(size, type_num, 0, state)?;
-            self.validate_skip_end()
+            self.validate_skip_end()?;
+            Ok(type_num)
         })();
 
         state.active.remove(&offset);
-        result?;
-        state.validated.insert(key, state.deepest);
+        let type_num = result?;
+        // A root may be a pointer, but a pointer target may not. Don't cache a
+        // root pointer, so a later pointer to it still fails the pointer-chain
+        // check in `verify_pointer_target`.
+        if type_num != TYPE_POINTER {
+            state.validated.insert(key, state.deepest);
+        }
         Ok(())
     }
 
@@ -1234,7 +1247,7 @@ impl<'de> Decoder<'de> {
                 let child_depth = self.check_skip_depth(skip_depth)?;
                 state.deepest = state.deepest.max(child_depth);
                 for _ in 0..size {
-                    self.skip_value_with_verification(child_depth, state)?;
+                    self.verify_map_key(child_depth, state)?;
                     self.skip_value_with_verification(child_depth, state)?;
                 }
                 self.validate_skip_end()
@@ -1248,6 +1261,119 @@ impl<'de> Decoder<'de> {
                 self.validate_skip_end()
             }
             _ => self.skip_value_inner(size, type_num, skip_depth),
+        }
+    }
+
+    /// Verifies a map key, which must be a string, either inline or behind
+    /// one pointer. The type is checked before any size bytes are read, so a
+    /// non-string key reports its type even when its size is truncated.
+    fn verify_map_key(
+        &mut self,
+        skip_depth: u16,
+        state: &mut VerificationState,
+    ) -> DecodeResult<()> {
+        let ctrl_byte = self.eat_byte()?;
+        let type_num = usize::from(ctrl_byte >> 5);
+        if type_num != TYPE_STRING && type_num != TYPE_POINTER {
+            return Err(self.map_key_ctrl_error(type_num));
+        }
+        let size = self.size_from_ctrl_byte(ctrl_byte, type_num)?;
+        match type_num {
+            TYPE_STRING => {
+                self.skip_value_inner_for_verification(size, type_num, skip_depth, state)
+            }
+            // The only other type that reaches here is a pointer.
+            _ => {
+                state.charge(1, self.current_ptr)?;
+                let target = self.decode_pointer(size);
+                let child_depth = self.check_skip_depth(skip_depth)?;
+                // Check the target's type before the cache lookup. The same
+                // target may already be validated as a non-key value.
+                let continuation = self.current_ptr;
+                self.current_ptr = target;
+                // Only the type matters here, so a string target costs one
+                // control byte. Other targets take the cold path for the error.
+                let checked = match self.eat_byte() {
+                    Ok(ctrl) if usize::from(ctrl >> 5) == TYPE_STRING => Ok(()),
+                    Ok(_) => Err(self.map_key_target_error(target, continuation)),
+                    Err(error) => Err(error),
+                };
+                self.current_ptr = continuation;
+                checked?;
+                self.verify_pointer_target(target, child_depth, state)
+            }
+        }
+    }
+
+    /// Builds the error for a key pointer whose target is not a string. A
+    /// pointer chain is reported just past the target's control byte, and an
+    /// unknown type just past its size bytes, as for value pointers, since the
+    /// target itself is invalid.
+    /// A known non-string type points just past the key pointer, inside the
+    /// map that misuses a valid value as a key. Only the target's type is
+    /// read, so a truncated size does not hide the type error. A truncated
+    /// extended type keeps the bounds error's own offset.
+    #[cold]
+    #[inline(never)]
+    fn map_key_target_error(&mut self, target: usize, continuation: usize) -> DecoderError {
+        self.current_ptr = target;
+        let error = match self.target_type() {
+            Ok(TYPE_POINTER) => self.invalid_db_error("pointer points to another pointer"),
+            Ok(type_num) if is_known_non_key_type(type_num) => {
+                self.current_ptr = continuation;
+                self.map_key_type_error(type_num)
+            }
+            // Read the size bytes too, so the error matches a value pointer
+            // to the same target.
+            Ok(_) => {
+                self.current_ptr = target;
+                match self.size_and_type() {
+                    Ok((_, type_num)) => self.map_key_type_error(type_num),
+                    Err(error) => error,
+                }
+            }
+            Err(error) => error,
+        };
+        self.current_ptr = continuation;
+        error
+    }
+
+    /// Reads the type at the cursor without its size bytes.
+    #[cold]
+    #[inline(never)]
+    fn target_type(&mut self) -> DecodeResult<usize> {
+        let type_num = usize::from(self.eat_byte()? >> 5);
+        if type_num == TYPE_EXTENDED {
+            return Ok(usize::from(self.eat_byte()?) + TYPE_MAP);
+        }
+        Ok(type_num)
+    }
+
+    /// Builds the error for an inline key that is neither a string nor a
+    /// pointer, reading the extended type byte if there is one.
+    #[cold]
+    #[inline(never)]
+    fn map_key_ctrl_error(&mut self, type_num: usize) -> DecoderError {
+        if type_num != TYPE_EXTENDED {
+            return self.map_key_type_error(type_num);
+        }
+        match self.eat_byte() {
+            Ok(byte) => self.map_key_type_error(usize::from(byte) + TYPE_MAP),
+            Err(error) => error,
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn map_key_type_error(&self, type_num: usize) -> DecoderError {
+        // Strings are valid keys, and pointer keys take their own path, so
+        // neither type reaches this function.
+        debug_assert!(type_num != TYPE_STRING && type_num != TYPE_POINTER);
+        if is_known_non_key_type(type_num) {
+            self.invalid_db_error(&format!("expected string map key, got type {type_num}"))
+        } else {
+            // Match the skip path's error for types this decoder doesn't know.
+            self.invalid_db_error(&format!("unknown data type: {type_num}"))
         }
     }
 
@@ -1295,6 +1421,9 @@ impl<'de> Decoder<'de> {
         self.current_ptr = target;
         let result = (|| {
             let (size, type_num) = self.size_and_type()?;
+            if type_num == TYPE_POINTER {
+                return Err(self.invalid_db_error("pointer points to another pointer"));
+            }
             self.skip_value_inner_for_verification(size, type_num, skip_depth, state)?;
             self.validate_skip_end()
         })();
@@ -1838,7 +1967,7 @@ mod tests {
 
     use crate::{deserialize_any_with_raw_strings, MaxMindDbError, Reader};
 
-    use super::{Decoder, VerificationState};
+    use super::{DecodeResult, Decoder, VerificationState};
 
     #[derive(Debug, PartialEq)]
     enum RawValue<'de> {
@@ -3879,6 +4008,339 @@ mod tests {
                 assert!(matches!(*err, MaxMindDbError::InvalidDatabase { .. }));
             }
         }
+    }
+
+    fn verify_buffer(buf: &[u8], roots: &[usize]) -> DecodeResult<()> {
+        let mut state = VerificationState::new(buf.len());
+        let result = roots
+            .iter()
+            .try_for_each(|&root| Decoder::new(buf, root).skip_value_for_verification(&mut state));
+        // Errors must not leave offsets marked as in progress.
+        assert!(state.active.is_empty());
+        result
+    }
+
+    fn assert_invalid_database(result: DecodeResult<()>, message: &str) {
+        let err = result.unwrap_err();
+        assert!(
+            matches!(*err, MaxMindDbError::InvalidDatabase { .. }),
+            "unexpected error: {err}"
+        );
+        assert!(err.to_string().contains(message), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn test_verification_accepts_root_pointer() {
+        // A data record may itself be a pointer to a non-pointer value.
+        let mut buf = vec![0x00, 0x07]; // false
+        append_pointer(&mut buf, 0);
+        verify_buffer(&buf, &[2]).unwrap();
+    }
+
+    #[test]
+    fn test_verification_rejects_pointer_chains() {
+        // An array whose element points to a pointer to false.
+        let mut buf = vec![0x00, 0x07];
+        append_pointer(&mut buf, 0);
+        buf.extend_from_slice(&[0x01, 0x04]);
+        append_pointer(&mut buf, 2);
+        let err = verify_buffer(&buf, &[4]).unwrap_err();
+        // Reported just past the target pointer's control byte.
+        assert!(
+            matches!(
+                *err,
+                MaxMindDbError::InvalidDatabase {
+                    offset: Some(3),
+                    ..
+                }
+            ),
+            "unexpected error: {err}"
+        );
+        assert!(err
+            .to_string()
+            .contains("pointer points to another pointer"));
+
+        // A root pointer to a pointer.
+        assert_invalid_database(
+            verify_buffer(&buf, &[6]),
+            "pointer points to another pointer",
+        );
+    }
+
+    #[test]
+    fn test_verification_rejects_pointer_to_verified_root_pointer() {
+        // The root pointer at offset 2 is valid by itself. A later pointer to
+        // it must still fail even though verification already visited it.
+        let mut buf = vec![0x00, 0x07];
+        append_pointer(&mut buf, 0);
+        buf.extend_from_slice(&[0x01, 0x04]);
+        append_pointer(&mut buf, 2);
+        assert_invalid_database(
+            verify_buffer(&buf, &[2, 4]),
+            "pointer points to another pointer",
+        );
+    }
+
+    #[test]
+    fn test_verification_accepts_inline_and_pointer_string_keys() {
+        // "a", then a map with an inline "b" key and a pointer to "a".
+        let mut buf = vec![0x41, b'a'];
+        buf.extend_from_slice(&[0xe2, 0x41, b'b', 0x00, 0x07]);
+        append_pointer(&mut buf, 0);
+        buf.extend_from_slice(&[0x00, 0x07]);
+        verify_buffer(&buf, &[0, 2]).unwrap();
+        // The key target is checked the first time through the map, too.
+        verify_buffer(&buf, &[2]).unwrap();
+    }
+
+    #[test]
+    fn test_verification_rejects_key_pointer_to_invalid_utf8() {
+        // A string with invalid UTF-8, then a map whose key points to it.
+        let mut buf = vec![0x41, 0xff, 0xe1];
+        append_pointer(&mut buf, 0);
+        buf.extend_from_slice(&[0x00, 0x07]);
+        let mut state = VerificationState::new(buf.len());
+        for _ in 0..2 {
+            let err = Decoder::new(&buf, 2)
+                .skip_value_for_verification(&mut state)
+                .unwrap_err();
+            assert!(
+                err.to_string().contains("invalid UTF-8"),
+                "unexpected error: {err}"
+            );
+            assert!(state.validated.is_empty());
+            assert!(state.active.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_verification_rejects_non_string_map_keys() {
+        // A map with an inline uint32 key.
+        let buf = [0xe1, 0xc1, 0x05, 0x00, 0x07];
+        assert_invalid_database(
+            verify_buffer(&buf, &[0]),
+            "expected string map key, got type 6",
+        );
+
+        // A map with an inline map key.
+        let buf = [0xe1, 0xe0, 0x00, 0x07];
+        assert_invalid_database(
+            verify_buffer(&buf, &[0]),
+            "expected string map key, got type 7",
+        );
+    }
+
+    #[test]
+    fn test_verification_rejects_pointer_to_non_string_map_key() {
+        // A uint32, then a map whose key points to it. Verifying the uint32
+        // first must not let the cached target pass as a key.
+        let mut buf = vec![0xc1, 0x05];
+        buf.push(0xe1);
+        append_pointer(&mut buf, 0);
+        buf.extend_from_slice(&[0x00, 0x07]);
+        assert_invalid_database(
+            verify_buffer(&buf, &[0, 2]),
+            "expected string map key, got type 6",
+        );
+        let err = verify_buffer(&buf, &[2]).unwrap_err();
+        assert!(
+            matches!(
+                *err,
+                MaxMindDbError::InvalidDatabase {
+                    offset: Some(5),
+                    ..
+                }
+            ),
+            "unexpected error: {err}"
+        );
+        assert!(err
+            .to_string()
+            .contains("expected string map key, got type 6"));
+
+        // A key pointing to an extended-type value (false).
+        let mut buf = vec![0x00, 0x07, 0xe1];
+        append_pointer(&mut buf, 0);
+        buf.extend_from_slice(&[0x00, 0x07]);
+        assert_invalid_database(
+            verify_buffer(&buf, &[2]),
+            "expected string map key, got type 14",
+        );
+    }
+
+    #[test]
+    fn test_verification_reports_unknown_map_key_types() {
+        // An inline key with extended type 7 + 0xff.
+        let buf = [0xe1, 0x00, 0xff, 0x00, 0x07];
+        assert_invalid_database(verify_buffer(&buf, &[0]), "unknown data type: 262");
+
+        // A key pointing to an unknown type.
+        let mut buf = vec![0x00, 0xff, 0xe1];
+        append_pointer(&mut buf, 0);
+        buf.extend_from_slice(&[0x00, 0x07]);
+        assert_invalid_database(verify_buffer(&buf, &[2]), "unknown data type: 262");
+    }
+
+    #[test]
+    fn test_verification_reports_truncated_map_key_target() {
+        // A key pointing to an extended control byte at the end of the
+        // buffer. The bounds error keeps its own offset.
+        let mut buf = vec![0xe1];
+        append_pointer(&mut buf, 5);
+        buf.extend_from_slice(&[0x00, 0x07, 0x00]);
+        let err = verify_buffer(&buf, &[0]).unwrap_err();
+        assert!(
+            matches!(
+                *err,
+                MaxMindDbError::InvalidDatabase {
+                    offset: Some(6),
+                    ..
+                }
+            ),
+            "unexpected error: {err}"
+        );
+        assert!(err.to_string().contains("unexpected end of buffer"));
+    }
+
+    #[test]
+    fn test_verification_reports_key_type_before_truncated_size() {
+        // A key pointing to a uint32 whose size byte is missing. The control
+        // byte already shows that the key is not a string.
+        let mut buf = vec![0xe1];
+        append_pointer(&mut buf, 5);
+        buf.extend_from_slice(&[0x00, 0x07, 0xdd]);
+        let err = verify_buffer(&buf, &[0]).unwrap_err();
+        assert!(
+            matches!(
+                *err,
+                MaxMindDbError::InvalidDatabase {
+                    offset: Some(3),
+                    ..
+                }
+            ),
+            "unexpected error: {err}"
+        );
+        assert!(err
+            .to_string()
+            .contains("expected string map key, got type 6"));
+
+        // The same truncated uint32 as an inline key.
+        assert_invalid_database(
+            verify_buffer(&[0xe1, 0xdd], &[0]),
+            "expected string map key, got type 6",
+        );
+    }
+
+    #[test]
+    fn test_verification_reports_unknown_key_target_at_target() {
+        fn assert_unknown_type_at(buf: &[u8], offset: usize) {
+            let err = verify_buffer(buf, &[0]).unwrap_err();
+            assert!(
+                matches!(
+                    *err,
+                    MaxMindDbError::InvalidDatabase { offset: Some(o), .. } if o == offset
+                ),
+                "unexpected error: {err}"
+            );
+            assert!(err.to_string().contains("unknown data type: 39"));
+        }
+
+        // Both pointers target extended type 39. The corrupt target is
+        // reported just past its size bytes, whether it is reached as a key
+        // or as a value.
+        for (target, size_len) in [(&[0x00, 0x20][..], 0), (&[0x1d, 0x20, 0x05][..], 1)] {
+            let mut key = vec![0xe1];
+            append_pointer(&mut key, 3);
+            key.extend_from_slice(target);
+            assert_unknown_type_at(&key, 5 + size_len);
+
+            let mut value = vec![0xe1, 0x41, b'a'];
+            append_pointer(&mut value, 5);
+            value.extend_from_slice(target);
+            assert_unknown_type_at(&value, 7 + size_len);
+        }
+
+        // With its size byte missing, the target gives the same bounds error
+        // either way.
+        let mut key = vec![0xe1];
+        append_pointer(&mut key, 3);
+        key.extend_from_slice(&[0x1d, 0x20]);
+        let mut value = vec![0xe1, 0x41, b'a'];
+        append_pointer(&mut value, 5);
+        value.extend_from_slice(&[0x1d, 0x20]);
+        let key_err = verify_buffer(&key, &[0]).unwrap_err().to_string();
+        let value_err = verify_buffer(&value, &[0]).unwrap_err().to_string();
+        for err in [key_err, value_err] {
+            assert!(err.ends_with("unexpected end of buffer"), "{err}");
+        }
+    }
+
+    #[test]
+    fn test_verification_counts_key_pointers_like_value_pointers() {
+        // "a", then `nesting` one-element arrays around a map that reaches "a"
+        // through a pointer, either as its key or as its value. Both pointers
+        // add one skip-depth level, whether or not "a" is already cached.
+        fn nested_map(nesting: usize, key_pointer: bool) -> (Vec<u8>, usize) {
+            let mut buf = vec![0x41, b'a'];
+            let root = buf.len();
+            for _ in 0..nesting {
+                buf.extend_from_slice(&[0x01, 0x04]);
+            }
+            buf.push(0xe1);
+            if key_pointer {
+                append_pointer(&mut buf, 0);
+                buf.extend_from_slice(&[0x00, 0x07]);
+            } else {
+                buf.extend_from_slice(&[0x41, b'k']);
+                append_pointer(&mut buf, 0);
+            }
+            (buf, root)
+        }
+
+        for key_pointer in [false, true] {
+            let (buf, root) = nested_map(126, key_pointer);
+            verify_buffer(&buf, &[root]).unwrap();
+            verify_buffer(&buf, &[0, root]).unwrap();
+
+            let (buf, root) = nested_map(127, key_pointer);
+            for roots in [&[root][..], &[0, root]] {
+                assert_depth_limit_error(verify_buffer(&buf, roots));
+            }
+        }
+    }
+
+    fn assert_depth_limit_error(result: DecodeResult<()>) {
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("exceeded maximum data structure depth"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_verification_rejects_map_key_pointer_chain() {
+        // "a", a pointer to it, then a map whose key points to that pointer.
+        let mut buf = vec![0x41, b'a'];
+        append_pointer(&mut buf, 0);
+        buf.push(0xe1);
+        append_pointer(&mut buf, 2);
+        buf.extend_from_slice(&[0x00, 0x07]);
+        let err = verify_buffer(&buf, &[4]).unwrap_err();
+        // Reported just past the target pointer's control byte, as for value
+        // pointers.
+        assert!(
+            matches!(
+                *err,
+                MaxMindDbError::InvalidDatabase {
+                    offset: Some(3),
+                    ..
+                }
+            ),
+            "unexpected error: {err}"
+        );
+        assert!(err
+            .to_string()
+            .contains("pointer points to another pointer"));
     }
 
     #[test]
