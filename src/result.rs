@@ -46,7 +46,6 @@ use crate::reader::Reader;
 ///     println!("Country: {:?}", country_code);
 /// }
 /// ```
-#[derive(Debug, Clone, Copy)]
 pub struct LookupResult<'a, S: AsRef<[u8]>> {
     reader: &'a Reader<S>,
     /// Offset into the data section, or None if not found.
@@ -55,6 +54,32 @@ pub struct LookupResult<'a, S: AsRef<[u8]>> {
     ip: IpAddr,
     source: LookupSource,
     network_kind: NetworkKind,
+}
+
+// `Clone`, `Copy` and `Debug` are implemented by hand. Deriving them would
+// require `S: Clone`, `S: Copy` and `S: Debug`, even though the struct only
+// holds a shared reference to the reader. That made results from
+// `Reader<Vec<u8>>` and `Reader<Mmap>` impossible to copy.
+impl<S: AsRef<[u8]>> Clone for LookupResult<'_, S> {
+    #[inline]
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<S: AsRef<[u8]>> Copy for LookupResult<'_, S> {}
+
+impl<S: AsRef<[u8]>> std::fmt::Debug for LookupResult<'_, S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LookupResult")
+            .field("reader", &self.reader)
+            .field("data_offset", &self.data_offset)
+            .field("prefix_len", &self.prefix_len)
+            .field("ip", &self.ip)
+            .field("source", &self.source)
+            .field("network_kind", &self.network_kind)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -27,6 +27,9 @@
 - Fixed opening databases whose metadata omits the optional `languages` key.
   The reader returned a "missing field" decoding error; it now opens them and
   `Metadata::languages` is empty.
+- `LookupResult` now implements `Clone`, `Copy` and `Debug` for every source
+  type. The derives required the source to implement those traits too, so
+  results from `Reader<Vec<u8>>` and `Reader<Mmap>` could not be copied.
 - Fixed opening databases whose metadata `description` map repeats a language
   key. The reader kept the last value; it now returns a decoding error, as it
   already did for repeated top-level metadata keys. The spec requires unique
