@@ -28,6 +28,10 @@ pub struct Metadata {
     /// IP version supported (4 or 6).
     pub ip_version: u16,
     /// Languages available in the database.
+    ///
+    /// The spec makes this key optional. It is empty when the database
+    /// omits it.
+    #[serde(default)]
     pub languages: Vec<String>,
     /// Number of nodes in the search tree.
     pub node_count: u32,
